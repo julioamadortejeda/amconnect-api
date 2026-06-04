@@ -120,6 +120,24 @@ export const catalogSkills: SkillDefinition[] = [
   {
     domain: "catalog",
     declaration: {
+      name: "get_products",
+      description: "Lista todos los productos del asesor con su aseguradora y ramo. Usar cuando el usuario pregunte qué productos tiene en cartera, o quiera ver los productos de una aseguradora específica.",
+      schema: z.object({}),
+    },
+    async execute(_args, ctx) {
+      const { data, error } = await ctx.supabase
+        .from("products")
+        .select("id, name, carrier:carriers!carrier_id(id, name), branch:branches!branch_id(id, name)")
+        .eq("agent_id", ctx.agentId)
+        .eq("is_active", true)
+        .order("name");
+      if (error) console.error("[get_products]:", error.message);
+      return data ?? [];
+    },
+  },
+  {
+    domain: "catalog",
+    declaration: {
       name: "search_product",
       description: "Busca productos de seguro del asesor por nombre. SIEMPRE llamar antes de create_product. Si devuelve al menos un resultado, usar el id del primero y NO llamar create_product. Solo llamar create_product si el resultado está vacío.",
       schema: z.object({
