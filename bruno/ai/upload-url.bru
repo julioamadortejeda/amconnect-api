@@ -1,0 +1,19 @@
+meta {
+  name: Get Upload URL
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{base_url}}/ai/upload-url
+  body: none
+  auth: none
+}
+
+params:query {
+  fileName: poliza-gnp-2026.pdf
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}

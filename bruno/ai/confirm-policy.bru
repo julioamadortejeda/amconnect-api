@@ -1,0 +1,38 @@
+meta {
+  name: Confirm Policy
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{base_url}}/ai/confirm-policy
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "contactId": "CONTACT_ID",
+    "carrierId": "CARRIER_ID",
+    "branchId": "BRANCH_ID",
+    "productId": "PRODUCT_ID",
+    "statusId": "STATUS_ID",
+    "currencyId": "CURRENCY_ID",
+    "policyNumber": "POL-2026-001",
+    "premium": 3500.00,
+    "sumInsured": 1000000.00,
+    "startDate": "2026-01-01",
+    "endDate": "2027-01-01",
+    "renewalDate": "2026-12-01",
+    "nextPaymentDate": "2026-07-01",
+    "beneficiaries": [
+      { "fullName": "María García López", "relationship": "Cónyuge", "percentage": 100 }
+    ],
+    "participants": []
+  }
+}

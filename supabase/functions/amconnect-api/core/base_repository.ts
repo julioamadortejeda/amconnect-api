@@ -119,7 +119,7 @@ export class SupabaseRepository<T> implements IRepository<T> {
   async update(id: string, data: Partial<T>): Promise<T | null> {
     let query = this.table.update(data as never).eq("id", id);
     if (this.filterActive) query = query.eq("is_active", true);
-    const { data: result, error } = await query.select().single();
+    const { data: result, error } = await query.select(this.selectString).single();
     if (error) handleSupabaseError(error, `Error al actualizar en ${this.tableName}.`);
     return result as T;
   }
@@ -136,7 +136,7 @@ export class SupabaseRepository<T> implements IRepository<T> {
       // deno-lint-ignore no-explicit-any
       .update({ is_active: false, deleted_at: new Date().toISOString() } as any)
       .eq("id", id)
-      .select()
+      .select(this.selectString)
       .single();
 
     if (error) handleSupabaseError(error, `Error al eliminar en ${this.tableName}.`);
