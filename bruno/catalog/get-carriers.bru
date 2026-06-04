@@ -1,0 +1,15 @@
+meta {
+  name: Get Carriers
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/catalog/carriers
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}

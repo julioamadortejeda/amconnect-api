@@ -1,0 +1,29 @@
+meta {
+  name: AI Chat copy
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/ai/chat
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    //"message": "Crea un contacto con curp AATJ910522 y telefono 55636454",
+    //"sessionId": null
+    "message": "Se llama Suadero Totopo",
+    //"message": "creame el cliente Cesar con el telefono 12344568 el rfc RFCGEN curp CURPGEN y fecha de naciemitno de  23 de mayo del 91  y la direccion ponle donde se ubica el corporativo de seguros monterrey",
+    //"message": "Actualiza el teléfono de julio a 0000000"
+    "sessionId": "71c1d6c5-60d3-42f1-a414-19e3597347a4"
+    //"message": "Cambia el nombre a Julio Cesar y el RFC a AATJ282",
+    //"session_id": "0a6ae3b5-129d-47f9-be2e-6c6daec2bbd6"
+  }
+}

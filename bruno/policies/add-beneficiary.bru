@@ -1,0 +1,29 @@
+meta {
+  name: Add Beneficiary
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{base_url}}/policies/:id/beneficiaries
+  body: json
+  auth: none
+}
+
+params:path {
+  id: POLICY_ID
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "policyId": "9bcef44b-c522-41b7-a2c0-8d14a5dcaf1c",
+    "fullName": "María García López",
+    "relationship": "Cónyuge",
+    "percentage": 100
+  }
+}

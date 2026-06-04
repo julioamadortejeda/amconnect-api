@@ -1,0 +1,28 @@
+meta {
+  name: Create Contact
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/contacts
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "fullName": "Juan Pérez García",
+    "email": "juan.perez@ejemplo.com",
+    "phone": "+52 55 9876 5432",
+    "birthdate": "1985-03-15",
+    "rfc": "PEGJ850315AB1",
+    "occupation": "Empresario",
+    "notes": "Referido por Julio"
+  }
+}

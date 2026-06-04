@@ -1,0 +1,23 @@
+meta {
+  name: Create Carrier
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/catalog/carriers
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "GNP Seguros",
+    "shortName": "GNP"
+  }
+}

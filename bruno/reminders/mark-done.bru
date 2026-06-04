@@ -1,0 +1,19 @@
+meta {
+  name: Mark Reminder Done
+  type: http
+  seq: 6
+}
+
+patch {
+  url: {{base_url}}/reminders/:id/done
+  body: none
+  auth: none
+}
+
+params:path {
+  id: REMINDER_ID
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}

@@ -1,0 +1,25 @@
+meta {
+  name: AI Chat
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/ai/chat
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+  "message": "Crea el producto Integro de la aseguradora SMNYL en el ramo de Ahorro",
+    //"message": "Cambiale el nombre a Nuevo plenitud editado",
+    "sessionId": null
+   //"sessionId": "8765dc3c-25bf-470b-944a-b867eacb3d04"
+  }
+}

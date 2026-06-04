@@ -1,0 +1,23 @@
+meta {
+  name: Update My Profile
+  type: http
+  seq: 2
+}
+
+patch {
+  url: {{base_url}}/agents/me
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "fullName": "Julio Amador",
+    "phone": "+52 55 1234 5678"
+  }
+}

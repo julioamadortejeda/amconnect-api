@@ -1,0 +1,19 @@
+meta {
+  name: Get All Reminders
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/reminders?days=1
+  body: none
+  auth: none
+}
+
+params:query {
+  days: 1
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}

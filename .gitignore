@@ -1,0 +1,21 @@
+# ─── Secrets & variables de entorno ───────────────────────────────────────────
+supabase/.env.local
+supabase/.env*.local
+
+# ─── Estado local del Supabase CLI ────────────────────────────────────────────
+supabase/.branches/
+supabase/.temp/
+supabase/volumes/
+
+# ─── Bruno — entornos locales (contienen tokens/keys) ─────────────────────────
+bruno/environments/local.bru
+
+# ─── macOS ────────────────────────────────────────────────────────────────────
+.DS_Store
+**/.DS_Store
+
+# ─── Deno cache local ─────────────────────────────────────────────────────────
+.deno/
+
+# ─── Backend anterior (solo referencia, no incluir) ───────────────────────────
+base-amconnect-api/

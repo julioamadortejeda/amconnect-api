@@ -1,0 +1,27 @@
+meta {
+  name: Create Reminder
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/reminders
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "typeId": "2e990628-57f5-470b-98d2-f7932b14b660",
+    "title": "Cumpleaños de Juan",
+    "description": "Felicitarlo",
+    "dueDate": "2026-06-15T10:00:00.000Z",
+    "contactId": "565ff630-4410-4d2a-86d1-6220a3b3c1c3",
+    "policyId": null
+  }
+}

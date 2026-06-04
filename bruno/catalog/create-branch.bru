@@ -1,0 +1,23 @@
+meta {
+  name: Create Branch
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{base_url}}/catalog/branches
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "name": "Life Insurance",
+    "code": "LIFE"
+  }
+}

@@ -1,0 +1,30 @@
+meta {
+  name: Add Participant
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/policies/:id/participants
+  body: json
+  auth: none
+}
+
+params:path {
+  id: 9bcef44b-c522-41b7-a2c0-8d14a5dcaf1c
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "policyId": "9bcef44b-c522-41b7-a2c0-8d14a5dcaf1c",
+    "roleId": "0a84354b-69c7-4601-8ddf-625607c06eb4",
+    "fullName": "María García López",
+    "birthdate": "1990-06-20",
+    "relationship": "Cónyuge"
+  }
+}

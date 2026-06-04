@@ -1,0 +1,19 @@
+meta {
+  name: Get Policy by ID
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/policies/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 9bcef44b-c522-41b7-a2c0-8d14a5dcaf1c
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}

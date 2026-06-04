@@ -1,0 +1,33 @@
+meta {
+  name: Create Policy
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/policies
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "contactId": "29b3569e-581a-4834-a212-28f9564c3e14",
+      "productId": "801cafca-933f-43b4-a8db-9d8a477787eb",
+      "statusId": "3823f75b-fc18-453a-92f2-ef3463123e13",
+      "currencyId": "3957bafe-1033-42d2-bcb7-1ef5c5fe604a",
+    "policyNumber": "GNP-2024-001234",
+    "premium": 3500.00,
+    "sumInsured": 1000000.00,
+    "startDate": "2024-01-01",
+    "endDate": "2025-01-01",
+    "renewalDate": "2024-12-01",
+    "nextPaymentDate": "2024-07-01",
+    "notes": "Seguro de vida titular"
+  }
+}

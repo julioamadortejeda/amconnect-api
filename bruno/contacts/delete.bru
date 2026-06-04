@@ -1,0 +1,19 @@
+meta {
+  name: Delete Contact
+  type: http
+  seq: 6
+}
+
+delete {
+  url: {{base_url}}/contacts/:id
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 29b3569e-581a-4834-a212-28f9564c3e14
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}

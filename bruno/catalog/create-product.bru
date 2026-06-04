@@ -1,0 +1,24 @@
+meta {
+  name: Create Product
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{base_url}}/catalog/products
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "carrierId": "ec120b0f-1387-4b52-ba1f-9360b282e984",
+    "branchId": "08d20fdf-9e83-44c4-9d9d-47fd1a7a22fb",
+    "name": "GNP Vida Flexible"
+  }
+}
