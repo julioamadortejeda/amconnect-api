@@ -113,11 +113,14 @@ export class AiController {
     storageService.validateMimeType(mimeType);
 
     const { knowledgeIngestionService } = c.get("services");
-    const result = await knowledgeIngestionService.ingestFile(agentId, {
+    const { noteId, label } = await knowledgeIngestionService.ingestFile(agentId, {
       storagePath, fileName, mimeType, contactId, policyId,
     });
 
-    return sendSuccess(c, result, 201);
+    return sendSuccess(c, {
+      noteId,
+      message: `Listo. Ahora ya puedes preguntarme sobre: ${label}`,
+    }, 201);
   }
 
   static async ingestText(c: Context) {
@@ -134,11 +137,14 @@ export class AiController {
     }
 
     const { knowledgeIngestionService } = c.get("services");
-    const result = await knowledgeIngestionService.ingestText(agentId, {
+    const { noteId, label } = await knowledgeIngestionService.ingestText(agentId, {
       content, sourceType, contactId, policyId,
     });
 
-    return sendSuccess(c, result, 201);
+    return sendSuccess(c, {
+      noteId,
+      message: `Listo. Ahora ya puedes preguntarme sobre: ${label}`,
+    }, 201);
   }
 
   static async confirmPolicy(c: Context) {

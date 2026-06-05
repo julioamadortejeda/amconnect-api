@@ -4,7 +4,7 @@ import { SkillDefinition } from "./skill.core.ts";
 const slimPolicy = (p: Record<string, unknown>) => ({
   id: p.id,
   policyNumber: p.policyNumber,
-  contactId: p.contactId,
+  contact: p.contact,
   premium: p.premium,
   sumInsured: p.sumInsured,
   startDate: p.startDate,

@@ -1,0 +1,24 @@
+meta {
+  name: Ingest Text Data
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{base_url}}/ai/ingest-text
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "content": "Notas de primera cita de prospección y análisis de necesidades Cliente: Julio C.Fecha: 4 de Junio de 2026. Resumen de la sesión: El cliente es un hombre de 35 años, de profesión Ingeniero de Software (Senior). Actualmente reside en la zona de Pachuca, pero tiene traslados frecuentes hacia la Ciudad de México por motivos de trabajo y oficina. Sus ingresos son estables y busca diversificar sus herramientas de protección financiera. Necesidades detectadas: Educación: Su prioridad principal es garantizar la educación de su hijo, quien actualmente cursa el tercer año de secundaria. Le interesa una corrida financiera para un plan de ahorro universitario (tipo fideicomiso o dotal) que comience a pagar rendimientos cuando el menor entre a la universidad. Autos: Solicita cotización para asegurar dos vehículos de su propiedad. El primero es un Suzuki Swift Sport modelo 2021 de uso diario, requiere cobertura amplia. El segundo es un Peugeot 206 modelo 2005 (proyecto personal/mantenimiento propio), para este solo busca cobertura de responsabilidad civil o daños a terceros. Mascotas: Mencionó de manera casual que tiene un gato llamado Suadero y compra alimento especializado. Queda pendiente investigar si en la póliza de hogar o gastos médicos podemos agregar un endoso de asistencia veterinaria. Retiro: Mostró interés por un Plan Personal de Retiro (PPR). Al ser profesionista de tecnología, le llama mucho la atención el beneficio de la deducibilidad de impuestos. Acordamos revisar cotizaciones en UDIS para proteger el capital contra la inflación. Siguientes pasos: Preparar las cotizaciones de autos para enviarlas el viernes y agendar una segunda cita por videollamada para presentar el esquema del plan educativo en UDIS.",
+    "sourceType": "text",
+    "contactId": "29b3569e-581a-4834-a212-28f9564c3e14"
+  }
+}

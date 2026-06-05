@@ -3,7 +3,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { IAiProvider } from "../../core/ai_provider.interface.ts";
 import { IEmbeddingProvider } from "../../core/embedding_provider.interface.ts";
 import { EmbeddingsService, NoteSourceType } from "../rag/embeddings.service.ts";
-import { AppError } from "../../shared/errors.ts";
+import { AppError, ValidationError } from "../../shared/errors.ts";
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
@@ -14,33 +14,20 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-const GenericExtractionSchema = z.object({
-  summary: z.string().describe("Resumen de la información extraída"),
-  keyPoints: z.array(z.string()).default([]).describe("Puntos clave de información"),
-  mentions: z.object({
-    names: z.array(z.string()).default([]).describe("Nombres de personas mencionadas"),
-    dates: z.array(z.string()).default([]).describe("Fechas relevantes"),
-    amounts: z.array(z.string()).default([]).describe("Montos o cantidades"),
-    policyNumbers: z.array(z.string()).default([]).describe("Números de póliza"),
-  }),
+// Solo para archivos binarios (pdf/imagen/audio): extraer texto fiel, sin resumir
+const RawExtractionSchema = z.object({
+  label: z.string().describe("Topic of this document in the same language as the source, max 5 words. Examples: 'reunión con cliente', 'policy renewal notice', 'audio seguimiento póliza GNP'"),
+  content: z.string().describe("Full verbatim text extracted from the document, in the same language as the source. Do NOT summarize — transcribe everything faithfully."),
 });
 
-type GenericExtraction = z.infer<typeof GenericExtractionSchema>;
-
-const PROMPTS: Record<string, string> = {
-  image: `You are an assistant for a Mexican insurance advisor. Analyze this image and extract ALL relevant information: names, dates, policy numbers, amounts, contact details, coverages, or other important data. Generate a structured summary in English.`,
-  audio: `You are an assistant for a Mexican insurance advisor. Transcribe and analyze this audio. Extract names, commitments, dates, amounts, policy numbers, and any data relevant to the advisor's portfolio. Respond in English.`,
-  document: `You are an assistant for a Mexican insurance advisor. Analyze this document and extract all relevant information: coverages, exclusions, conditions, amounts, validity periods, and important data for portfolio management. Respond in English.`,
-  whatsapp: `You are an assistant for a Mexican insurance advisor. Analyze this WhatsApp conversation and extract relevant information: client data, mentioned policies, follow-up dates, advisor commitments, or other important data. Respond in English.`,
-  text: `You are an assistant for a Mexican insurance advisor. Analyze the following text and extract all relevant information for portfolio management: client data, policies, coverages, dates, or other important data. Respond in English.`,
+const FILE_PROMPTS: Record<string, string> = {
+  pdf: `You are a document transcription assistant. 1. Detect the primary language of the document. 2. Write a one-line classification of the document type (e.g., Policy, Receipt, ID) IN THAT DETECTED LANGUAGE. 3. Extract ALL text verbatim and accurately, exactly as it appears. Do not translate the extracted text.`,
+  image: `You are a claims and document analyst. 1. Detect the primary language of the context or any visible text. 2. Write a detailed description of what you see (objects, visible damage, scene context) IN THAT DETECTED LANGUAGE. 3. Extract all visible text verbatim, exactly as it appears. Do not translate the extracted text.`,
+  audio: `You are a transcription assistant. 1. Detect the language spoken in the audio. 2. Write a maximum 2-line summary about the main topic or intent IN THAT DETECTED LANGUAGE. 3. Provide the complete transcription verbatim, word for word, exactly as spoken. Do not translate the transcription.`,
 };
 
 const MIME_TO_SOURCE: Record<string, NoteSourceType> = {
   "application/pdf": "pdf",
-  "application/msword": "document",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "document",
-  "application/vnd.ms-excel": "document",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "document",
 };
 
 export interface KnowledgeIngestFileInput {
@@ -60,8 +47,7 @@ export interface KnowledgeIngestTextInput {
 
 export interface KnowledgeIngestResult {
   noteId: string;
-  sourceType: NoteSourceType;
-  extraction: GenericExtraction;
+  label: string;
 }
 
 export class KnowledgeIngestionService {
@@ -74,6 +60,7 @@ export class KnowledgeIngestionService {
 
   async ingestFile(agentId: string, input: KnowledgeIngestFileInput): Promise<KnowledgeIngestResult> {
     const { storagePath, fileName, mimeType, contactId, policyId } = input;
+    console.log(`[INGEST:file] start — agent=${agentId} file=${fileName} mime=${mimeType}`);
 
     const { data: fileData, error: downloadError } = await this.supabase.storage
       .from("policies")
@@ -82,21 +69,22 @@ export class KnowledgeIngestionService {
     if (downloadError || !fileData) {
       throw new AppError(`No se pudo descargar el archivo: ${downloadError?.message}`, 500);
     }
+    console.log(`[INGEST:file] downloaded — bytes=${fileData.size}`);
 
     const arrayBuffer = await fileData.arrayBuffer();
     const base64 = arrayBufferToBase64(arrayBuffer);
     const inlineData = { mimeType, data: base64 };
 
     const sourceType = this.resolveSourceType(mimeType);
-    const prompt = PROMPTS[sourceType] ?? PROMPTS.text;
+    const prompt = FILE_PROMPTS[sourceType] ?? FILE_PROMPTS.pdf;
+    console.log(`[INGEST:file] calling AI extraction — sourceType=${sourceType}`);
 
     const { data: extraction, usage: extractionUsage } = await this.aiProvider.generateStructuredData(
       prompt,
-      GenericExtractionSchema,
+      RawExtractionSchema,
       inlineData,
     );
-
-    const aiContent = this.buildAiContent(extraction, fileName);
+    console.log(`[INGEST:file] AI extraction done — label="${extraction.label}" contentLength=${extraction.content.length} tokens=${JSON.stringify(extractionUsage)}`);
 
     const { data: docMeta } = await this.supabase
       .from("document_metadata")
@@ -106,64 +94,57 @@ export class KnowledgeIngestionService {
         storage_path: storagePath,
         mime_type: mimeType,
         ingestion_type: sourceType,
-        raw_extraction: extraction as unknown as Record<string, unknown>,
+        raw_extraction: { content: extraction.content } as unknown as Record<string, unknown>,
         extracted_at: new Date().toISOString(),
       })
       .select("id")
       .single();
+    console.log(`[INGEST:file] document_metadata saved — id=${docMeta?.id}`);
 
     const { noteId, embeddingTotalTokens, embeddingCount } = await this.embeddingsService.saveDocument(agentId, {
-      aiContent,
+      aiContent: extraction.content,
       sourceType,
       contactId: contactId ?? null,
       policyId: policyId ?? null,
       documentMetadataId: docMeta?.id ?? null,
       metadata: { fileName, documentMetadataId: docMeta?.id },
     });
+    console.log(`[INGEST:file] done — noteId=${noteId} chunks=${embeddingCount} embeddingTokens=${embeddingTotalTokens}`);
 
     await this.saveIngestionUsage(agentId, docMeta?.id ?? null, extractionUsage, embeddingTotalTokens, embeddingCount);
 
-    return { noteId, sourceType, extraction };
+    return { noteId, label: extraction.label };
   }
 
   async ingestText(agentId: string, input: KnowledgeIngestTextInput): Promise<KnowledgeIngestResult> {
     const { content, sourceType, contactId, policyId } = input;
-    const prompt = PROMPTS[sourceType];
+    console.log(`[INGEST:text] start — agent=${agentId} sourceType=${sourceType} contentLength=${content.length}`);
+    return this.ingestRawContent(agentId, content, sourceType, contactId ?? null, policyId ?? null);
+  }
 
-    const { data: extraction, usage: extractionUsage } = await this.aiProvider.generateStructuredData(
-      `${prompt}\n\nTexto a analizar:\n${content}`,
-      GenericExtractionSchema,
-    );
-
-    const fileName = sourceType === "whatsapp" ? "whatsapp_export.txt" : "nota.txt";
-    const aiContent = this.buildAiContent(extraction, fileName);
-
-    const { data: docMeta } = await this.supabase
-      .from("document_metadata")
-      .insert({
-        agent_id: agentId,
-        file_name: fileName,
-        storage_path: "",
-        mime_type: "text/plain",
-        ingestion_type: sourceType,
-        raw_extraction: extraction as unknown as Record<string, unknown>,
-        extracted_at: new Date().toISOString(),
-      })
-      .select("id")
-      .single();
+  private async ingestRawContent(
+    agentId: string,
+    content: string,
+    sourceType: NoteSourceType,
+    contactId: string | null,
+    policyId: string | null,
+  ): Promise<KnowledgeIngestResult> {
+    console.log(`[INGEST:text] skipping AI — embedding raw content directly`);
 
     const { noteId, embeddingTotalTokens, embeddingCount } = await this.embeddingsService.saveDocument(agentId, {
-      aiContent,
-      sourceType: "text",
-      contactId: contactId ?? null,
-      policyId: policyId ?? null,
-      documentMetadataId: docMeta?.id ?? null,
-      metadata: { sourceType, documentMetadataId: docMeta?.id },
+      aiContent: content,
+      sourceType,
+      contactId,
+      policyId,
+      metadata: { sourceType },
     });
 
-    await this.saveIngestionUsage(agentId, docMeta?.id ?? null, extractionUsage, embeddingTotalTokens, embeddingCount);
+    const label = content.slice(0, 60).replace(/\s+/g, " ").trim();
+    console.log(`[INGEST:text] done — noteId=${noteId} chunks=${embeddingCount} embeddingTokens=${embeddingTotalTokens} label="${label}"`);
 
-    return { noteId, sourceType: "text", extraction };
+    await this.saveEmbeddingUsage(agentId, null, embeddingTotalTokens, embeddingCount);
+
+    return { noteId, label };
   }
 
   private async saveIngestionUsage(
@@ -173,7 +154,7 @@ export class KnowledgeIngestionService {
     embeddingTotalTokens: number,
     embeddingCount: number,
   ): Promise<void> {
-    const rows = [
+    await this.supabase.from("ai_ingestion_usage").insert([
       {
         agent_id: agentId,
         session_id: null,
@@ -196,25 +177,32 @@ export class KnowledgeIngestionService {
         total_tokens: embeddingTotalTokens,
         item_count: embeddingCount,
       },
-    ];
-    await this.supabase.from("ai_ingestion_usage").insert(rows);
+    ]);
+  }
+
+  private async saveEmbeddingUsage(
+    agentId: string,
+    documentMetadataId: string | null,
+    embeddingTotalTokens: number,
+    embeddingCount: number,
+  ): Promise<void> {
+    await this.supabase.from("ai_ingestion_usage").insert({
+      agent_id: agentId,
+      session_id: null,
+      document_metadata_id: documentMetadataId,
+      operation: "embedding",
+      model_name: this.embeddingProvider.model,
+      prompt_tokens: 0,
+      completion_tokens: 0,
+      total_tokens: embeddingTotalTokens,
+      item_count: embeddingCount,
+    });
   }
 
   private resolveSourceType(mimeType: string): NoteSourceType {
     if (MIME_TO_SOURCE[mimeType]) return MIME_TO_SOURCE[mimeType];
     if (mimeType.startsWith("image/")) return "image";
     if (mimeType.startsWith("audio/")) return "audio";
-    return "document";
-  }
-
-  private buildAiContent(extraction: GenericExtraction, fileName: string): string {
-    return [
-      `Documento: ${fileName}`,
-      extraction.summary,
-      extraction.keyPoints.length > 0 ? `Puntos clave: ${extraction.keyPoints.join("; ")}` : null,
-      extraction.mentions.names.length > 0 ? `Personas: ${extraction.mentions.names.join(", ")}` : null,
-      extraction.mentions.policyNumbers.length > 0 ? `Pólizas: ${extraction.mentions.policyNumbers.join(", ")}` : null,
-      extraction.mentions.amounts.length > 0 ? `Montos: ${extraction.mentions.amounts.join(", ")}` : null,
-    ].filter(Boolean).join(". ");
+    throw new ValidationError(`Tipo de archivo no soportado para ingesta: ${mimeType}`);
   }
 }

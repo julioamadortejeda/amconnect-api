@@ -138,7 +138,7 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "search_contact_notes",
-      description: "Busca notas e información guardada sobre un contacto mediante búsqueda semántica (enfermedades, preferencias, historial, etc.).",
+      description: "Busca notas sobre un contacto específico. Usar cuando la pregunta es sobre UN cliente en particular. Para búsqueda general de conocimiento sin contacto específico, usar search_knowledge.",
       schema: z.object({
         query: z.string({ required_error: "Se requiere el texto o pregunta a buscar en las notas" })
           .describe("Pregunta o tema a buscar en las notas"),

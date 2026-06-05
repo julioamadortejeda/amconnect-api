@@ -11,7 +11,6 @@ export class GeminiEmbeddingProvider implements IEmbeddingProvider {
   }
 
   async generateEmbedding(text: string): Promise<EmbeddingResult> {
-    debugger;
     // deno-lint-ignore no-explicit-any
     const response: any = await this.ai.models.embedContent({
       model: this.model,
@@ -25,18 +24,11 @@ export class GeminiEmbeddingProvider implements IEmbeddingProvider {
   }
 
   async generateEmbeddings(texts: string[]): Promise<BatchEmbeddingResult> {
-    debugger;
-    // embedContent acepta ContentListUnion — array de strings = batch en un solo request
-    // deno-lint-ignore no-explicit-any
-    const response: any = await this.ai.models.embedContent({
-      model: this.model,
-      contents: texts as never,
-      config: { outputDimensionality: this.outputDimensionality },
-    });
-    // deno-lint-ignore no-explicit-any
-    const embeddings: number[][] = (response.embeddings ?? []).map((e: any) => e.values as number[]);
-    const totalTokens = response.usageMetadata?.promptTokenCount ??
-      texts.reduce((sum, t) => sum + Math.ceil(t.length / 4), 0);
+    console.log(`[GEMINI:embed] parallel requests — count=${texts.length} totalChars=${texts.reduce((s, t) => s + t.length, 0)}`);
+    const results = await Promise.all(texts.map((t) => this.generateEmbedding(t)));
+    const embeddings = results.map((r) => r.embedding);
+    const totalTokens = results.reduce((sum, r) => sum + r.totalTokens, 0);
+    console.log(`[GEMINI:embed] done — returned=${embeddings.length} tokens=${totalTokens}`);
     return { embeddings, totalTokens };
   }
 }

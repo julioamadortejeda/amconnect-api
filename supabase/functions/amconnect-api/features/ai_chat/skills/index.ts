@@ -5,6 +5,7 @@ import { reminderSkills } from "./reminder.skills.ts";
 import { pendingTaskSkills } from "./pending_task.skills.ts";
 import { catalogSkills } from "./catalog.skills.ts";
 import { policyIngestionSkills } from "./policy_ingestion.skills.ts";
+import { knowledgeSkills } from "./knowledge.skills.ts";
 
 export const skillRegistry: SkillDefinition[] = [
   ...contactSkills,
@@ -13,6 +14,7 @@ export const skillRegistry: SkillDefinition[] = [
   ...pendingTaskSkills,
   ...catalogSkills,
   ...policyIngestionSkills,
+  ...knowledgeSkills,
 ];
 
 export function getSkillByName(name: string): SkillDefinition | undefined {

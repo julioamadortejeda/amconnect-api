@@ -6,7 +6,7 @@ import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
 import { SkillContext } from "./skills/skill.core.ts";
 import { IngestionUsageData } from "../document_processing/policy_ingestion.service.ts";
 
-const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog"];
+const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog", "knowledge"];
 const POLICY_INGESTION_DOMAINS = ["policy_ingestion"];
 const MAX_LOOPS = 6;
 
@@ -30,6 +30,8 @@ Always address the advisor in second person: use "you have", "your clients", "yo
 - Detect the language of each message and respond in that same language.
 - Respond naturally and professionally.
 - When the user asks about a person, search for them first with search_contact.
+- Data hierarchy: ALWAYS try structured skills first (contacts, policies, reminders, catalog). Only use search_knowledge when the information is not available in structured data — for example, notes from meetings, ingested documents, audio transcripts, or WhatsApp conversations.
+- When using search_knowledge, make ONE single call with a comprehensive query covering all aspects of the question. Never call search_knowledge multiple times for the same user message.
 - If a search returns no results and the user wanted to take action, ask if they want to create it. If confirmed, use the data the user already provided — do NOT ask for it again.
 - To count clients or records use the counting tools — do not fetch all data just to count.
 - For questions about health conditions, notes or personal information, use search_contact_notes.
@@ -124,7 +126,7 @@ export class AiChatService {
     if (isPolicyIngestion) {
       activeDomains = POLICY_INGESTION_DOMAINS;
     } else {
-      const ALWAYS_ACTIVE = ["catalog", "pending_task"];
+      const ALWAYS_ACTIVE = ["catalog", "pending_task", "knowledge"];
       const { domains, usage } = await this.aiProvider.classifyMessage(message, AVAILABLE_DOMAINS);
       classifyUsage = usage;
       activeDomains = [...new Set([...ALWAYS_ACTIVE, ...(domains.length > 0 ? domains : AVAILABLE_DOMAINS)])];

@@ -30,6 +30,8 @@ export class EmbeddingsService {
   ) {}
 
   async saveDocument(agentId: string, input: DocumentInput): Promise<SaveDocumentResult> {
+    console.log(`[EMBED] saveDocument — sourceType=${input.sourceType} contentLength=${input.aiContent.length}`);
+
     const { data: note, error } = await this.supabase
       .from("agent_notes")
       .insert({
@@ -45,9 +47,20 @@ export class EmbeddingsService {
       .single();
 
     if (error || !note) throw new AppError("No se pudo guardar la nota.", 500);
+    console.log(`[EMBED] agent_notes saved — noteId=${note.id}`);
 
     const chunks = this.chunkText(input.aiContent);
+    console.log(`[EMBED] chunked — count=${chunks.length} sizes=[${chunks.map((c) => c.length).join(",")}]`);
+
     const { embeddings, totalTokens: embeddingTotalTokens } = await this.embeddingProvider.generateEmbeddings(chunks);
+    console.log(`[EMBED] embeddings received — count=${embeddings.length} tokens=${embeddingTotalTokens}`);
+
+    if (embeddings.length !== chunks.length) {
+      throw new AppError(
+        `El proveedor devolvió ${embeddings.length} embeddings para ${chunks.length} chunks.`,
+        500,
+      );
+    }
 
     const chunkRows = chunks.map((content, i) => ({
       note_id: note.id,
@@ -58,6 +71,7 @@ export class EmbeddingsService {
     }));
 
     await this.supabase.from("agent_note_chunks").insert(chunkRows);
+    console.log(`[EMBED] agent_note_chunks saved — ${chunkRows.length} rows`);
 
     return { noteId: note.id, embeddingTotalTokens, embeddingCount: chunks.length };
   }
