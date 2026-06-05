@@ -1,6 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { IAiProvider } from "../../core/ai_provider.interface.ts";
-import { AppError, ForbiddenError } from "../../shared/errors.ts";
+import { AppError } from "../../shared/errors.ts";
 import {
   POLICY_EXTRACTION_PROMPT,
   PolicyExtraction,
@@ -19,13 +19,7 @@ export class DocumentProcessorService {
     agentId: string,
     storagePath: string,
     fileName: string,
-    agentPlan: "free" | "pro",
   ): Promise<{ extraction: PolicyExtraction; documentMetadataId: string }> {
-    if (agentPlan === "free") {
-      throw new ForbiddenError(
-        "El procesamiento de pólizas PDF está disponible solo en el plan Pro.",
-      );
-    }
 
     // Descargar el PDF desde Supabase Storage
     const { data: fileData, error: downloadError } = await this.supabase.storage

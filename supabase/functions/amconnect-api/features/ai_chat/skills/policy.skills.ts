@@ -20,6 +20,18 @@ export const policySkills: SkillDefinition[] = [
   {
     domain: "policy",
     declaration: {
+      name: "count_policies",
+      description: "Cuenta cuántas pólizas tiene el asesor en su cartera. Usar cuando el usuario pregunta '¿cuántas pólizas tengo?' o similares.",
+      schema: z.object({}),
+    },
+    async execute(_args, ctx) {
+      const count = await ctx.policyService.count({ agent_id: ctx.agentId });
+      return { count };
+    },
+  },
+  {
+    domain: "policy",
+    declaration: {
       name: "get_all_policies",
       description: "Obtiene todas las pólizas de la cartera del asesor. Usar cuando el usuario pregunta por 'mis pólizas', 'todas las pólizas', fechas de pago, renovaciones, etc. sin especificar un contacto.",
       schema: z.object({}),

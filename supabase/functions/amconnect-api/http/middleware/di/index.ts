@@ -19,6 +19,7 @@ import { AgentService } from "../../../modules/agent/agent.service.ts";
 import { SubscriptionService } from "../../../modules/subscription/subscription.service.ts";
 import { UsageService } from "../../../modules/subscription/usage.service.ts";
 import { StorageService } from "../../../modules/storage/storage.service.ts";
+import { ConfirmPolicyService } from "../../../features/document_processing/confirm_policy.service.ts";
 import { AppError } from "../../../shared/errors.ts";
 
 function buildGeminiProvider(): GeminiProvider {
@@ -35,10 +36,8 @@ function buildVertexProvider(): VertexAiProvider {
   return new VertexAiProvider(projectId, location);
 }
 
-function buildDocProvider(agentPlan: "free" | "pro") {
-  if (agentPlan === "pro" && Deno.env.get("VERTEX_PROJECT_ID")) {
-    return buildVertexProvider();
-  }
+function buildDocProvider() {
+  if (Deno.env.get("VERTEX_PROJECT_ID")) return buildVertexProvider();
   return buildGeminiProvider();
 }
 
@@ -47,13 +46,11 @@ export const injectServices = async (c: Context, next: Next) => {
   const agentId: string = c.get("agent_id");
 
   const subscriptionService = new SubscriptionService(supabase);
-  const subscriptionInfo = await subscriptionService.getSubscriptionInfo(agentId);
-  c.set("plan_limits", subscriptionInfo.plan.limits);
+  await subscriptionService.checkSubscriptionActive(agentId);
+  const planContext = await subscriptionService.getPlanContext(agentId);
+  c.set("plan_limits", planContext.limits);
   c.set("subscription_service", subscriptionService);
   c.set("usage_service", new UsageService(supabase));
-
-  const agentPlan: "free" | "pro" = subscriptionInfo.plan.slug === "nuevo" ? "free" : "pro";
-  c.set("agent_plan", agentPlan);
 
   const catalogServices = createCatalogServices(supabase, agentId);
   const agentService = new AgentService(supabase);
@@ -86,13 +83,16 @@ export const injectServices = async (c: Context, next: Next) => {
     ragService,
     aiChatService,
     get documentProcessorService() {
-      return new DocumentProcessorService(supabase, buildDocProvider(agentPlan), embeddingsService);
+      return new DocumentProcessorService(supabase, buildDocProvider(), embeddingsService);
     },
     get knowledgeIngestionService() {
-      return new KnowledgeIngestionService(supabase, buildDocProvider(agentPlan), embeddingsService, embeddingProvider);
+      return new KnowledgeIngestionService(supabase, buildDocProvider(), embeddingsService, embeddingProvider);
     },
     get policyIngestionService() {
-      return new PolicyIngestionService(supabase, buildDocProvider(agentPlan), embeddingsService, embeddingProvider);
+      return new PolicyIngestionService(supabase, buildDocProvider(), embeddingsService, embeddingProvider);
+    },
+    get confirmPolicyService() {
+      return new ConfirmPolicyService(supabase, policyService, embeddingsService);
     },
   });
 

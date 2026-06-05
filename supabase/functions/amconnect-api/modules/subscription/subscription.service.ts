@@ -60,6 +60,18 @@ export class SubscriptionService {
     return plan.limits as PlanLimits;
   }
 
+  async getPlanContext(agentId: string): Promise<{ limits: PlanLimits }> {
+    const { data, error } = await this.supabase
+      .from("agents")
+      .select("plan:subscription_plans(limits)")
+      .eq("id", agentId)
+      .single();
+
+    if (error || !data?.plan) throw new AppError("Plan no encontrado.", 500);
+    const plan = Array.isArray(data.plan) ? data.plan[0] : data.plan;
+    return { limits: plan.limits as PlanLimits };
+  }
+
   async getCurrentUsage(agentId: string): Promise<UsageThisMonth> {
     const usage = await new UsageService(this.supabase).getMonthlyUsage(agentId);
     return {

@@ -1,7 +1,6 @@
 import { Context, Next } from "hono";
 import { createClient } from "@supabase/supabase-js";
 import { UnauthorizedError } from "../../shared/errors.ts";
-import { SubscriptionService } from "../../modules/subscription/subscription.service.ts";
 
 export const authMiddleware = async (c: Context, next: Next) => {
   const authHeader = c.req.header("Authorization");
@@ -28,9 +27,6 @@ export const authMiddleware = async (c: Context, next: Next) => {
 
   c.set("agent_id", user.id);
   c.set("supabase", supabase);
-
-  const subscriptionService = new SubscriptionService(supabase);
-  await subscriptionService.checkSubscriptionActive(user.id);
 
   await next();
 };

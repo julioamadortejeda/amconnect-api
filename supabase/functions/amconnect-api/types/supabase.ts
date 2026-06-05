@@ -1351,6 +1351,7 @@ export type Database = {
           price_mxn: number
           price_usd: number
           slug: string
+          tier: string
         }
         Insert: {
           created_at?: string
@@ -1361,6 +1362,7 @@ export type Database = {
           price_mxn: number
           price_usd: number
           slug: string
+          tier?: string
         }
         Update: {
           created_at?: string
@@ -1371,6 +1373,7 @@ export type Database = {
           price_mxn?: number
           price_usd?: number
           slug?: string
+          tier?: string
         }
         Relationships: []
       }
