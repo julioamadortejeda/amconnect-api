@@ -21,7 +21,7 @@ export class VertexAiProvider implements IAiProvider {
   constructor(
     projectId: string,
     location = "us-central1",
-    model = "gemini-2.0-flash",
+    model: string,
   ) {
     this.ai = new GoogleGenAI({
       vertexai: true,

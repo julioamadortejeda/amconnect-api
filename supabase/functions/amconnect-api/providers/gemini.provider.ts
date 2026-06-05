@@ -30,7 +30,7 @@ function wrapGeminiError(e: unknown, context: string): never {
 export class GeminiProvider implements IAiProvider {
   private ai: GoogleGenAI;
   model: string;
-  constructor(apiKey: string, model = "gemini-3.5-flash") {
+  constructor(apiKey: string, model: string) {
     this.ai = new GoogleGenAI({ apiKey });
     this.model = model;
   }

@@ -23,7 +23,7 @@ import { AppError } from "../../../shared/errors.ts";
 function buildGeminiProvider(): GeminiProvider {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) throw new AppError("GEMINI_API_KEY no configurada.", 500);
-  const model = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.5-flash";
+  const model = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.1-flash-lite";
   return new GeminiProvider(apiKey, model);
 }
 
@@ -87,10 +87,10 @@ export const injectServices = async (c: Context, next: Next) => {
       return new DocumentProcessorService(supabase, buildDocProvider(agentPlan), embeddingsService);
     },
     get knowledgeIngestionService() {
-      return new KnowledgeIngestionService(supabase, buildDocProvider(agentPlan), embeddingsService);
+      return new KnowledgeIngestionService(supabase, buildDocProvider(agentPlan), embeddingsService, embeddingProvider);
     },
     get policyIngestionService() {
-      return new PolicyIngestionService(supabase, buildDocProvider(agentPlan), embeddingsService);
+      return new PolicyIngestionService(supabase, buildDocProvider(agentPlan), embeddingsService, embeddingProvider);
     },
   });
 

@@ -88,7 +88,7 @@ export class AiController {
     }
 
     const { policyIngestionService, aiChatService } = c.get("services");
-    const { extraction, documentMetadataId } = await policyIngestionService.extract(agentId, {
+    const { extraction, documentMetadataId, ingestionUsage } = await policyIngestionService.extract(agentId, {
       storagePath, fileName, mimeType, contactId,
     });
 
@@ -96,6 +96,7 @@ export class AiController {
       agentId,
       extraction as unknown as Record<string, unknown>,
       documentMetadataId,
+      ingestionUsage,
     );
 
     return sendSuccess(c, { sessionId, message: text, documentMetadataId, extraction }, 201);

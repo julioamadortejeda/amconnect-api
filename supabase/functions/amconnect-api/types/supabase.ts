@@ -261,6 +261,104 @@ export type Database = {
           },
         ]
       }
+      ai_ingestion_usage: {
+        Row: {
+          agent_id: string
+          completion_tokens: number
+          created_at: string
+          document_metadata_id: string | null
+          id: string
+          item_count: number | null
+          model_name: string
+          operation: string
+          prompt_tokens: number
+          session_id: string | null
+          total_tokens: number
+        }
+        Insert: {
+          agent_id: string
+          completion_tokens?: number
+          created_at?: string
+          document_metadata_id?: string | null
+          id?: string
+          item_count?: number | null
+          model_name: string
+          operation: string
+          prompt_tokens?: number
+          session_id?: string | null
+          total_tokens?: number
+        }
+        Update: {
+          agent_id?: string
+          completion_tokens?: number
+          created_at?: string
+          document_metadata_id?: string | null
+          id?: string
+          item_count?: number | null
+          model_name?: string
+          operation?: string
+          prompt_tokens?: number
+          session_id?: string | null
+          total_tokens?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_ingestion_usage_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_ingestion_usage_document_metadata_id_fkey"
+            columns: ["document_metadata_id"]
+            isOneToOne: false
+            referencedRelation: "document_metadata"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_ingestion_usage_model_name_fkey"
+            columns: ["model_name"]
+            isOneToOne: false
+            referencedRelation: "ai_models"
+            referencedColumns: ["model_name"]
+          },
+          {
+            foreignKeyName: "ai_ingestion_usage_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "ai_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_models: {
+        Row: {
+          display_name: string | null
+          input_cost_per_1m: number
+          is_active: boolean
+          model_name: string
+          output_cost_per_1m: number
+          provider: string
+        }
+        Insert: {
+          display_name?: string | null
+          input_cost_per_1m?: number
+          is_active?: boolean
+          model_name: string
+          output_cost_per_1m?: number
+          provider: string
+        }
+        Update: {
+          display_name?: string | null
+          input_cost_per_1m?: number
+          is_active?: boolean
+          model_name?: string
+          output_cost_per_1m?: number
+          provider?: string
+        }
+        Relationships: []
+      }
       ai_pending_tasks: {
         Row: {
           agent_id: string
@@ -317,9 +415,16 @@ export type Database = {
           agent_id: string
           completion_tokens: number
           created_at: string
+          embedding_count: number
+          embedding_model_name: string | null
+          embedding_total_tokens: number
+          extraction_completion_tokens: number
+          extraction_prompt_tokens: number
+          extraction_total_tokens: number
           history: Json | null
           id: string
           metadata: Json | null
+          model_name: string | null
           prompt_tokens: number
           session_type: string
           status: string
@@ -331,9 +436,16 @@ export type Database = {
           agent_id: string
           completion_tokens?: number
           created_at?: string
+          embedding_count?: number
+          embedding_model_name?: string | null
+          embedding_total_tokens?: number
+          extraction_completion_tokens?: number
+          extraction_prompt_tokens?: number
+          extraction_total_tokens?: number
           history?: Json | null
           id?: string
           metadata?: Json | null
+          model_name?: string | null
           prompt_tokens?: number
           session_type?: string
           status?: string
@@ -345,9 +457,16 @@ export type Database = {
           agent_id?: string
           completion_tokens?: number
           created_at?: string
+          embedding_count?: number
+          embedding_model_name?: string | null
+          embedding_total_tokens?: number
+          extraction_completion_tokens?: number
+          extraction_prompt_tokens?: number
+          extraction_total_tokens?: number
           history?: Json | null
           id?: string
           metadata?: Json | null
+          model_name?: string | null
           prompt_tokens?: number
           session_type?: string
           status?: string
@@ -362,6 +481,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "agents"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_sessions_embedding_model_name_fkey"
+            columns: ["embedding_model_name"]
+            isOneToOne: false
+            referencedRelation: "ai_models"
+            referencedColumns: ["model_name"]
+          },
+          {
+            foreignKeyName: "ai_sessions_model_name_fkey"
+            columns: ["model_name"]
+            isOneToOne: false
+            referencedRelation: "ai_models"
+            referencedColumns: ["model_name"]
           },
         ]
       }

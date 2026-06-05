@@ -1,12 +1,30 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { IAiProvider } from "../../core/ai_provider.interface.ts";
+import { IAiProvider, TokenUsage } from "../../core/ai_provider.interface.ts";
+import { IEmbeddingProvider } from "../../core/embedding_provider.interface.ts";
 import { EmbeddingsService } from "../rag/embeddings.service.ts";
 import { AppError } from "../../shared/errors.ts";
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  }
+  return btoa(binary);
+}
 import {
   POLICY_EXTRACTION_PROMPT,
   PolicyExtraction,
   PolicyExtractionSchema,
 } from "./policy_extraction.schema.ts";
+
+export interface IngestionUsageData {
+  extractionUsage: TokenUsage;
+  embeddingTotalTokens: number;
+  embeddingCount: number;
+  embeddingModelName: string;
+  documentMetadataId: string;
+}
 
 export interface PolicyIngestInput {
   storagePath: string;
@@ -19,6 +37,7 @@ export interface PolicyIngestResult {
   documentMetadataId: string;
   noteId: string;
   extraction: PolicyExtraction;
+  ingestionUsage: IngestionUsageData;
 }
 
 export class PolicyIngestionService {
@@ -26,6 +45,7 @@ export class PolicyIngestionService {
     private supabase: SupabaseClient,
     private aiProvider: IAiProvider,
     private embeddingsService: EmbeddingsService,
+    private embeddingProvider: IEmbeddingProvider,
   ) {}
 
   async extract(agentId: string, input: PolicyIngestInput): Promise<PolicyIngestResult> {
@@ -40,9 +60,9 @@ export class PolicyIngestionService {
     }
 
     const arrayBuffer = await fileData.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const base64 = arrayBufferToBase64(arrayBuffer);
 
-    const { data: extraction } = await this.aiProvider.generateStructuredData(
+    const { data: extraction, usage: extractionUsage } = await this.aiProvider.generateStructuredData(
       POLICY_EXTRACTION_PROMPT,
       PolicyExtractionSchema,
       { mimeType, data: base64 },
@@ -64,7 +84,7 @@ export class PolicyIngestionService {
 
     if (docError || !docMeta) throw new AppError("No se pudo guardar los metadatos del documento.", 500);
 
-    const noteId = await this.embeddingsService.saveDocument(agentId, {
+    const { noteId, embeddingTotalTokens, embeddingCount } = await this.embeddingsService.saveDocument(agentId, {
       aiContent: extraction.summary,
       sourceType: "pdf",
       contactId: contactId ?? null,
@@ -72,6 +92,17 @@ export class PolicyIngestionService {
       metadata: { intent: "policy", fileName, documentMetadataId: docMeta.id },
     });
 
-    return { documentMetadataId: docMeta.id, noteId, extraction };
+    return {
+      documentMetadataId: docMeta.id,
+      noteId,
+      extraction,
+      ingestionUsage: {
+        extractionUsage: extractionUsage ?? { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        embeddingTotalTokens,
+        embeddingCount,
+        embeddingModelName: this.embeddingProvider.model,
+        documentMetadataId: docMeta.id,
+      },
+    };
   }
 }

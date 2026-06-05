@@ -13,6 +13,12 @@ export interface DocumentInput {
   metadata?: Record<string, unknown>;
 }
 
+export interface SaveDocumentResult {
+  noteId: string;
+  embeddingTotalTokens: number;
+  embeddingCount: number;
+}
+
 export class EmbeddingsService {
   private readonly CHUNK_SIZE = 800;
   private readonly CHUNK_OVERLAP = 150;
@@ -23,7 +29,7 @@ export class EmbeddingsService {
     private embeddingProvider: IEmbeddingProvider,
   ) {}
 
-  async saveDocument(agentId: string, input: DocumentInput): Promise<string> {
+  async saveDocument(agentId: string, input: DocumentInput): Promise<SaveDocumentResult> {
     const { data: note, error } = await this.supabase
       .from("agent_notes")
       .insert({
@@ -41,18 +47,19 @@ export class EmbeddingsService {
     if (error || !note) throw new AppError("No se pudo guardar la nota.", 500);
 
     const chunks = this.chunkText(input.aiContent);
-    const chunkRows = await Promise.all(
-      chunks.map(async (content, i) => ({
-        note_id: note.id,
-        agent_id: agentId,
-        chunk_index: i,
-        content,
-        embedding: JSON.stringify(await this.embeddingProvider.generateEmbedding(content)),
-      })),
-    );
+    const { embeddings, totalTokens: embeddingTotalTokens } = await this.embeddingProvider.generateEmbeddings(chunks);
+
+    const chunkRows = chunks.map((content, i) => ({
+      note_id: note.id,
+      agent_id: agentId,
+      chunk_index: i,
+      content,
+      embedding: JSON.stringify(embeddings[i]),
+    }));
 
     await this.supabase.from("agent_note_chunks").insert(chunkRows);
-    return note.id;
+
+    return { noteId: note.id, embeddingTotalTokens, embeddingCount: chunks.length };
   }
 
   async updateNoteLinks(

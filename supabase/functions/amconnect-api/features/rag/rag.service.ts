@@ -23,7 +23,7 @@ export class RagService {
     query: string,
     options?: { contactId?: string; policyId?: string; threshold?: number; limit?: number },
   ): Promise<NoteMatch[]> {
-    const embedding = await this.embeddingProvider.generateEmbedding(query);
+    const { embedding } = await this.embeddingProvider.generateEmbedding(query);
 
     // deno-lint-ignore no-explicit-any
     const { data, error } = await (this.supabase.rpc as any)("search_agent_note_chunks", {

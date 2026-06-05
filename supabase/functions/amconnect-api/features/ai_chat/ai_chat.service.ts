@@ -6,6 +6,7 @@ import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
 import { SkillContext } from "./skills/skill.core.ts";
 import { PlanLimits } from "../../modules/subscription/subscription.dto.ts";
 import { SubscriptionService } from "../../modules/subscription/subscription.service.ts";
+import { IngestionUsageData } from "../document_processing/policy_ingestion.service.ts";
 
 const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog"];
 const POLICY_INGESTION_DOMAINS = ["policy_ingestion"];
@@ -105,7 +106,7 @@ export class AiChatService {
       // Crear nueva sesión
       const { data: newSession } = await this.supabase
         .from("ai_sessions")
-        .insert({ agent_id: agentId, trigger_message: message, history: [] })
+        .insert({ agent_id: agentId, trigger_message: message, history: [], model_name: this.aiProvider.model })
         .select()
         .single();
       currentSessionId = newSession?.id;
@@ -270,6 +271,7 @@ export class AiChatService {
     agentId: string,
     extraction: Record<string, unknown>,
     documentMetadataId: string,
+    ingestionUsage?: IngestionUsageData,
   ): Promise<ChatResponse> {
     const { data: session } = await this.supabase
       .from("ai_sessions")
@@ -279,11 +281,46 @@ export class AiChatService {
         history: [],
         session_type: "policy_ingestion",
         metadata: { extraction, documentMetadataId },
+        model_name: this.aiProvider.model,
+        embedding_model_name: ingestionUsage?.embeddingModelName ?? null,
+        extraction_prompt_tokens: ingestionUsage?.extractionUsage.promptTokens ?? 0,
+        extraction_completion_tokens: ingestionUsage?.extractionUsage.completionTokens ?? 0,
+        extraction_total_tokens: ingestionUsage?.extractionUsage.totalTokens ?? 0,
+        embedding_total_tokens: ingestionUsage?.embeddingTotalTokens ?? 0,
+        embedding_count: ingestionUsage?.embeddingCount ?? 0,
       })
       .select()
       .single();
 
     const sessionId = session?.id;
+
+    if (ingestionUsage && sessionId) {
+      await this.supabase.from("ai_ingestion_usage").insert([
+        {
+          agent_id: agentId,
+          session_id: sessionId,
+          document_metadata_id: ingestionUsage.documentMetadataId,
+          operation: "extraction",
+          model_name: this.aiProvider.model,
+          prompt_tokens: ingestionUsage.extractionUsage.promptTokens,
+          completion_tokens: ingestionUsage.extractionUsage.completionTokens,
+          total_tokens: ingestionUsage.extractionUsage.totalTokens,
+          item_count: 1,
+        },
+        {
+          agent_id: agentId,
+          session_id: sessionId,
+          document_metadata_id: ingestionUsage.documentMetadataId,
+          operation: "embedding",
+          model_name: ingestionUsage.embeddingModelName,
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: ingestionUsage.embeddingTotalTokens,
+          item_count: ingestionUsage.embeddingCount,
+        },
+      ]);
+    }
+
     const extractionSummary = JSON.stringify(extraction, null, 2);
     const initialMessage = `El sistema extrajo la siguiente información de la póliza:\n\`\`\`json\n${extractionSummary}\n\`\`\`\nPor favor presenta un resumen al asesor y solicita confirmación para crear la póliza.`;
 

@@ -1,8 +1,18 @@
 import { z } from "zod";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { IAiProvider } from "../../core/ai_provider.interface.ts";
+import { IEmbeddingProvider } from "../../core/embedding_provider.interface.ts";
 import { EmbeddingsService, NoteSourceType } from "../rag/embeddings.service.ts";
 import { AppError } from "../../shared/errors.ts";
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i += 8192) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  }
+  return btoa(binary);
+}
 
 const GenericExtractionSchema = z.object({
   summary: z.string().describe("Resumen de la información extraída"),
@@ -59,6 +69,7 @@ export class KnowledgeIngestionService {
     private supabase: SupabaseClient,
     private aiProvider: IAiProvider,
     private embeddingsService: EmbeddingsService,
+    private embeddingProvider: IEmbeddingProvider,
   ) {}
 
   async ingestFile(agentId: string, input: KnowledgeIngestFileInput): Promise<KnowledgeIngestResult> {
@@ -73,13 +84,13 @@ export class KnowledgeIngestionService {
     }
 
     const arrayBuffer = await fileData.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const base64 = arrayBufferToBase64(arrayBuffer);
     const inlineData = { mimeType, data: base64 };
 
     const sourceType = this.resolveSourceType(mimeType);
     const prompt = PROMPTS[sourceType] ?? PROMPTS.text;
 
-    const { data: extraction } = await this.aiProvider.generateStructuredData(
+    const { data: extraction, usage: extractionUsage } = await this.aiProvider.generateStructuredData(
       prompt,
       GenericExtractionSchema,
       inlineData,
@@ -101,7 +112,7 @@ export class KnowledgeIngestionService {
       .select("id")
       .single();
 
-    const noteId = await this.embeddingsService.saveDocument(agentId, {
+    const { noteId, embeddingTotalTokens, embeddingCount } = await this.embeddingsService.saveDocument(agentId, {
       aiContent,
       sourceType,
       contactId: contactId ?? null,
@@ -110,6 +121,8 @@ export class KnowledgeIngestionService {
       metadata: { fileName, documentMetadataId: docMeta?.id },
     });
 
+    await this.saveIngestionUsage(agentId, docMeta?.id ?? null, extractionUsage, embeddingTotalTokens, embeddingCount);
+
     return { noteId, sourceType, extraction };
   }
 
@@ -117,7 +130,7 @@ export class KnowledgeIngestionService {
     const { content, sourceType, contactId, policyId } = input;
     const prompt = PROMPTS[sourceType];
 
-    const { data: extraction } = await this.aiProvider.generateStructuredData(
+    const { data: extraction, usage: extractionUsage } = await this.aiProvider.generateStructuredData(
       `${prompt}\n\nTexto a analizar:\n${content}`,
       GenericExtractionSchema,
     );
@@ -139,7 +152,7 @@ export class KnowledgeIngestionService {
       .select("id")
       .single();
 
-    const noteId = await this.embeddingsService.saveDocument(agentId, {
+    const { noteId, embeddingTotalTokens, embeddingCount } = await this.embeddingsService.saveDocument(agentId, {
       aiContent,
       sourceType: "text",
       contactId: contactId ?? null,
@@ -148,7 +161,43 @@ export class KnowledgeIngestionService {
       metadata: { sourceType, documentMetadataId: docMeta?.id },
     });
 
+    await this.saveIngestionUsage(agentId, docMeta?.id ?? null, extractionUsage, embeddingTotalTokens, embeddingCount);
+
     return { noteId, sourceType: "text", extraction };
+  }
+
+  private async saveIngestionUsage(
+    agentId: string,
+    documentMetadataId: string | null,
+    extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined,
+    embeddingTotalTokens: number,
+    embeddingCount: number,
+  ): Promise<void> {
+    const rows = [
+      {
+        agent_id: agentId,
+        session_id: null,
+        document_metadata_id: documentMetadataId,
+        operation: "extraction",
+        model_name: this.aiProvider.model,
+        prompt_tokens: extractionUsage?.promptTokens ?? 0,
+        completion_tokens: extractionUsage?.completionTokens ?? 0,
+        total_tokens: extractionUsage?.totalTokens ?? 0,
+        item_count: 1,
+      },
+      {
+        agent_id: agentId,
+        session_id: null,
+        document_metadata_id: documentMetadataId,
+        operation: "embedding",
+        model_name: this.embeddingProvider.model,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        total_tokens: embeddingTotalTokens,
+        item_count: embeddingCount,
+      },
+    ];
+    await this.supabase.from("ai_ingestion_usage").insert(rows);
   }
 
   private resolveSourceType(mimeType: string): NoteSourceType {
