@@ -1,6 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { PlanLimits, SubscriptionInfo, UsageThisMonth } from "./subscription.dto.ts";
-import { AppError, PaymentRequiredError, QuotaExceededError } from "../../shared/errors.ts";
+import { PlanLimits, SubscriptionInfo, SubscriptionPlan, UsageThisMonth } from "./subscription.dto.ts";
+import { AppError, PaymentRequiredError } from "../../shared/errors.ts";
+import { UsageService } from "./usage.service.ts";
 
 export class SubscriptionService {
   constructor(private supabase: SupabaseClient) {}
@@ -60,28 +61,10 @@ export class SubscriptionService {
   }
 
   async getCurrentUsage(agentId: string): Promise<UsageThisMonth> {
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
-    const iso = monthStart.toISOString();
-
-    const [chatRes, ingestRes] = await Promise.all([
-      this.supabase
-        .from("ai_chat_messages")
-        .select("*", { count: "exact", head: true })
-        .eq("agent_id", agentId)
-        .eq("role", "user")
-        .gte("created_at", iso),
-      this.supabase
-        .from("document_metadata")
-        .select("*", { count: "exact", head: true })
-        .eq("agent_id", agentId)
-        .gte("created_at", iso),
-    ]);
-
+    const usage = await new UsageService(this.supabase).getMonthlyUsage(agentId);
     return {
-      chatMessages: chatRes.count ?? 0,
-      ingestions: ingestRes.count ?? 0,
+      chatMessages: usage.chatCount,
+      ingestions: usage.ingestionCount,
     };
   }
 
@@ -106,24 +89,6 @@ export class SubscriptionService {
           .eq("id", agentId);
         throw new PaymentRequiredError("Tu período de prueba ha terminado. Activa un plan para continuar.");
       }
-    }
-  }
-
-  async checkChatLimit(agentId: string, limits: PlanLimits): Promise<void> {
-    const usage = await this.getCurrentUsage(agentId);
-    if (usage.chatMessages >= limits.chat_messages_monthly) {
-      throw new QuotaExceededError(
-        `Alcanzaste el límite de ${limits.chat_messages_monthly} mensajes de chat este mes. Actualiza tu plan para continuar.`,
-      );
-    }
-  }
-
-  async checkIngestionLimit(agentId: string, limits: PlanLimits): Promise<void> {
-    const usage = await this.getCurrentUsage(agentId);
-    if (usage.ingestions >= limits.ingestions_monthly) {
-      throw new QuotaExceededError(
-        `Alcanzaste el límite de ${limits.ingestions_monthly} ingestas este mes. Actualiza tu plan para continuar.`,
-      );
     }
   }
 

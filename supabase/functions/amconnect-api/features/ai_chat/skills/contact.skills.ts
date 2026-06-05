@@ -1,6 +1,19 @@
 import { z } from "zod";
 import { SkillDefinition } from "./skill.core.ts";
 
+const slimContact = (c: Record<string, unknown>) => ({
+  id: c.id,
+  fullName: c.fullName,
+  phone: c.phone,
+  email: c.email,
+  birthdate: c.birthdate,
+  occupation: c.occupation,
+  address: c.address,
+  rfc: c.rfc,
+  curp: c.curp,
+  notes: c.notes,
+});
+
 export const contactSkills: SkillDefinition[] = [
   {
     domain: "contact",
@@ -13,7 +26,8 @@ export const contactSkills: SkillDefinition[] = [
       }),
     },
     async execute({ query }, ctx) {
-      return await ctx.contactService.findSimilarContact(ctx.agentId, query as string);
+      const results = await ctx.contactService.findSimilarContact(ctx.agentId, query as string);
+      return results.map(slimContact);
     },
   },
   {
@@ -71,7 +85,8 @@ export const contactSkills: SkillDefinition[] = [
       schema: z.object({}),
     },
     async execute(_args, ctx) {
-      return await ctx.contactService.getByField("agent_id", ctx.agentId);
+      const contacts = await ctx.contactService.getByField("agent_id", ctx.agentId);
+      return contacts.map(slimContact);
     },
   },
   {

@@ -17,6 +17,7 @@ import { KnowledgeIngestionService } from "../../../features/document_processing
 import { PolicyIngestionService } from "../../../features/document_processing/policy_ingestion.service.ts";
 import { AgentService } from "../../../modules/agent/agent.service.ts";
 import { SubscriptionService } from "../../../modules/subscription/subscription.service.ts";
+import { UsageService } from "../../../modules/subscription/usage.service.ts";
 import { StorageService } from "../../../modules/storage/storage.service.ts";
 import { AppError } from "../../../shared/errors.ts";
 
@@ -49,6 +50,7 @@ export const injectServices = async (c: Context, next: Next) => {
   const subscriptionInfo = await subscriptionService.getSubscriptionInfo(agentId);
   c.set("plan_limits", subscriptionInfo.plan.limits);
   c.set("subscription_service", subscriptionService);
+  c.set("usage_service", new UsageService(supabase));
 
   const agentPlan: "free" | "pro" = subscriptionInfo.plan.slug === "nuevo" ? "free" : "pro";
   c.set("agent_plan", agentPlan);

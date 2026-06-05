@@ -1,6 +1,19 @@
 import { z } from "zod";
 import { SkillDefinition } from "./skill.core.ts";
 
+const slimReminder = (r: Record<string, unknown>) => ({
+  id: r.id,
+  title: r.title,
+  description: r.description,
+  dueDate: r.dueDate,
+  isDone: r.isDone,
+  contactId: r.contactId,
+  policyId: r.policyId,
+  type: r.type,
+  contact: r.contact,
+  policy: r.policy,
+});
+
 export const reminderSkills: SkillDefinition[] = [
   {
     domain: "reminder",
@@ -31,7 +44,7 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
-      return await ctx.reminderService.create({
+      const result = await ctx.reminderService.create({
         agentId: ctx.agentId,
         typeId: args.type_id as string,
         title: args.title as string,
@@ -41,6 +54,7 @@ export const reminderSkills: SkillDefinition[] = [
         policyId: args.policy_id as string ?? null,
         isDone: false,
       });
+      return slimReminder(result as Record<string, unknown>);
     },
   },
   {
@@ -53,7 +67,8 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute({ days }, ctx) {
-      return await ctx.reminderService.getUpcoming(ctx.agentId, (days as number) ?? 7);
+      const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, (days as number) ?? 7);
+      return reminders.map(slimReminder);
     },
   },
   {
@@ -71,12 +86,13 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
-      return await ctx.reminderService.update(args.reminder_id as string, {
+      const result = await ctx.reminderService.update(args.reminder_id as string, {
         title: args.title as string | undefined,
         description: args.description as string | undefined,
         dueDate: args.due_date as string | undefined,
         typeId: args.type_id as string | undefined,
       });
+      return slimReminder(result as Record<string, unknown>);
     },
   },
   {
@@ -90,7 +106,8 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute({ reminder_id }, ctx) {
-      return await ctx.reminderService.markDone(reminder_id as string);
+      const result = await ctx.reminderService.markDone(reminder_id as string);
+      return slimReminder(result as Record<string, unknown>);
     },
   },
 ];

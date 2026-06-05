@@ -3,7 +3,7 @@ import { sendSuccess } from "../../shared/api_response.ts";
 import { AppError } from "../../shared/errors.ts";
 import { AiChatService } from "../../features/ai_chat/ai_chat.service.ts";
 import { ConfirmPolicySchema, ConfirmPolicyService } from "../../features/document_processing/confirm_policy.service.ts";
-import { SubscriptionService } from "../../modules/subscription/subscription.service.ts";
+import { UsageService } from "../../modules/subscription/usage.service.ts";
 import { StorageService } from "../../modules/storage/storage.service.ts";
 
 export class AiController {
@@ -13,9 +13,11 @@ export class AiController {
 
     if (!message) throw new AppError("El campo 'message' es requerido.", 400);
 
+    const usageService = c.get("usage_service") as UsageService;
+    await usageService.checkAndIncrementChat(agentId, c.get("plan_limits"));
+
     const service: AiChatService = c.get("services").aiChatService;
-    const planLimits = c.get("plan_limits");
-    const response = await service.processMessage(message, agentId, session_id, planLimits);
+    const response = await service.processMessage(message, agentId, session_id);
 
     return sendSuccess(c, response);
   }
@@ -43,9 +45,8 @@ export class AiController {
 
   static async uploadFile(c: Context) {
     const agentId: string = c.get("agent_id");
-    const planLimits = c.get("plan_limits");
-    const subscriptionService = c.get("subscription_service") as SubscriptionService;
-    await subscriptionService.checkIngestionLimit(agentId, planLimits);
+    const usageService = c.get("usage_service") as UsageService;
+    await usageService.checkAndIncrementIngestion(agentId, c.get("plan_limits"));
 
     const formData = await c.req.formData();
     const file = formData.get("file") as File | null;
@@ -59,9 +60,8 @@ export class AiController {
 
   static async getUploadUrl(c: Context) {
     const agentId: string = c.get("agent_id");
-    const planLimits = c.get("plan_limits");
-    const subscriptionService = c.get("subscription_service") as SubscriptionService;
-    await subscriptionService.checkIngestionLimit(agentId, planLimits);
+    const usageService = c.get("usage_service") as UsageService;
+    await usageService.checkAndIncrementIngestion(agentId, c.get("plan_limits"));
 
     const fileName = c.req.query("fileName");
     const mimeType = c.req.query("mimeType") ?? "application/pdf";
@@ -75,9 +75,8 @@ export class AiController {
 
   static async ingestPolicy(c: Context) {
     const agentId: string = c.get("agent_id");
-    const planLimits = c.get("plan_limits");
-    const subscriptionService = c.get("subscription_service") as SubscriptionService;
-    await subscriptionService.checkIngestionLimit(agentId, planLimits);
+    const usageService = c.get("usage_service") as UsageService;
+    await usageService.checkAndIncrementIngestion(agentId, c.get("plan_limits"));
 
     const { storagePath, fileName, mimeType, contactId } = await c.req.json();
     if (!storagePath || !fileName || !mimeType) {
@@ -104,9 +103,8 @@ export class AiController {
 
   static async ingest(c: Context) {
     const agentId: string = c.get("agent_id");
-    const planLimits = c.get("plan_limits");
-    const subscriptionService = c.get("subscription_service") as SubscriptionService;
-    await subscriptionService.checkIngestionLimit(agentId, planLimits);
+    const usageService = c.get("usage_service") as UsageService;
+    await usageService.checkAndIncrementIngestion(agentId, c.get("plan_limits"));
 
     const { storagePath, fileName, mimeType, contactId, policyId } = await c.req.json();
     if (!storagePath || !fileName || !mimeType) {
@@ -126,9 +124,8 @@ export class AiController {
 
   static async ingestText(c: Context) {
     const agentId: string = c.get("agent_id");
-    const planLimits = c.get("plan_limits");
-    const subscriptionService = c.get("subscription_service") as SubscriptionService;
-    await subscriptionService.checkIngestionLimit(agentId, planLimits);
+    const usageService = c.get("usage_service") as UsageService;
+    await usageService.checkAndIncrementIngestion(agentId, c.get("plan_limits"));
 
     const { content, sourceType, contactId, policyId } = await c.req.json();
     if (!content || !sourceType) {

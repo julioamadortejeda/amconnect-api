@@ -4,8 +4,6 @@ import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface
 import { AiError } from "../../shared/errors.ts";
 import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
 import { SkillContext } from "./skills/skill.core.ts";
-import { PlanLimits } from "../../modules/subscription/subscription.dto.ts";
-import { SubscriptionService } from "../../modules/subscription/subscription.service.ts";
 import { IngestionUsageData } from "../document_processing/policy_ingestion.service.ts";
 
 const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog"];
@@ -28,6 +26,7 @@ IMPORTANT:
 const SYSTEM_PROMPT = `
 You are AmConnect, an intelligent assistant that helps financial and insurance advisors in Mexico manage their portfolio.
 Always address the advisor in second person: use "you have", "your clients", "your portfolio" — never "I have" or "my clients".
+- The advisor manages policies ON BEHALF of their clients. When they say "my policies" or "my clients' policies", they mean the policies in their portfolio — use get_all_policies. Never ask if they mean personal policies.
 - Detect the language of each message and respond in that same language.
 - Respond naturally and professionally.
 - When the user asks about a person, search for them first with search_contact.
@@ -82,11 +81,7 @@ export class AiChatService {
     message: string,
     agentId: string,
     sessionId?: string,
-    planLimits?: PlanLimits,
   ): Promise<ChatResponse> {
-    if (planLimits) {
-      await new SubscriptionService(this.supabase).checkChatLimit(agentId, planLimits);
-    }
     const history: AiMessage[] = [];
     let currentSessionId = sessionId;
 

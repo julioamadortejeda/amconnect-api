@@ -34,6 +34,38 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_monthly_usage: {
+        Row: {
+          agent_id: string
+          chat_count: number
+          ingestion_count: number
+          updated_at: string
+          year_month: string
+        }
+        Insert: {
+          agent_id: string
+          chat_count?: number
+          ingestion_count?: number
+          updated_at?: string
+          year_month: string
+        }
+        Update: {
+          agent_id?: string
+          chat_count?: number
+          ingestion_count?: number
+          updated_at?: string
+          year_month?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_monthly_usage_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_note_chunks: {
         Row: {
           agent_id: string
@@ -1347,6 +1379,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      increment_monthly_usage: {
+        Args: { p_agent_id: string; p_field: string }
+        Returns: undefined
+      }
       increment_session_usage: {
         Args: {
           p_completion_tokens: number

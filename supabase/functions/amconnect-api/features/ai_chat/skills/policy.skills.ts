@@ -1,7 +1,34 @@
 import { z } from "zod";
 import { SkillDefinition } from "./skill.core.ts";
 
+const slimPolicy = (p: Record<string, unknown>) => ({
+  id: p.id,
+  policyNumber: p.policyNumber,
+  contactId: p.contactId,
+  premium: p.premium,
+  sumInsured: p.sumInsured,
+  startDate: p.startDate,
+  endDate: p.endDate,
+  renewalDate: p.renewalDate,
+  nextPaymentDate: p.nextPaymentDate,
+  notes: p.notes,
+  product: p.product,
+  status: p.status,
+});
+
 export const policySkills: SkillDefinition[] = [
+  {
+    domain: "policy",
+    declaration: {
+      name: "get_all_policies",
+      description: "Obtiene todas las pólizas de la cartera del asesor. Usar cuando el usuario pregunta por 'mis pólizas', 'todas las pólizas', fechas de pago, renovaciones, etc. sin especificar un contacto.",
+      schema: z.object({}),
+    },
+    async execute(_args, ctx) {
+      const policies = await ctx.policyService.getByField("agent_id", ctx.agentId);
+      return policies.map(slimPolicy);
+    },
+  },
   {
     domain: "policy",
     declaration: {
@@ -13,7 +40,8 @@ export const policySkills: SkillDefinition[] = [
       }),
     },
     async execute({ contact_id }, ctx) {
-      return await ctx.policyService.getByField("contact_id", contact_id as string);
+      const policies = await ctx.policyService.getByField("contact_id", contact_id as string);
+      return policies.map(slimPolicy);
     },
   },
   {
