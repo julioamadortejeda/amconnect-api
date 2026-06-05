@@ -1,0 +1,21 @@
+meta {
+  name: Apply Promo Code
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/subscription/apply-promo
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}
+
+body:json {
+  {
+    "code": "EARLY30"
+  }
+}

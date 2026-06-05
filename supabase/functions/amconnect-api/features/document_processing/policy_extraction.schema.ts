@@ -46,16 +46,22 @@ export const PolicyExtractionSchema = z.object({
   })).default([]).describe("Coberturas principales"),
 
   notes: z.string().nullable().describe("Notas adicionales relevantes de la póliza"),
+
+  // Natural language summary for RAG embeddings
+  summary: z.string().describe(
+    "Complete prose summary of the policy in English. Include: carrier, branch, product, holder name, RFC, coverage period, premium, payment frequency, additional insured, beneficiaries, and all coverages with their amounts. Write naturally as if explaining it to someone, without JSON syntax or bullet points.",
+  ),
 });
 
 export type PolicyExtraction = z.infer<typeof PolicyExtractionSchema>;
 
 export const POLICY_EXTRACTION_PROMPT = `
-Eres un extractor experto de datos de pólizas de seguros mexicanas.
-Analiza el documento adjunto y extrae TODA la información relevante siguiendo el esquema indicado.
-- Las fechas deben estar en formato YYYY-MM-DD.
-- Los montos deben ser números sin formato (sin comas ni símbolo de moneda).
-- Si un campo no está presente en el documento, usa null.
-- Para beneficiarios y asegurados adicionales, extrae todos los que encuentres.
-- El campo 'coverages' debe incluir las coberturas principales con sus sumas aseguradas.
+You are an expert extractor of Mexican insurance policy data.
+Analyze the attached document and extract ALL relevant information following the indicated schema.
+- Dates must be in YYYY-MM-DD format.
+- Amounts must be plain numbers without formatting (no commas or currency symbols).
+- If a field is not present in the document, use null.
+- Extract all additional insured and beneficiaries found.
+- The 'coverages' field must include all main coverages with their insured amounts.
+- The 'summary' field must be a natural prose paragraph in English describing the complete policy, optimized for semantic search.
 `.trim();

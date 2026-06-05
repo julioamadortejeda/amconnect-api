@@ -34,54 +34,112 @@ export type Database = {
   }
   public: {
     Tables: {
-      agent_notes_vectors: {
+      agent_note_chunks: {
         Row: {
           agent_id: string
-          contact_id: string | null
+          chunk_index: number
           content: string
           created_at: string
           embedding: string | null
           id: string
-          metadata: Json | null
-          policy_id: string | null
+          note_id: string
         }
         Insert: {
           agent_id: string
-          contact_id?: string | null
+          chunk_index: number
           content: string
           created_at?: string
           embedding?: string | null
           id?: string
-          metadata?: Json | null
-          policy_id?: string | null
+          note_id: string
         }
         Update: {
           agent_id?: string
-          contact_id?: string | null
+          chunk_index?: number
           content?: string
           created_at?: string
           embedding?: string | null
           id?: string
-          metadata?: Json | null
-          policy_id?: string | null
+          note_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "agent_notes_vectors_agent_id_fkey"
+            foreignKeyName: "agent_note_chunks_agent_id_fkey"
             columns: ["agent_id"]
             isOneToOne: false
             referencedRelation: "agents"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "agent_notes_vectors_contact_id_fkey"
+            foreignKeyName: "agent_note_chunks_note_id_fkey"
+            columns: ["note_id"]
+            isOneToOne: false
+            referencedRelation: "agent_notes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      agent_notes: {
+        Row: {
+          agent_id: string
+          ai_content: string | null
+          contact_id: string | null
+          created_at: string
+          document_metadata_id: string | null
+          id: string
+          is_active: boolean
+          metadata: Json | null
+          policy_id: string | null
+          source_type: string
+        }
+        Insert: {
+          agent_id: string
+          ai_content?: string | null
+          contact_id?: string | null
+          created_at?: string
+          document_metadata_id?: string | null
+          id?: string
+          is_active?: boolean
+          metadata?: Json | null
+          policy_id?: string | null
+          source_type: string
+        }
+        Update: {
+          agent_id?: string
+          ai_content?: string | null
+          contact_id?: string | null
+          created_at?: string
+          document_metadata_id?: string | null
+          id?: string
+          is_active?: boolean
+          metadata?: Json | null
+          policy_id?: string | null
+          source_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_notes_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_notes_contact_id_fkey"
             columns: ["contact_id"]
             isOneToOne: false
             referencedRelation: "contacts"
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "agent_notes_vectors_policy_id_fkey"
+            foreignKeyName: "agent_notes_document_metadata_id_fkey"
+            columns: ["document_metadata_id"]
+            isOneToOne: false
+            referencedRelation: "document_metadata"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_notes_policy_id_fkey"
             columns: ["policy_id"]
             isOneToOne: false
             referencedRelation: "policies"
@@ -98,6 +156,11 @@ export type Database = {
           is_active: boolean
           phone: string | null
           plan: string
+          plan_id: string | null
+          promo_code_used: string | null
+          subscription_expires_at: string | null
+          subscription_status: string
+          trial_ends_at: string | null
           updated_at: string
         }
         Insert: {
@@ -108,6 +171,11 @@ export type Database = {
           is_active?: boolean
           phone?: string | null
           plan?: string
+          plan_id?: string | null
+          promo_code_used?: string | null
+          subscription_expires_at?: string | null
+          subscription_status?: string
+          trial_ends_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -118,9 +186,29 @@ export type Database = {
           is_active?: boolean
           phone?: string | null
           plan?: string
+          plan_id?: string | null
+          promo_code_used?: string | null
+          subscription_expires_at?: string | null
+          subscription_status?: string
+          trial_ends_at?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "agents_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "subscription_plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_agents_promo_code"
+            columns: ["promo_code_used"]
+            isOneToOne: false
+            referencedRelation: "promo_codes"
+            referencedColumns: ["code"]
+          },
+        ]
       }
       ai_chat_messages: {
         Row: {
@@ -231,7 +319,9 @@ export type Database = {
           created_at: string
           history: Json | null
           id: string
+          metadata: Json | null
           prompt_tokens: number
+          session_type: string
           status: string
           total_tokens: number
           trigger_message: string | null
@@ -243,7 +333,9 @@ export type Database = {
           created_at?: string
           history?: Json | null
           id?: string
+          metadata?: Json | null
           prompt_tokens?: number
+          session_type?: string
           status?: string
           total_tokens?: number
           trigger_message?: string | null
@@ -255,7 +347,9 @@ export type Database = {
           created_at?: string
           history?: Json | null
           id?: string
+          metadata?: Json | null
           prompt_tokens?: number
+          session_type?: string
           status?: string
           total_tokens?: number
           trigger_message?: string | null
@@ -500,8 +594,8 @@ export type Database = {
           extracted_at: string | null
           file_name: string
           id: string
+          ingestion_type: string
           mime_type: string
-          policy_id: string | null
           raw_extraction: Json | null
           storage_path: string
         }
@@ -511,8 +605,8 @@ export type Database = {
           extracted_at?: string | null
           file_name: string
           id?: string
+          ingestion_type?: string
           mime_type?: string
-          policy_id?: string | null
           raw_extraction?: Json | null
           storage_path: string
         }
@@ -522,8 +616,8 @@ export type Database = {
           extracted_at?: string | null
           file_name?: string
           id?: string
+          ingestion_type?: string
           mime_type?: string
-          policy_id?: string | null
           raw_extraction?: Json | null
           storage_path?: string
         }
@@ -535,11 +629,51 @@ export type Database = {
             referencedRelation: "agents"
             referencedColumns: ["id"]
           },
+        ]
+      }
+      error_logs: {
+        Row: {
+          agent_id: string | null
+          created_at: string
+          error_message: string
+          error_type: string
+          id: string
+          metadata: Json | null
+          request_method: string | null
+          request_path: string | null
+          stack_trace: string | null
+          status_code: number
+        }
+        Insert: {
+          agent_id?: string | null
+          created_at?: string
+          error_message: string
+          error_type: string
+          id?: string
+          metadata?: Json | null
+          request_method?: string | null
+          request_path?: string | null
+          stack_trace?: string | null
+          status_code: number
+        }
+        Update: {
+          agent_id?: string | null
+          created_at?: string
+          error_message?: string
+          error_type?: string
+          id?: string
+          metadata?: Json | null
+          request_method?: string | null
+          request_path?: string | null
+          stack_trace?: string | null
+          status_code?: number
+        }
+        Relationships: [
           {
-            foreignKeyName: "document_metadata_policy_id_fkey"
-            columns: ["policy_id"]
+            foreignKeyName: "error_logs_agent_id_fkey"
+            columns: ["agent_id"]
             isOneToOne: false
-            referencedRelation: "policies"
+            referencedRelation: "agents"
             referencedColumns: ["id"]
           },
         ]
@@ -866,6 +1000,42 @@ export type Database = {
           },
         ]
       }
+      promo_codes: {
+        Row: {
+          code: string
+          created_at: string
+          expires_at: string | null
+          first_month_discount_pct: number
+          id: string
+          is_active: boolean
+          max_uses: number | null
+          trial_days: number
+          used_count: number
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          expires_at?: string | null
+          first_month_discount_pct?: number
+          id?: string
+          is_active?: boolean
+          max_uses?: number | null
+          trial_days?: number
+          used_count?: number
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          expires_at?: string | null
+          first_month_discount_pct?: number
+          id?: string
+          is_active?: boolean
+          max_uses?: number | null
+          trial_days?: number
+          used_count?: number
+        }
+        Relationships: []
+      }
       reminder_settings: {
         Row: {
           agent_id: string
@@ -1006,6 +1176,39 @@ export type Database = {
           },
         ]
       }
+      subscription_plans: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          limits: Json
+          name: string
+          price_mxn: number
+          price_usd: number
+          slug: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          limits: Json
+          name: string
+          price_mxn: number
+          price_usd: number
+          slug: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          limits?: Json
+          name?: string
+          price_mxn?: number
+          price_usd?: number
+          slug?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -1019,6 +1222,24 @@ export type Database = {
           p_total_tokens: number
         }
         Returns: undefined
+      }
+      search_agent_note_chunks: {
+        Args: {
+          p_agent_id: string
+          p_match_count?: number
+          p_match_threshold?: number
+          p_query_embedding: string
+        }
+        Returns: {
+          chunk_id: string
+          contact_id: string
+          content: string
+          metadata: Json
+          note_id: string
+          policy_id: string
+          similarity: number
+          source_type: string
+        }[]
       }
       search_agent_notes: {
         Args: {

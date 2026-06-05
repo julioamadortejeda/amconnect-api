@@ -2,8 +2,9 @@ import { Context } from "hono";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { AppError } from "../../shared/errors.ts";
 import { AiChatService } from "../../features/ai_chat/ai_chat.service.ts";
-import { DocumentProcessorService } from "../../features/document_processing/document_processor.service.ts";
 import { ConfirmPolicySchema, ConfirmPolicyService } from "../../features/document_processing/confirm_policy.service.ts";
+import { SubscriptionService } from "../../modules/subscription/subscription.service.ts";
+import { StorageService } from "../../modules/storage/storage.service.ts";
 
 export class AiController {
   static async chat(c: Context) {
@@ -13,7 +14,8 @@ export class AiController {
     if (!message) throw new AppError("El campo 'message' es requerido.", 400);
 
     const service: AiChatService = c.get("services").aiChatService;
-    const response = await service.processMessage(message, agentId, session_id);
+    const planLimits = c.get("plan_limits");
+    const response = await service.processMessage(message, agentId, session_id, planLimits);
 
     return sendSuccess(c, response);
   }
@@ -33,40 +35,114 @@ export class AiController {
       throw new AppError("Los campos 'filePath' y 'fileName' son requeridos.", 400);
     }
 
-    const service: DocumentProcessorService = c.get("services").documentProcessorService;
+    const service = c.get("services").documentProcessorService;
     const result = await service.processDocument(agentId, filePath, fileName, agentPlan);
 
     return sendSuccess(c, result);
   }
 
+  static async uploadFile(c: Context) {
+    const agentId: string = c.get("agent_id");
+    const planLimits = c.get("plan_limits");
+    const subscriptionService = c.get("subscription_service") as SubscriptionService;
+    await subscriptionService.checkIngestionLimit(agentId, planLimits);
+
+    const formData = await c.req.formData();
+    const file = formData.get("file") as File | null;
+    if (!file) throw new AppError("Se requiere el archivo en el campo 'file'.", 400);
+
+    const storageService = c.get("storage_service") as StorageService;
+    const result = await storageService.upload(agentId, file);
+
+    return sendSuccess(c, result, 201);
+  }
+
   static async getUploadUrl(c: Context) {
     const agentId: string = c.get("agent_id");
-    const agentPlan: "free" | "pro" = c.get("agent_plan");
-
-    if (agentPlan === "free") {
-      throw new AppError("El procesamiento de pólizas PDF está disponible solo en el plan Pro.", 403);
-    }
+    const planLimits = c.get("plan_limits");
+    const subscriptionService = c.get("subscription_service") as SubscriptionService;
+    await subscriptionService.checkIngestionLimit(agentId, planLimits);
 
     const fileName = c.req.query("fileName");
+    const mimeType = c.req.query("mimeType") ?? "application/pdf";
     if (!fileName) throw new AppError("Se requiere el parámetro 'fileName'.", 400);
 
-    const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const storagePath = `${agentId}/${Date.now()}-${safeName}`;
+    const storageService = c.get("storage_service") as StorageService;
+    const result = await storageService.getSignedUploadUrl(agentId, fileName, mimeType);
 
-    const supabase = c.get("supabase");
-    const { data, error } = await supabase.storage
-      .from("policies")
-      .createSignedUploadUrl(storagePath);
+    return sendSuccess(c, result);
+  }
 
-    if (error || !data) {
-      throw new AppError(`No se pudo generar la URL de carga: ${error?.message}`, 500);
+  static async ingestPolicy(c: Context) {
+    const agentId: string = c.get("agent_id");
+    const planLimits = c.get("plan_limits");
+    const subscriptionService = c.get("subscription_service") as SubscriptionService;
+    await subscriptionService.checkIngestionLimit(agentId, planLimits);
+
+    const { storagePath, fileName, mimeType, contactId } = await c.req.json();
+    if (!storagePath || !fileName || !mimeType) {
+      throw new AppError("Se requieren: storagePath, fileName, mimeType.", 400);
+    }
+    if (mimeType !== "application/pdf") {
+      throw new AppError("ingest-policy solo acepta archivos PDF.", 400);
     }
 
-    return sendSuccess(c, {
-      uploadUrl: data.signedUrl,
-      storagePath,
-      token: data.token,
+    const { policyIngestionService, aiChatService } = c.get("services");
+    const { extraction, documentMetadataId } = await policyIngestionService.extract(agentId, {
+      storagePath, fileName, mimeType, contactId,
     });
+
+    const { sessionId, text } = await aiChatService.startPolicySession(
+      agentId,
+      extraction as unknown as Record<string, unknown>,
+      documentMetadataId,
+    );
+
+    return sendSuccess(c, { sessionId, message: text, documentMetadataId, extraction }, 201);
+  }
+
+  static async ingest(c: Context) {
+    const agentId: string = c.get("agent_id");
+    const planLimits = c.get("plan_limits");
+    const subscriptionService = c.get("subscription_service") as SubscriptionService;
+    await subscriptionService.checkIngestionLimit(agentId, planLimits);
+
+    const { storagePath, fileName, mimeType, contactId, policyId } = await c.req.json();
+    if (!storagePath || !fileName || !mimeType) {
+      throw new AppError("Se requieren: storagePath, fileName, mimeType.", 400);
+    }
+
+    const storageService = c.get("storage_service") as StorageService;
+    storageService.validateMimeType(mimeType);
+
+    const { knowledgeIngestionService } = c.get("services");
+    const result = await knowledgeIngestionService.ingestFile(agentId, {
+      storagePath, fileName, mimeType, contactId, policyId,
+    });
+
+    return sendSuccess(c, result, 201);
+  }
+
+  static async ingestText(c: Context) {
+    const agentId: string = c.get("agent_id");
+    const planLimits = c.get("plan_limits");
+    const subscriptionService = c.get("subscription_service") as SubscriptionService;
+    await subscriptionService.checkIngestionLimit(agentId, planLimits);
+
+    const { content, sourceType, contactId, policyId } = await c.req.json();
+    if (!content || !sourceType) {
+      throw new AppError("Se requieren: content, sourceType ('whatsapp' | 'text').", 400);
+    }
+    if (!["whatsapp", "text"].includes(sourceType)) {
+      throw new AppError("sourceType debe ser 'whatsapp' o 'text'.", 400);
+    }
+
+    const { knowledgeIngestionService } = c.get("services");
+    const result = await knowledgeIngestionService.ingestText(agentId, {
+      content, sourceType, contactId, policyId,
+    });
+
+    return sendSuccess(c, result, 201);
   }
 
   static async confirmPolicy(c: Context) {
@@ -79,9 +155,9 @@ export class AiController {
       throw new AppError(`Datos inválidos: ${issues}`, 400);
     }
 
-    const { policyService } = c.get("services");
+    const { policyService, embeddingsService } = c.get("services");
     const supabase = c.get("supabase");
-    const service = new ConfirmPolicyService(supabase, policyService);
+    const service = new ConfirmPolicyService(supabase, policyService, embeddingsService);
     const result = await service.confirm(agentId, parsed.data);
 
     return sendSuccess(c, result);

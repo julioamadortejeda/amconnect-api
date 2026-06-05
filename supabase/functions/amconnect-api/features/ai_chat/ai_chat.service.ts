@@ -4,26 +4,43 @@ import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface
 import { AiError } from "../../shared/errors.ts";
 import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
 import { SkillContext } from "./skills/skill.core.ts";
+import { PlanLimits } from "../../modules/subscription/subscription.dto.ts";
+import { SubscriptionService } from "../../modules/subscription/subscription.service.ts";
 
 const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog"];
+const POLICY_INGESTION_DOMAINS = ["policy_ingestion"];
 const MAX_LOOPS = 6;
 
+const POLICY_INGESTION_PROMPT = `
+You are AmConnect processing the ingestion of an insurance policy.
+The system already extracted the information from the PDF document. Your job is:
+1. Present the advisor with a clear and organized summary of the data found.
+2. Verify you have the critical fields: carrier, branch, holder name, start and end date, and premium.
+3. If a critical field is missing, ask the advisor for it concisely.
+4. When the advisor confirms (says "yes", "confirm", "go ahead", "sí", "confirma" or similar), call confirm_policy_ingestion with ALL available data.
+IMPORTANT:
+- Do NOT ask whether the carrier, branch, product or contact already exist — they are created automatically if they don't.
+- Do NOT ask for confirmation per entity — only one final confirmation.
+- Detect the language of the advisor's message and respond in that same language.
+`.trim();
+
 const SYSTEM_PROMPT = `
-Eres AmConnect, un asistente inteligente que ayuda a asesores financieros y de seguros en México a gestionar su cartera.
-Hablas SIEMPRE en segunda persona dirigiéndote al asesor: "tienes", "tus clientes", "tu cartera", nunca "tengo" o "mis clientes".
-- Responde siempre en español, de forma natural y profesional.
-- Cuando el usuario pregunte sobre una persona, búscala primero con search_contact.
-- Si una búsqueda no devuelve resultados y el usuario quería hacer una acción, pregunta si desea crearlo. Si confirma, usa los datos que el usuario ya proporcionó — NO los pidas de nuevo.
-- Para contar clientes o registros usa las herramientas de conteo, no traigas todos los datos solo para contar.
-- Para preguntas sobre enfermedades, notas o información personal, usa search_contact_notes.
-- Cuando necesites crear algo, hazlo directamente sin pedir confirmación a menos que falten datos críticos.
-- NUNCA inventes ni copies valores entre campos para satisfacer campos requeridos. Si el usuario no proporcionó el nombre completo de un contacto, pregúntalo — no uses el CURP, RFC, email u otro dato como nombre.
-- Guarda los datos EXACTAMENTE como los proporcionó el usuario — nunca los interpretes, traduzcas ni busques información externa (ej: si dice "zócalo", guarda "zócalo", no busques la dirección real).
-- Si no encuentras información, dilo claramente.
-- Cuando una herramienta devuelve múltiples registros, decide según la intención del usuario:
-  - Si el usuario pidió una LISTA o consulta general (ej: "dame mis pólizas", "¿cuántos clientes se llaman Juan?", "¿qué recordatorios vencen hoy?") → muestra todos los resultados sin preguntar.
-  - Si el usuario quiere actuar sobre un registro ESPECÍFICO (ej: actualizar, ver detalle, buscar notas de alguien) y hay ambigüedad o no se encontró → PRIMERO usa save_pending_task guardando todos los datos ya conocidos (ej: el teléfono nuevo, la acción a realizar), LUEGO pregunta al usuario.
-- Cuando el usuario responde a una pregunta de ambigüedad y ya tienes el registro correcto → usa resolve_pending_task y luego ejecuta la acción con los datos guardados en el pending task.
+You are AmConnect, an intelligent assistant that helps financial and insurance advisors in Mexico manage their portfolio.
+Always address the advisor in second person: use "you have", "your clients", "your portfolio" — never "I have" or "my clients".
+- Detect the language of each message and respond in that same language.
+- Respond naturally and professionally.
+- When the user asks about a person, search for them first with search_contact.
+- If a search returns no results and the user wanted to take action, ask if they want to create it. If confirmed, use the data the user already provided — do NOT ask for it again.
+- To count clients or records use the counting tools — do not fetch all data just to count.
+- For questions about health conditions, notes or personal information, use search_contact_notes.
+- When you need to create something, do it directly without asking for confirmation unless critical data is missing.
+- NEVER invent or copy values between fields to satisfy required fields. If the user did not provide a contact's full name, ask for it — do not use CURP, RFC, email or any other field as a name.
+- Save data EXACTLY as the user provided it — never interpret, translate or look up external information (e.g. if they say "zócalo", save "zócalo", do not look up the real address).
+- If you cannot find information, say so clearly.
+- When a tool returns multiple records, decide based on the user's intent:
+  - If the user requested a LIST or general query → show all results without asking.
+  - If the user wants to act on a SPECIFIC record and there is ambiguity or it was not found → FIRST use save_pending_task saving all known data, THEN ask the user.
+- When the user responds to an ambiguity question and you have the correct record → use resolve_pending_task and then execute the action with the data saved in the pending task.
 `.trim();
 
 export interface ChatResponse {
@@ -64,21 +81,26 @@ export class AiChatService {
     message: string,
     agentId: string,
     sessionId?: string,
+    planLimits?: PlanLimits,
   ): Promise<ChatResponse> {
+    if (planLimits) {
+      await new SubscriptionService(this.supabase).checkChatLimit(agentId, planLimits);
+    }
     const history: AiMessage[] = [];
     let currentSessionId = sessionId;
 
     // Cargar historial si hay sesión
+    let sessionType = "chat";
+
     if (sessionId) {
       const { data: session } = await this.supabase
         .from("ai_sessions")
-        .select("history")
+        .select("history, session_type")
         .eq("id", sessionId)
         .single();
 
-      if (session?.history) {
-        history.push(...(session.history as AiMessage[]));
-      }
+      if (session?.history) history.push(...(session.history as AiMessage[]));
+      sessionType = session?.session_type ?? "chat";
     } else {
       // Crear nueva sesión
       const { data: newSession } = await this.supabase
@@ -98,12 +120,20 @@ export class AiChatService {
       .eq("session_id", currentSessionId)
       .eq("status", "pending");
 
-    // Clasificar para seleccionar tools relevantes
-    // catalog y pending_task siempre activos: catalog es transversal (productos/carriers/ramos
-    // aparecen en flujos de cualquier dominio), pending_task es infraestructura del chat.
-    const ALWAYS_ACTIVE = ["catalog", "pending_task"];
-    const { domains, usage: classifyUsage } = await this.aiProvider.classifyMessage(message, AVAILABLE_DOMAINS);
-    const activeDomains = [...new Set([...ALWAYS_ACTIVE, ...(domains.length > 0 ? domains : AVAILABLE_DOMAINS)])];
+    // Seleccionar domains y system prompt según tipo de sesión
+    const isPolicyIngestion = sessionType === "policy_ingestion";
+    let activeDomains: string[];
+    let classifyUsage;
+
+    if (isPolicyIngestion) {
+      activeDomains = POLICY_INGESTION_DOMAINS;
+    } else {
+      const ALWAYS_ACTIVE = ["catalog", "pending_task"];
+      const { domains, usage } = await this.aiProvider.classifyMessage(message, AVAILABLE_DOMAINS);
+      classifyUsage = usage;
+      activeDomains = [...new Set([...ALWAYS_ACTIVE, ...(domains.length > 0 ? domains : AVAILABLE_DOMAINS)])];
+    }
+
     const activeSkills = getSkillsByDomains(activeDomains);
     const tools = [{
       functionDeclarations: activeSkills.map((s) => {
@@ -113,7 +143,7 @@ export class AiChatService {
     }];
 
     // Construir system prompt con contexto de pending tasks si los hay
-    let systemPrompt = SYSTEM_PROMPT;
+    let systemPrompt = isPolicyIngestion ? POLICY_INGESTION_PROMPT : SYSTEM_PROMPT;
     if (pendingTasks && pendingTasks.length > 0) {
       const tasksContext = pendingTasks
         .map((t) => `- ID: ${t.id}, tipo: ${t.task_type}, datos: ${JSON.stringify(t.payload)}`)
@@ -234,5 +264,29 @@ export class AiChatService {
     console.log("[ai_chat:diag] usage:", usageError ? usageError.message : "ok");
 
     return { text: finalText, sessionId: currentSessionId!, usage: totalUsage };
+  }
+
+  async startPolicySession(
+    agentId: string,
+    extraction: Record<string, unknown>,
+    documentMetadataId: string,
+  ): Promise<ChatResponse> {
+    const { data: session } = await this.supabase
+      .from("ai_sessions")
+      .insert({
+        agent_id: agentId,
+        trigger_message: "Ingesta de póliza",
+        history: [],
+        session_type: "policy_ingestion",
+        metadata: { extraction, documentMetadataId },
+      })
+      .select()
+      .single();
+
+    const sessionId = session?.id;
+    const extractionSummary = JSON.stringify(extraction, null, 2);
+    const initialMessage = `El sistema extrajo la siguiente información de la póliza:\n\`\`\`json\n${extractionSummary}\n\`\`\`\nPor favor presenta un resumen al asesor y solicita confirmación para crear la póliza.`;
+
+    return await this.processMessage(initialMessage, agentId, sessionId);
   }
 }

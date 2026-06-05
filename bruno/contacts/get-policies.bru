@@ -1,0 +1,19 @@
+meta {
+  name: Get Policies by Contact
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{base_url}}/contacts/:contactId/policies
+  body: none
+  auth: none
+}
+
+params:path {
+  contactId: 565ff630-4410-4d2a-86d1-6220a3b3c1c3
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}

@@ -18,13 +18,10 @@ import { AiError } from "../shared/errors.ts";
 export class VertexAiProvider implements IAiProvider {
   private ai: GoogleGenAI;
   model: string;
-  private embeddingModel: string;
-
   constructor(
     projectId: string,
     location = "us-central1",
     model = "gemini-2.0-flash",
-    embeddingModel = "text-embedding-004",
   ) {
     this.ai = new GoogleGenAI({
       vertexai: true,
@@ -32,7 +29,6 @@ export class VertexAiProvider implements IAiProvider {
       location,
     });
     this.model = model;
-    this.embeddingModel = embeddingModel;
   }
 
   // Chat y function calling — se delega a GeminiProvider en el DI para plan pro.
@@ -80,16 +76,6 @@ export class VertexAiProvider implements IAiProvider {
         }
         : undefined,
     };
-  }
-
-  async generateEmbedding(text: string): Promise<number[]> {
-    const response = await this.ai.models.embedContent({
-      model: this.embeddingModel,
-      contents: text,
-    });
-    const values = response.embeddings?.[0]?.values;
-    if (!values) throw new AiError("No se pudo generar el embedding con Vertex AI.");
-    return values;
   }
 
   async classifyMessage(

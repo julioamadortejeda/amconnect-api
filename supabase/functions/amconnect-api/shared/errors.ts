@@ -35,6 +35,20 @@ export class ValidationError extends AppError {
   }
 }
 
+export class PaymentRequiredError extends AppError {
+  constructor(message = "Tu suscripción ha vencido. Activa un plan para continuar.") {
+    super(message, 402);
+    this.name = "PaymentRequiredError";
+  }
+}
+
+export class QuotaExceededError extends AppError {
+  constructor(message: string) {
+    super(message, 429);
+    this.name = "QuotaExceededError";
+  }
+}
+
 export class AiError extends AppError {
   constructor(message: string) {
     super(message, 502);

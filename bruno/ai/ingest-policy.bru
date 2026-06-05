@@ -1,0 +1,24 @@
+meta {
+  name: Ingest Policy PDF
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{base_url}}/ai/ingest-policy
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}
+
+body:json {
+  {
+    "storagePath": "STORAGE_PATH_DEL_UPLOAD",
+    "fileName": "poliza.pdf",
+    "mimeType": "application/pdf",
+    "contactId": null
+  }
+}

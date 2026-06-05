@@ -4,6 +4,7 @@ import { ContactController } from "../controllers/contact.controller.ts";
 import { PolicyController } from "../controllers/policy.controller.ts";
 import { ReminderController } from "../controllers/reminder.controller.ts";
 import { AiController } from "../controllers/ai.controller.ts";
+import { SubscriptionController } from "../controllers/subscription.controller.ts";
 import {
   CarrierController,
   BranchController,
@@ -22,12 +23,22 @@ export const apiRouter = new Hono();
 apiRouter.get("/agents/me", AgentController.getMe);
 apiRouter.patch("/agents/me", AgentController.updateMe);
 
+// ─── Suscripción ──────────────────────────────────────────────────────────────
+apiRouter.get("/subscription", SubscriptionController.getInfo);
+apiRouter.get("/subscription/plans", SubscriptionController.getPlans);
+apiRouter.post("/subscription/apply-promo", SubscriptionController.applyPromo);
+
 // ─── AI ───────────────────────────────────────────────────────────────────────
+apiRouter.post("/ai/upload", AiController.uploadFile);
+apiRouter.post("/ai/ingest-policy", AiController.ingestPolicy);
 apiRouter.post("/ai/chat", AiController.chat);
 apiRouter.post("/ai/sessions/:sessionId/cancel", AiController.cancelSession);
-apiRouter.post("/ai/process-document", AiController.processDocument);
 apiRouter.get("/ai/upload-url", AiController.getUploadUrl);
+apiRouter.post("/ai/ingest", AiController.ingest);
+apiRouter.post("/ai/ingest-text", AiController.ingestText);
 apiRouter.post("/ai/confirm-policy", AiController.confirmPolicy);
+// Deprecado — mantener por compatibilidad, redirige internamente a ingest
+apiRouter.post("/ai/process-document", AiController.processDocument);
 
 // ─── Contacts ─────────────────────────────────────────────────────────────────
 apiRouter.get("/contacts", ContactController.getAll);

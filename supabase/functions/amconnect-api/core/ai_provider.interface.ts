@@ -50,8 +50,6 @@ export interface IAiProvider {
     inlineData?: AiInlineData,
   ): Promise<{ data: T; usage?: TokenUsage }>;
 
-  generateEmbedding(text: string): Promise<number[]>;
-
   classifyMessage(
     message: string,
     availableDomains: string[],

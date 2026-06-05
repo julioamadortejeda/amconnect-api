@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { PolicyService } from "../../modules/policy/policy.service.ts";
+import { EmbeddingsService } from "../rag/embeddings.service.ts";
 
 export const ConfirmPolicySchema = z.object({
   documentMetadataId: z.string().uuid().optional().nullable(),
@@ -41,6 +42,7 @@ export class ConfirmPolicyService {
   constructor(
     private supabase: SupabaseClient,
     private policyService: PolicyService,
+    private embeddingsService: EmbeddingsService,
   ) {}
 
   async confirm(agentId: string, data: ConfirmPolicyDTO) {
@@ -92,13 +94,14 @@ export class ConfirmPolicyService {
       ),
     ]);
 
-    // Vincular el documento si se proporcionó
+    // Vincular la nota del documento a la póliza y contacto confirmados
     if (data.documentMetadataId) {
-      await this.supabase
-        .from("document_metadata")
-        .update({ policy_id: policy.id })
-        .eq("id", data.documentMetadataId)
-        .eq("agent_id", agentId);
+      await this.embeddingsService.updateNoteLinks(
+        agentId,
+        data.documentMetadataId,
+        data.contactId,
+        policy.id,
+      );
     }
 
     return { policy, beneficiaries, participants };

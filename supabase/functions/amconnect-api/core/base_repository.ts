@@ -143,12 +143,13 @@ export class SupabaseRepository<T> implements IRepository<T> {
     return result as T;
   }
 
-  async search(query: string, threshold = 0.3): Promise<T[] | null> {
+  async search(query: string, threshold = 0.3, agentId?: string): Promise<T[] | null> {
     // deno-lint-ignore no-explicit-any
     const { data, error } = await (this.supabase.rpc as any)("search_catalog", {
       p_table_name: this.tableName,
       p_query: query,
       p_threshold: threshold,
+      p_agent_id: agentId ?? null,
     });
 
     if (error) {

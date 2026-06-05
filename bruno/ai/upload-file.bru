@@ -1,0 +1,19 @@
+meta {
+  name: Upload File
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{base_url}}/ai/upload
+  body: multipartForm
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}
+
+body:multipart-form {
+  file: @file(/ruta/al/archivo.pdf)
+}

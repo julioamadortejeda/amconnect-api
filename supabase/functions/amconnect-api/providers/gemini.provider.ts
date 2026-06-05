@@ -10,21 +10,29 @@ import {
   IAiProvider,
   TokenUsage,
 } from "../core/ai_provider.interface.ts";
-import { AiError } from "../shared/errors.ts";
+import { AiError, AppError } from "../shared/errors.ts";
+
+function wrapGeminiError(e: unknown, context: string): never {
+  // deno-lint-ignore no-explicit-any
+  const err = e as any;
+  const status: number | undefined = err?.status ?? err?.statusCode ?? err?.httpStatus;
+  const message: string = err?.message ?? String(e);
+
+  if (status === 429) {
+    throw new AppError(
+      `Límite de solicitudes al modelo de IA alcanzado en ${context}. Intenta de nuevo en unos segundos.`,
+      429,
+    );
+  }
+  throw new AiError(`Error en ${context}: ${message}`);
+}
 
 export class GeminiProvider implements IAiProvider {
   private ai: GoogleGenAI;
   model: string;
-  private embeddingModel: string;
-
-  constructor(
-    apiKey: string,
-    model = "gemini-2.0-flash",
-    embeddingModel = "text-embedding-004",
-  ) {
+  constructor(apiKey: string, model = "gemini-3.5-flash") {
     this.ai = new GoogleGenAI({ apiKey });
     this.model = model;
-    this.embeddingModel = embeddingModel;
   }
 
   async processUserRequest(
@@ -32,14 +40,17 @@ export class GeminiProvider implements IAiProvider {
     tools: Record<string, unknown>[],
     systemInstruction?: string,
   ): Promise<AiGenerationResult> {
-    const response = await this.ai.models.generateContent({
-      model: this.model,
-      contents: history as never,
-      config: {
-        tools: tools as never,
-        systemInstruction,
-      },
-    });
+    // deno-lint-ignore no-explicit-any
+    let response: any;
+    try {
+      response = await this.ai.models.generateContent({
+        model: this.model,
+        contents: history as never,
+        config: { tools: tools as never, systemInstruction },
+      });
+    } catch (e) {
+      wrapGeminiError(e, "processUserRequest");
+    }
 
     const candidate = response.candidates?.[0];
     if (!candidate?.content?.parts) {
@@ -74,21 +85,23 @@ export class GeminiProvider implements IAiProvider {
     inlineData?: AiInlineData,
   ): Promise<{ data: T; usage?: TokenUsage }> {
     const jsonSchema = zodToJsonSchema(schema, { target: "openApi3" });
-
     // deno-lint-ignore no-explicit-any
     const parts: any[] = [{ text: prompt }];
     if (inlineData) {
       parts.push({ inlineData: { mimeType: inlineData.mimeType, data: inlineData.data } });
     }
 
-    const response = await this.ai.models.generateContent({
-      model: this.model,
-      contents: [{ role: "user", parts }],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: jsonSchema as never,
-      },
-    });
+    // deno-lint-ignore no-explicit-any
+    let response: any;
+    try {
+      response = await this.ai.models.generateContent({
+        model: this.model,
+        contents: [{ role: "user", parts }],
+        config: { responseMimeType: "application/json", responseSchema: jsonSchema as never },
+      });
+    } catch (e) {
+      wrapGeminiError(e, "generateStructuredData");
+    }
 
     const text = response.text ?? "{}";
     const parsed = JSON.parse(text);
@@ -105,31 +118,26 @@ export class GeminiProvider implements IAiProvider {
     };
   }
 
-  async generateEmbedding(text: string): Promise<number[]> {
-    const response = await this.ai.models.embedContent({
-      model: this.embeddingModel,
-      contents: [{ role: AiRole.USER, parts: [{ text }] }],
-    });
-    const values = response.embeddings?.[0]?.values;
-    if (!values) throw new AiError("No se pudo generar el embedding.");
-    return values;
-  }
-
   async classifyMessage(
     message: string,
     availableDomains: string[],
   ): Promise<{ domains: string[]; usage?: TokenUsage }> {
-
     const prompt = `Clasifica el siguiente mensaje en uno o más de estos dominios: ${availableDomains.join(", ")}.
 Responde SOLO con un JSON: { "domains": ["dominio1", "dominio2"] }
 
 Mensaje: "${message}"`;
 
-    const response = await this.ai.models.generateContent({
-      model: this.model,
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: { responseMimeType: "application/json" },
-    });
+    // deno-lint-ignore no-explicit-any
+    let response: any;
+    try {
+      response = await this.ai.models.generateContent({
+        model: this.model,
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: { responseMimeType: "application/json" },
+      });
+    } catch (e) {
+      wrapGeminiError(e, "classifyMessage");
+    }
 
     const parsed = JSON.parse(response.text ?? "{}");
     return {

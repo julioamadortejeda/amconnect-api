@@ -1,19 +1,21 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { IAiProvider } from "../../core/ai_provider.interface.ts";
+import { IEmbeddingProvider } from "../../core/embedding_provider.interface.ts";
 
 export interface NoteMatch {
-  id: string;
+  chunkId: string;
+  noteId: string;
   content: string;
   contactId: string | null;
   policyId: string | null;
-  metadata: Record<string, unknown> | null;
   similarity: number;
+  sourceType: string;
+  metadata: Record<string, unknown> | null;
 }
 
 export class RagService {
   constructor(
     private supabase: SupabaseClient,
-    private aiProvider: IAiProvider,
+    private embeddingProvider: IEmbeddingProvider,
   ) {}
 
   async searchNotes(
@@ -21,10 +23,10 @@ export class RagService {
     query: string,
     options?: { contactId?: string; policyId?: string; threshold?: number; limit?: number },
   ): Promise<NoteMatch[]> {
-    const embedding = await this.aiProvider.generateEmbedding(query);
+    const embedding = await this.embeddingProvider.generateEmbedding(query);
 
     // deno-lint-ignore no-explicit-any
-    const { data, error } = await (this.supabase.rpc as any)("search_agent_notes", {
+    const { data, error } = await (this.supabase.rpc as any)("search_agent_note_chunks", {
       p_agent_id: agentId,
       p_query_embedding: JSON.stringify(embedding),
       p_match_threshold: options?.threshold ?? 0.7,
@@ -36,22 +38,25 @@ export class RagService {
       return [];
     }
 
-    let results = (data as NoteMatch[]) ?? [];
+    let results: NoteMatch[] = (data ?? []).map((r: Record<string, unknown>) => ({
+      chunkId: r.chunk_id as string,
+      noteId: r.note_id as string,
+      content: r.content as string,
+      contactId: r.contact_id as string | null,
+      policyId: r.policy_id as string | null,
+      similarity: r.similarity as number,
+      sourceType: r.source_type as string,
+      metadata: r.metadata as Record<string, unknown> | null,
+    }));
 
-    if (options?.contactId) {
-      results = results.filter((r) => r.contactId === options.contactId);
-    }
-    if (options?.policyId) {
-      results = results.filter((r) => r.policyId === options.policyId);
-    }
+    if (options?.contactId) results = results.filter((r) => r.contactId === options.contactId);
+    if (options?.policyId) results = results.filter((r) => r.policyId === options.policyId);
 
     return results;
   }
 
   formatContextForPrompt(notes: NoteMatch[]): string {
     if (notes.length === 0) return "";
-    return notes
-      .map((n, i) => `[Nota ${i + 1}]: ${n.content}`)
-      .join("\n");
+    return notes.map((n, i) => `[Nota ${i + 1}]: ${n.content}`).join("\n");
   }
 }

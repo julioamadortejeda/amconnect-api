@@ -1,0 +1,15 @@
+meta {
+  name: Get Subscription Info
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/subscription
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}

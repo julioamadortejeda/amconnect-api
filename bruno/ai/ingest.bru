@@ -1,0 +1,26 @@
+meta {
+  name: Ingest File
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{base_url}}/ai/ingest
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "storagePath": "AGENT_ID/TIMESTAMP-poliza.pdf",
+    "fileName": "poliza-gnp-2026.pdf",
+    "mimeType": "application/pdf",
+    "contactId": null,
+    "policyId": null
+  }
+}

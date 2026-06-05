@@ -1,0 +1,24 @@
+meta {
+  name: Ingest Text
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{base_url}}/ai/ingest-text
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "content": "03/06/2026, 10:15 - Juan Pérez: Hola, quiero renovar mi seguro de vida. Tengo la póliza GNP-2024-001.\n03/06/2026, 10:16 - Asesor: Claro, te contacto esta semana para revisar condiciones.\n03/06/2026, 10:18 - Juan Pérez: Perfecto, mi teléfono sigue siendo 5512345678.",
+    "sourceType": "whatsapp",
+    "contactId": null
+  }
+}

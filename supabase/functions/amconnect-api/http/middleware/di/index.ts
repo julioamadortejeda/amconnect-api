@@ -8,17 +8,22 @@ import { PolicyRepository } from "../../../modules/policy/policy.repository.ts";
 import { ReminderService } from "../../../modules/reminder/reminder.service.ts";
 import { GeminiProvider } from "../../../providers/gemini.provider.ts";
 import { VertexAiProvider } from "../../../providers/vertex_ai.provider.ts";
+import { GeminiEmbeddingProvider } from "../../../providers/gemini_embedding.provider.ts";
 import { EmbeddingsService } from "../../../features/rag/embeddings.service.ts";
 import { RagService } from "../../../features/rag/rag.service.ts";
 import { AiChatService } from "../../../features/ai_chat/ai_chat.service.ts";
 import { DocumentProcessorService } from "../../../features/document_processing/document_processor.service.ts";
+import { KnowledgeIngestionService } from "../../../features/document_processing/knowledge_ingestion.service.ts";
+import { PolicyIngestionService } from "../../../features/document_processing/policy_ingestion.service.ts";
 import { AgentService } from "../../../modules/agent/agent.service.ts";
+import { SubscriptionService } from "../../../modules/subscription/subscription.service.ts";
+import { StorageService } from "../../../modules/storage/storage.service.ts";
 import { AppError } from "../../../shared/errors.ts";
 
 function buildGeminiProvider(): GeminiProvider {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) throw new AppError("GEMINI_API_KEY no configurada.", 500);
-  const model = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.1-flash-lite";
+  const model = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.5-flash";
   return new GeminiProvider(apiKey, model);
 }
 
@@ -30,34 +35,36 @@ function buildVertexProvider(): VertexAiProvider {
 }
 
 function buildDocProvider(agentPlan: "free" | "pro") {
-  return agentPlan === "pro" ? buildVertexProvider() : buildGeminiProvider();
+  if (agentPlan === "pro" && Deno.env.get("VERTEX_PROJECT_ID")) {
+    return buildVertexProvider();
+  }
+  return buildGeminiProvider();
 }
 
 export const injectServices = async (c: Context, next: Next) => {
   const supabase: SupabaseClient = c.get("supabase");
   const agentId: string = c.get("agent_id");
 
-  // Obtener el plan del agente
-  const { data: agent } = await supabase
-    .from("agents")
-    .select("plan")
-    .eq("id", agentId)
-    .single();
+  const subscriptionService = new SubscriptionService(supabase);
+  const subscriptionInfo = await subscriptionService.getSubscriptionInfo(agentId);
+  c.set("plan_limits", subscriptionInfo.plan.limits);
+  c.set("subscription_service", subscriptionService);
 
-  const agentPlan: "free" | "pro" = (agent?.plan ?? "free") as "free" | "pro";
+  const agentPlan: "free" | "pro" = subscriptionInfo.plan.slug === "nuevo" ? "free" : "pro";
   c.set("agent_plan", agentPlan);
 
-  // Construir servicios
   const catalogServices = createCatalogServices(supabase, agentId);
   const agentService = new AgentService(supabase);
+  const storageService = new StorageService(supabase);
+  c.set("storage_service", storageService);
   const contactService = new ContactService(new ContactRepository(supabase));
   const policyService = new PolicyService(supabase, new PolicyRepository(supabase));
   const reminderService = new ReminderService(supabase);
 
-  // IA
   const geminiProvider = buildGeminiProvider();
-  const embeddingsService = new EmbeddingsService(supabase, geminiProvider);
-  const ragService = new RagService(supabase, geminiProvider);
+  const embeddingProvider = new GeminiEmbeddingProvider(Deno.env.get("GEMINI_API_KEY")!);
+  const embeddingsService = new EmbeddingsService(supabase, embeddingProvider);
+  const ragService = new RagService(supabase, embeddingProvider);
 
   const aiChatService = new AiChatService(supabase, geminiProvider, {
     contactService,
@@ -66,13 +73,6 @@ export const injectServices = async (c: Context, next: Next) => {
     ragService,
     catalogServices,
   });
-
-
-  const documentProcessorService = new DocumentProcessorService(
-    supabase,
-    buildDocProvider(agentPlan),
-    embeddingsService,
-  );
 
   c.set("services", {
     agentService,
@@ -83,7 +83,15 @@ export const injectServices = async (c: Context, next: Next) => {
     embeddingsService,
     ragService,
     aiChatService,
-    documentProcessorService,
+    get documentProcessorService() {
+      return new DocumentProcessorService(supabase, buildDocProvider(agentPlan), embeddingsService);
+    },
+    get knowledgeIngestionService() {
+      return new KnowledgeIngestionService(supabase, buildDocProvider(agentPlan), embeddingsService);
+    },
+    get policyIngestionService() {
+      return new PolicyIngestionService(supabase, buildDocProvider(agentPlan), embeddingsService);
+    },
   });
 
   await next();
