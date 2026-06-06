@@ -56,6 +56,18 @@ export class AiError extends AppError {
   }
 }
 
+/**
+ * Thrown by ingestion services when an error occurs AFTER the AI provider
+ * has already been invoked (tokens consumed). The controller uses this to
+ * call markSessionFailed instead of deleteSession.
+ */
+export class AiInvokedError extends AppError {
+  constructor(message: string, public readonly cause?: Error) {
+    super(message, 500);
+    this.name = "AiInvokedError";
+  }
+}
+
 export class ConflictError extends AppError {
   constructor(message = "Ya existe un registro con esos datos.") {
     super(message, 409);

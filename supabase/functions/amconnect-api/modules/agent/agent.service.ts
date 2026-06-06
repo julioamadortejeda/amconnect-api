@@ -1,7 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { AgentUpdateDTO } from "./agent.dto.ts";
 import { NotFoundError, handleSupabaseError } from "../../shared/errors.ts";
-import { toCamelCase, objectToCamelCase } from "../../shared/case_converter.ts";
+import { objectToCamelCase } from "../../shared/case_converter.ts";
 
 export class AgentService {
   constructor(private supabase: SupabaseClient) {}

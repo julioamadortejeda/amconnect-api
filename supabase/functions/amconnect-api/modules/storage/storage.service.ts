@@ -84,6 +84,21 @@ export class StorageService {
     return new Uint8Array(await data.arrayBuffer());
   }
 
+  async downloadAsBase64(bucket: string, filePath: string): Promise<string> {
+    const { data, error } = await this.supabase.storage.from(bucket).download(filePath);
+
+    if (error || !data) {
+      throw new AppError(`No se pudo descargar el archivo: ${error?.message}`, 500);
+    }
+
+    const bytes = new Uint8Array(await data.arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i += 8192) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    }
+    return btoa(binary);
+  }
+
   getMimeType(filePath: string): string {
     const ext = filePath.split(".").pop()?.toLowerCase();
     switch (ext) {

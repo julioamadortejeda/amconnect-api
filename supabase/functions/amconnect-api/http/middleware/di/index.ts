@@ -12,6 +12,8 @@ import { GeminiEmbeddingProvider } from "../../../providers/gemini_embedding.pro
 import { EmbeddingsService } from "../../../features/rag/embeddings.service.ts";
 import { RagService } from "../../../features/rag/rag.service.ts";
 import { AiChatService } from "../../../features/ai_chat/ai_chat.service.ts";
+import { AiSessionService } from "../../../features/ai_chat/ai_session.service.ts";
+import { TextSplitter } from "../../../shared/text_splitter.ts";
 import { DocumentProcessorService } from "../../../features/document_processing/document_processor.service.ts";
 import { KnowledgeIngestionService } from "../../../features/document_processing/knowledge_ingestion.service.ts";
 import { PolicyIngestionService } from "../../../features/document_processing/policy_ingestion.service.ts";
@@ -62,7 +64,11 @@ export const injectServices = async (c: Context, next: Next) => {
 
   const geminiProvider = buildGeminiProvider();
   const embeddingProvider = new GeminiEmbeddingProvider(Deno.env.get("GEMINI_API_KEY")!);
-  const embeddingsService = new EmbeddingsService(supabase, embeddingProvider);
+  
+  const textSplitter = new TextSplitter();
+  const aiSessionService = new AiSessionService(supabase);
+  
+  const embeddingsService = new EmbeddingsService(supabase, embeddingProvider, textSplitter);
   const ragService = new RagService(supabase, embeddingProvider);
 
   const aiChatService = new AiChatService(supabase, geminiProvider, {
@@ -71,7 +77,7 @@ export const injectServices = async (c: Context, next: Next) => {
     reminderService,
     ragService,
     catalogServices,
-  });
+  }, aiSessionService);
 
   c.set("services", {
     agentService,
@@ -80,16 +86,17 @@ export const injectServices = async (c: Context, next: Next) => {
     policyService,
     reminderService,
     embeddingsService,
+    aiSessionService,
     ragService,
     aiChatService,
     get documentProcessorService() {
       return new DocumentProcessorService(supabase, buildDocProvider(), embeddingsService);
     },
     get knowledgeIngestionService() {
-      return new KnowledgeIngestionService(supabase, buildDocProvider(), embeddingsService, embeddingProvider);
+      return new KnowledgeIngestionService(supabase, buildDocProvider(), embeddingsService, embeddingProvider, aiSessionService, storageService);
     },
     get policyIngestionService() {
-      return new PolicyIngestionService(supabase, buildDocProvider(), embeddingsService, embeddingProvider);
+      return new PolicyIngestionService(supabase, buildDocProvider(), embeddingsService, embeddingProvider, aiSessionService, storageService, policyService);
     },
     get confirmPolicyService() {
       return new ConfirmPolicyService(supabase, policyService, embeddingsService);

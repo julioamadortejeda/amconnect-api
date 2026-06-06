@@ -1,5 +1,27 @@
 import { z } from "zod";
+import { createClient } from "@supabase/supabase-js";
 import { SkillDefinition, SkillContext } from "./skill.core.ts";
+
+async function logSkillError(agentId: string, message: string, stack?: string, meta?: Record<string, unknown>) {
+  try {
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    await supabase.from("error_logs").insert({
+      agent_id: agentId,
+      error_type: "SkillError",
+      status_code: 500,
+      error_message: message,
+      stack_trace: stack ?? null,
+      request_path: "/skill/confirm_policy_ingestion",
+      request_method: "SKILL",
+      metadata: meta ?? null,
+    });
+  } catch {
+    // silencioso — no podemos hacer nada más
+  }
+}
 
 const BeneficiarySchema = z.object({
   full_name: z.string(),
@@ -14,20 +36,21 @@ export const policyIngestionSkills: SkillDefinition[] = [
       name: "confirm_policy_ingestion",
       description: "Crea la póliza en el sistema con los datos extraídos del documento. Llama este skill SOLO cuando el usuario haya confirmado explícitamente. Resuelve aseguradora, ramo, producto y contacto por nombre automáticamente.",
       schema: z.object({
-        carrier_name: z.string({ required_error: "Se requiere el nombre de la aseguradora" }),
-        branch_name: z.string({ required_error: "Se requiere el nombre del ramo" }),
-        product_name: z.string().optional().nullable(),
-        holder_name: z.string({ required_error: "Se requiere el nombre del titular" }),
-        holder_rfc: z.string().optional().nullable(),
-        policy_number: z.string().optional().nullable(),
+        // snake_case (preferido) + camelCase (fallback — Gemini a veces usa el mismo case del JSON de extracción)
+        carrier_name: z.string().optional(), carrierName: z.string().optional(),
+        branch_name: z.string().optional(),  branchName: z.string().optional(),
+        holder_name: z.string().optional(),  holderName: z.string().optional(),
+        product_name: z.string().optional().nullable(),  productName: z.string().optional().nullable(),
+        holder_rfc: z.string().optional().nullable(),    holderRfc: z.string().optional().nullable(),
+        policy_number: z.string().optional().nullable(), policyNumber: z.string().optional().nullable(),
         premium: z.number().optional().nullable(),
-        sum_insured: z.number().optional().nullable(),
+        sum_insured: z.number().optional().nullable(),   sumInsured: z.number().optional().nullable(),
         currency: z.string().optional().nullable().describe("MXN o USD"),
-        start_date: z.string().optional().nullable(),
-        end_date: z.string().optional().nullable(),
-        renewal_date: z.string().optional().nullable(),
-        next_payment_date: z.string().optional().nullable(),
-        payment_frequency: z.string().optional().nullable(),
+        start_date: z.string().optional().nullable(),    startDate: z.string().optional().nullable(),
+        end_date: z.string().optional().nullable(),      endDate: z.string().optional().nullable(),
+        renewal_date: z.string().optional().nullable(),  renewalDate: z.string().optional().nullable(),
+        next_payment_date: z.string().optional().nullable(), nextPaymentDate: z.string().optional().nullable(),
+        payment_frequency: z.string().optional().nullable(), paymentFrequency: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
         beneficiaries: z.array(BeneficiarySchema).optional().default([]),
       }),
@@ -36,33 +59,44 @@ export const policyIngestionSkills: SkillDefinition[] = [
       try {
         return await resolveAndCreatePolicy(args as PolicyIngestionArgs, ctx);
       } catch (e) {
-        return { error: e instanceof Error ? e.message : "Error al crear la póliza." };
+        const msg = e instanceof Error ? e.message : String(e);
+        await logSkillError(ctx.agentId, msg, e instanceof Error ? e.stack : undefined, {
+          args: { carrier: (args as PolicyIngestionArgs).carrier_name, holder: (args as PolicyIngestionArgs).holder_name },
+          sessionId: ctx.sessionId,
+        });
+        return { error: msg };
       }
     },
   },
 ];
 
-interface PolicyIngestionArgs {
-  carrier_name: string;
-  branch_name: string;
-  product_name?: string | null;
-  holder_name: string;
-  holder_rfc?: string | null;
-  policy_number?: string | null;
-  premium?: number | null;
-  sum_insured?: number | null;
-  currency?: string | null;
-  start_date?: string | null;
-  end_date?: string | null;
-  renewal_date?: string | null;
-  next_payment_date?: string | null;
-  payment_frequency?: string | null;
-  notes?: string | null;
-  beneficiaries?: Array<{ full_name: string; relationship?: string | null; percentage?: number | null }>;
+// deno-lint-ignore no-explicit-any
+type PolicyIngestionArgs = Record<string, any>;
+
+function field(args: PolicyIngestionArgs, snake: string, camel: string): string | null | undefined {
+  return args[snake] ?? args[camel];
 }
 
 async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillContext) {
   const { supabase, agentId, sessionId } = ctx;
+
+  const carrierName   = field(args, "carrier_name", "carrierName");
+  const branchName    = field(args, "branch_name", "branchName");
+  const productName   = field(args, "product_name", "productName");
+  const holderName    = field(args, "holder_name", "holderName");
+  const holderRfc     = field(args, "holder_rfc", "holderRfc");
+  const policyNumber  = field(args, "policy_number", "policyNumber");
+  const currency      = args.currency ?? "MXN";
+  const startDate     = field(args, "start_date", "startDate");
+  const endDate       = field(args, "end_date", "endDate");
+  const renewalDate   = field(args, "renewal_date", "renewalDate");
+  const nextPaymentDate = field(args, "next_payment_date", "nextPaymentDate");
+  const paymentFreq   = field(args, "payment_frequency", "paymentFrequency");
+  const beneficiaries = args.beneficiaries ?? [];
+
+  if (!carrierName || !branchName || !holderName) {
+    return { error: "Faltan datos requeridos: carrier_name, branch_name y holder_name son obligatorios." };
+  }
 
   // ─── Leer metadatos de la sesión ──────────────────────────────────────────
   const { data: session } = await supabase
@@ -74,26 +108,26 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
   const documentMetadataId = session?.metadata?.documentMetadataId as string | null ?? null;
 
   // ─── Resolver carrier ─────────────────────────────────────────────────────
-  const carrierId = await findOrCreateCarrier(supabase, agentId, args.carrier_name);
+  const carrierId = await findOrCreateCarrier(supabase, agentId, carrierName);
 
   // ─── Resolver branch ──────────────────────────────────────────────────────
-  const branchId = await findOrCreateBranch(supabase, agentId, args.branch_name);
+  const branchId = await findOrCreateBranch(supabase, agentId, branchName);
 
   // ─── Resolver product ─────────────────────────────────────────────────────
   const productId = await findOrCreateProduct(
     supabase, agentId,
-    args.product_name ?? `${args.carrier_name} ${args.branch_name}`,
+    productName ?? `${carrierName} ${branchName}`,
     carrierId, branchId,
   );
 
   // ─── Resolver contact ─────────────────────────────────────────────────────
-  const contactId = await findOrCreateContact(supabase, agentId, args.holder_name, args.holder_rfc);
+  const contactId = await findOrCreateContact(supabase, agentId, holderName, holderRfc);
 
   // ─── Resolver catálogos globales ──────────────────────────────────────────
   const [statusId, currencyId, paymentFrequencyId] = await Promise.all([
     getCatalogId(supabase, "policy_statuses", "ACTIVE"),
-    getCatalogId(supabase, "currencies", args.currency === "USD" ? "USD" : "MXN"),
-    args.payment_frequency ? getPaymentFrequencyId(supabase, args.payment_frequency) : Promise.resolve(null),
+    getCatalogId(supabase, "currencies", currency === "USD" ? "USD" : "MXN"),
+    paymentFreq ? getPaymentFrequencyId(supabase, paymentFreq) : Promise.resolve(null),
   ]);
 
   // ─── Crear póliza ─────────────────────────────────────────────────────────
@@ -102,30 +136,30 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
     .insert({
       agent_id: agentId,
       contact_id: contactId,
-      carrier_id: carrierId,
-      branch_id: branchId,
       product_id: productId,
       status_id: statusId,
       currency_id: currencyId,
       payment_frequency_id: paymentFrequencyId,
-      policy_number: args.policy_number ?? null,
+      policy_number: policyNumber ?? null,
       premium: args.premium ?? null,
-      sum_insured: args.sum_insured ?? null,
-      start_date: args.start_date ?? null,
-      end_date: args.end_date ?? null,
-      renewal_date: args.renewal_date ?? null,
-      next_payment_date: args.next_payment_date ?? null,
+      sum_insured: args.sum_insured ?? args.sumInsured ?? null,
+      start_date: startDate ?? null,
+      end_date: endDate ?? null,
+      renewal_date: renewalDate ?? null,
+      next_payment_date: nextPaymentDate ?? null,
       notes: args.notes ?? null,
     })
     .select()
     .single();
 
-  if (policyError || !policy) throw new Error("No se pudo crear la póliza en la base de datos.");
+  if (policyError || !policy) {
+    throw new Error(`No se pudo crear la póliza: ${policyError?.message ?? "sin datos"}`);
+  }
 
   // ─── Agregar beneficiarios ────────────────────────────────────────────────
-  if (args.beneficiaries && args.beneficiaries.length > 0) {
+  if (beneficiaries.length > 0) {
     await supabase.from("policy_beneficiaries").insert(
-      args.beneficiaries.map((b) => ({
+      beneficiaries.map((b: { full_name: string; relationship?: string | null; percentage?: number | null }) => ({
         policy_id: policy.id,
         full_name: b.full_name,
         relationship: b.relationship ?? null,

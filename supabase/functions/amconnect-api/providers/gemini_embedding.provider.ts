@@ -24,11 +24,9 @@ export class GeminiEmbeddingProvider implements IEmbeddingProvider {
   }
 
   async generateEmbeddings(texts: string[]): Promise<BatchEmbeddingResult> {
-    console.log(`[GEMINI:embed] parallel requests — count=${texts.length} totalChars=${texts.reduce((s, t) => s + t.length, 0)}`);
     const results = await Promise.all(texts.map((t) => this.generateEmbedding(t)));
     const embeddings = results.map((r) => r.embedding);
     const totalTokens = results.reduce((sum, r) => sum + r.totalTokens, 0);
-    console.log(`[GEMINI:embed] done — returned=${embeddings.length} tokens=${totalTokens}`);
     return { embeddings, totalTokens };
   }
 }

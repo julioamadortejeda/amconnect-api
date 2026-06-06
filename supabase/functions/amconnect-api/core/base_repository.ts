@@ -26,9 +26,9 @@ export class SupabaseRepository<T> implements IRepository<T> {
   }
 
   async getAll(limit = 100): Promise<T[] | null> {
-    const { data, error } = await (this.applyActiveFilter(
-      this.table.select(this.selectString)
-    ) as any)
+    const filtered = this.applyActiveFilter(this.table.select(this.selectString));
+    // deno-lint-ignore no-explicit-any
+    const { data, error } = await (filtered as any)
       .order("created_at", { ascending: false })
       .limit(limit);
 
@@ -37,9 +37,9 @@ export class SupabaseRepository<T> implements IRepository<T> {
   }
 
   async getById(id: string): Promise<T | null> {
-    const { data, error } = await (this.applyActiveFilter(
-      this.table.select(this.selectString)
-    ) as any)
+    const filtered = this.applyActiveFilter(this.table.select(this.selectString));
+    // deno-lint-ignore no-explicit-any
+    const { data, error } = await (filtered as any)
       .eq("id", id)
       .single();
 
@@ -48,9 +48,9 @@ export class SupabaseRepository<T> implements IRepository<T> {
   }
 
   async getByField(field: string, value: unknown, limit = 100): Promise<T[] | null> {
-    const { data, error } = await (this.applyActiveFilter(
-      this.table.select(this.selectString)
-    ) as any)
+    const filtered = this.applyActiveFilter(this.table.select(this.selectString));
+    // deno-lint-ignore no-explicit-any
+    const { data, error } = await (filtered as any)
       .eq(field, value)
       .order("created_at", { ascending: false })
       .limit(limit);

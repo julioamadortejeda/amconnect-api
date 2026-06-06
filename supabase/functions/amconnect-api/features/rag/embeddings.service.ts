@@ -1,11 +1,12 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { IEmbeddingProvider } from "../../core/embedding_provider.interface.ts";
 import { AppError } from "../../shared/errors.ts";
+import { TextSplitter } from "../../shared/text_splitter.ts";
 
 export type NoteSourceType = "pdf" | "image" | "audio" | "document" | "text";
 
 export interface DocumentInput {
-  aiContent: string;
+  content: string;
   sourceType: NoteSourceType;
   contactId?: string | null;
   policyId?: string | null;
@@ -20,18 +21,13 @@ export interface SaveDocumentResult {
 }
 
 export class EmbeddingsService {
-  private readonly CHUNK_SIZE = 800;
-  private readonly CHUNK_OVERLAP = 150;
-  private readonly MIN_CHUNK_SIZE = 80;
-
   constructor(
     private supabase: SupabaseClient,
     private embeddingProvider: IEmbeddingProvider,
+    private textSplitter: TextSplitter,
   ) {}
 
   async saveDocument(agentId: string, input: DocumentInput): Promise<SaveDocumentResult> {
-    console.log(`[EMBED] saveDocument — sourceType=${input.sourceType} contentLength=${input.aiContent.length}`);
-
     const { data: note, error } = await this.supabase
       .from("agent_notes")
       .insert({
@@ -39,7 +35,7 @@ export class EmbeddingsService {
         contact_id: input.contactId ?? null,
         policy_id: input.policyId ?? null,
         source_type: input.sourceType,
-        ai_content: input.aiContent,
+        content: input.content,
         document_metadata_id: input.documentMetadataId ?? null,
         metadata: input.metadata ?? null,
       })
@@ -47,13 +43,9 @@ export class EmbeddingsService {
       .single();
 
     if (error || !note) throw new AppError("No se pudo guardar la nota.", 500);
-    console.log(`[EMBED] agent_notes saved — noteId=${note.id}`);
 
-    const chunks = this.chunkText(input.aiContent);
-    console.log(`[EMBED] chunked — count=${chunks.length} sizes=[${chunks.map((c) => c.length).join(",")}]`);
-
+    const chunks = this.textSplitter.split(input.content);
     const { embeddings, totalTokens: embeddingTotalTokens } = await this.embeddingProvider.generateEmbeddings(chunks);
-    console.log(`[EMBED] embeddings received — count=${embeddings.length} tokens=${embeddingTotalTokens}`);
 
     if (embeddings.length !== chunks.length) {
       throw new AppError(
@@ -71,7 +63,6 @@ export class EmbeddingsService {
     }));
 
     await this.supabase.from("agent_note_chunks").insert(chunkRows);
-    console.log(`[EMBED] agent_note_chunks saved — ${chunkRows.length} rows`);
 
     return { noteId: note.id, embeddingTotalTokens, embeddingCount: chunks.length };
   }
@@ -87,23 +78,5 @@ export class EmbeddingsService {
       .update({ contact_id: contactId, policy_id: policyId })
       .eq("agent_id", agentId)
       .eq("document_metadata_id", documentMetadataId);
-  }
-
-  private chunkText(text: string): string[] {
-    if (!text) return [""];
-    if (text.length <= this.CHUNK_SIZE) return [text];
-
-    const chunks: string[] = [];
-    let start = 0;
-
-    while (start < text.length) {
-      const end = Math.min(start + this.CHUNK_SIZE, text.length);
-      const chunk = text.slice(start, end);
-      if (chunk.length >= this.MIN_CHUNK_SIZE) chunks.push(chunk);
-      if (end === text.length) break;
-      start = end - this.CHUNK_OVERLAP;
-    }
-
-    return chunks.length > 0 ? chunks : [text];
   }
 }

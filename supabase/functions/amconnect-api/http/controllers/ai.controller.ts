@@ -1,10 +1,11 @@
 import { Context } from "hono";
 import { sendSuccess } from "../../shared/api_response.ts";
-import { AppError } from "../../shared/errors.ts";
+import { AiInvokedError, AppError, ConflictError } from "../../shared/errors.ts";
 import { AiChatService } from "../../features/ai_chat/ai_chat.service.ts";
+import { AiSessionService } from "../../features/ai_chat/ai_session.service.ts";
 import { ConfirmPolicySchema } from "../../features/document_processing/confirm_policy.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
-import { StorageService, ALLOWED_MIME_TYPES } from "../../modules/storage/storage.service.ts";
+import { StorageService } from "../../modules/storage/storage.service.ts";
 
 const INGEST_POLICY_MIME_TYPE = "application/pdf";
 const INGEST_TEXT_SOURCE_TYPES = ["whatsapp", "text"] as const;
@@ -84,19 +85,32 @@ export class AiController {
       throw new AppError(`ingest-policy solo acepta ${INGEST_POLICY_MIME_TYPE}.`, 400);
     }
 
-    const { policyIngestionService, aiChatService } = c.get("services");
-    const { extraction, documentMetadataId, ingestionUsage } = await policyIngestionService.extract(agentId, {
-      storagePath, fileName, mimeType, contactId,
+    const { aiSessionService, policyIngestionService, aiChatService } = c.get("services");
+    const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
+      triggerMessage: "policy_ingestion",
+      sessionType: "policy_ingestion",
     });
+    try {
+      const { extraction, documentMetadataId } = await policyIngestionService.extract(agentId, sessionId, {
+        storagePath, fileName, mimeType, contactId,
+      });
 
-    const { sessionId, text } = await aiChatService.startPolicySession(
-      agentId,
-      extraction as unknown as Record<string, unknown>,
-      documentMetadataId,
-      ingestionUsage,
-    );
+      const { text } = await aiChatService.startPolicySession(
+        sessionId,
+        agentId,
+        extraction as unknown as Record<string, unknown>,
+        documentMetadataId,
+      );
 
-    return sendSuccess(c, { sessionId, message: text, documentMetadataId, extraction }, 201);
+      return sendSuccess(c, { sessionId, message: text, documentMetadataId, extraction }, 201);
+    } catch (err) {
+      if (err instanceof AiInvokedError || err instanceof ConflictError) {
+        await (aiSessionService as AiSessionService).markSessionFailed(sessionId, err.message);
+      } else {
+        await (aiSessionService as AiSessionService).deleteSession(sessionId);
+      }
+      throw err;
+    }
   }
 
   static async ingest(c: Context) {
@@ -112,15 +126,28 @@ export class AiController {
     const storageService = c.get("storage_service") as StorageService;
     storageService.validateMimeType(mimeType);
 
-    const { knowledgeIngestionService } = c.get("services");
-    const { noteId, label } = await knowledgeIngestionService.ingestFile(agentId, {
-      storagePath, fileName, mimeType, contactId, policyId,
+    const { aiSessionService, knowledgeIngestionService } = c.get("services");
+    const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
+      triggerMessage: "file_ingestion",
+      sessionType: "knowledge_ingestion",
     });
-
-    return sendSuccess(c, {
-      noteId,
-      message: `Listo. Ahora ya puedes preguntarme sobre: ${label}`,
-    }, 201);
+    try {
+      const { noteId, responseMessage } = await knowledgeIngestionService.ingestFile(agentId, sessionId, {
+        storagePath, fileName, mimeType, contactId, policyId,
+      });
+      return sendSuccess(c, {
+        noteId,
+        sessionId,
+        message: responseMessage,
+      }, 201);
+    } catch (err) {
+      if (err instanceof AiInvokedError) {
+        await (aiSessionService as AiSessionService).markSessionFailed(sessionId, err.message);
+      } else {
+        await (aiSessionService as AiSessionService).deleteSession(sessionId);
+      }
+      throw err;
+    }
   }
 
   static async ingestText(c: Context) {
@@ -136,15 +163,28 @@ export class AiController {
       throw new AppError(`sourceType debe ser: ${INGEST_TEXT_SOURCE_TYPES.join(" | ")}.`, 400);
     }
 
-    const { knowledgeIngestionService } = c.get("services");
-    const { noteId, label } = await knowledgeIngestionService.ingestText(agentId, {
-      content, sourceType, contactId, policyId,
+    const { aiSessionService, knowledgeIngestionService } = c.get("services");
+    const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
+      triggerMessage: "text_ingestion",
+      sessionType: "knowledge_ingestion",
     });
-
-    return sendSuccess(c, {
-      noteId,
-      message: `Listo. Ahora ya puedes preguntarme sobre: ${label}`,
-    }, 201);
+    try {
+      const { noteId, responseMessage } = await knowledgeIngestionService.ingestText(agentId, sessionId, {
+        content, sourceType, contactId, policyId,
+      });
+      return sendSuccess(c, {
+        noteId,
+        sessionId,
+        message: responseMessage,
+      }, 201);
+    } catch (err) {
+      if (err instanceof AiInvokedError) {
+        await (aiSessionService as AiSessionService).markSessionFailed(sessionId, err.message);
+      } else {
+        await (aiSessionService as AiSessionService).deleteSession(sessionId);
+      }
+      throw err;
+    }
   }
 
   static async confirmPolicy(c: Context) {

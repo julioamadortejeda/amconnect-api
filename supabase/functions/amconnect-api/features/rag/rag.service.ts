@@ -23,7 +23,6 @@ export class RagService {
     query: string,
     options?: { contactId?: string; policyId?: string; threshold?: number; limit?: number },
   ): Promise<NoteMatch[]> {
-    debugger;
     const { embedding } = await this.embeddingProvider.generateEmbedding(query);
 
     // deno-lint-ignore no-explicit-any

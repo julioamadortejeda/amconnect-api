@@ -64,7 +64,6 @@ export class IngestionService {
   ) {}
 
   async ingestFile(agentId: string, input: IngestFileInput): Promise<IngestResult> {
-    debugger;
     const { storagePath, fileName, mimeType, contactId, policyId } = input;
 
     // Descargar archivo de Storage

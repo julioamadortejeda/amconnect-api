@@ -33,7 +33,7 @@ export class VertexAiProvider implements IAiProvider {
 
   // Chat y function calling — se delega a GeminiProvider en el DI para plan pro.
   // VertexAiProvider se usa principalmente para procesamiento de documentos.
-  async processUserRequest(
+  processUserRequest(
     _history: AiMessage[],
     _tools: Record<string, unknown>[],
     _systemInstruction?: string,
@@ -78,7 +78,7 @@ export class VertexAiProvider implements IAiProvider {
     };
   }
 
-  async classifyMessage(
+  classifyMessage(
     _message: string,
     _availableDomains: string[],
   ): Promise<{ domains: string[]; usage?: TokenUsage }> {

@@ -114,8 +114,8 @@ export type Database = {
       agent_notes: {
         Row: {
           agent_id: string
-          ai_content: string | null
           contact_id: string | null
+          content: string | null
           created_at: string
           document_metadata_id: string | null
           id: string
@@ -126,8 +126,8 @@ export type Database = {
         }
         Insert: {
           agent_id: string
-          ai_content?: string | null
           contact_id?: string | null
+          content?: string | null
           created_at?: string
           document_metadata_id?: string | null
           id?: string
@@ -138,8 +138,8 @@ export type Database = {
         }
         Update: {
           agent_id?: string
-          ai_content?: string | null
           contact_id?: string | null
+          content?: string | null
           created_at?: string
           document_metadata_id?: string | null
           id?: string
@@ -1351,7 +1351,6 @@ export type Database = {
           price_mxn: number
           price_usd: number
           slug: string
-          tier: string
         }
         Insert: {
           created_at?: string
@@ -1362,7 +1361,6 @@ export type Database = {
           price_mxn: number
           price_usd: number
           slug: string
-          tier?: string
         }
         Update: {
           created_at?: string
@@ -1373,7 +1371,6 @@ export type Database = {
           price_mxn?: number
           price_usd?: number
           slug?: string
-          tier?: string
         }
         Relationships: []
       }

@@ -21,6 +21,10 @@ export abstract class BaseService<TRequest, TResponse = TRequest>
     return await this.repository.getById(id);
   }
 
+  async findByFilters(filters: Partial<Record<string, unknown>>, limit = 100): Promise<TResponse[] | null> {
+    return await this.repository.findByFilters(filters, limit);
+  }
+
   async count(filters: Partial<Record<string, unknown>> = {}): Promise<number> {
     return await this.repository.count(filters);
   }

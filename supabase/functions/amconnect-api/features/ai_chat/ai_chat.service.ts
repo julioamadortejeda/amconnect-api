@@ -1,10 +1,10 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface.ts";
+import { AiSessionService } from "./ai_session.service.ts";
 import { AiError } from "../../shared/errors.ts";
 import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
 import { SkillContext } from "./skills/skill.core.ts";
-import { IngestionUsageData } from "../document_processing/policy_ingestion.service.ts";
 
 const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog", "knowledge"];
 const POLICY_INGESTION_DOMAINS = ["policy_ingestion"];
@@ -29,6 +29,8 @@ Always address the advisor in second person: use "you have", "your clients", "yo
 - The advisor manages policies ON BEHALF of their clients. When they say "my policies" or "my clients' policies", they mean the policies in their portfolio — use get_all_policies. Never ask if they mean personal policies.
 - Detect the language of each message and respond in that same language.
 - Respond naturally and professionally.
+- STRICT KNOWLEDGE CONSTRAINT: You must ONLY answer questions using the information retrieved from your tools (structured data or search_knowledge RAG). You are strictly prohibited from using your pre-trained internet knowledge to answer questions about companies, products, addresses, locations, or definitions. 
+- If a user asks a question that requires external information (e.g., "donde esta la torre reforma") and your search_knowledge tool or database query returns empty or doesn't contain the answer, you must state that you do not have that information in your knowledge base. Do NOT answer from your general knowledge.
 - When the user asks about a person, search for them first with search_contact.
 - Data hierarchy: ALWAYS try structured skills first (contacts, policies, reminders, catalog). Only use search_knowledge when the information is not available in structured data — for example, notes from meetings, ingested documents, audio transcripts, or WhatsApp conversations.
 - When using search_knowledge, make ONE single call with a comprehensive query covering all aspects of the question. Never call search_knowledge multiple times for the same user message.
@@ -40,8 +42,8 @@ Always address the advisor in second person: use "you have", "your clients", "yo
 - Save data EXACTLY as the user provided it — never interpret, translate or look up external information (e.g. if they say "zócalo", save "zócalo", do not look up the real address).
 - If you cannot find information, say so clearly.
 - When a tool returns multiple records, decide based on the user's intent:
-  - If the user requested a LIST or general query → show all results without asking.
-  - If the user wants to act on a SPECIFIC record and there is ambiguity or it was not found → FIRST use save_pending_task saving all known data, THEN ask the user.
+- If the user requested a LIST or general query → show all results without asking.
+- If the user wants to act on a SPECIFIC record and there is ambiguity or it was not found → FIRST use save_pending_task saving all known data, THEN ask the user.
 - When the user responds to an ambiguity question and you have the correct record → use resolve_pending_task and then execute the action with the data saved in the pending task.
 `.trim();
 
@@ -56,6 +58,7 @@ export class AiChatService {
     private supabase: SupabaseClient,
     private aiProvider: IAiProvider,
     private skillContext: Omit<SkillContext, "agentId" | "sessionId" | "supabase">,
+    private aiSessionService: AiSessionService,
   ) {}
 
   async cancelSession(sessionId: string): Promise<{ cancelledTasks: number }> {
@@ -101,12 +104,11 @@ export class AiChatService {
       sessionType = session?.session_type ?? "chat";
     } else {
       // Crear nueva sesión
-      const { data: newSession } = await this.supabase
-        .from("ai_sessions")
-        .insert({ agent_id: agentId, trigger_message: message, history: [], model_name: this.aiProvider.model })
-        .select()
-        .single();
-      currentSessionId = newSession?.id;
+      currentSessionId = await this.aiSessionService.createSession(agentId, {
+        triggerMessage: message,
+        sessionType: "chat",
+        modelName: this.aiProvider.model,
+      });
     }
 
     history.push({ role: AiRole.USER, parts: [{ text: message }] });
@@ -166,10 +168,12 @@ export class AiChatService {
     // Bucle de function calling
     let finalText = "";
     let loops = 0;
+    let forceNextTurnToGenerateText = false;
 
     while (loops < MAX_LOOPS) {
       loops++;
-      const result = await this.aiProvider.processUserRequest(history, tools, systemPrompt);
+      const currentTools = forceNextTurnToGenerateText ? [] : tools;
+      const result = await this.aiProvider.processUserRequest(history, currentTools, systemPrompt);
 
       if (result.usage) {
         loopUsage.promptTokens += result.usage.promptTokens;
@@ -206,11 +210,20 @@ export class AiChatService {
             try {
               response = await skill.execute(validation.data, ctx);
             } catch (e) {
-              response = { error: e instanceof Error ? e.message : "Error ejecutando la herramienta." };
+              const msg = e instanceof Error ? e.message : "Error ejecutando la herramienta.";
+              console.error(`[CHAT] skill=${call.name} threw: ${msg}`);
+              response = { error: msg };
             }
           }
         } else {
           response = { error: `Herramienta desconocida: ${call.name}` };
+        }
+
+        // Si la base de conocimiento o notas de contacto devuelven vacío, forzamos que en el siguiente turno genere texto directo
+        if (call.name === "search_knowledge" || call.name === "search_contact_notes") {
+          if (Array.isArray(response) && response.length === 0) {
+            forceNextTurnToGenerateText = true;
+          }
         }
 
         functionResults.push({
@@ -231,93 +244,39 @@ export class AiChatService {
       totalTokens: classifyTokens.totalTokens + loopUsage.totalTokens,
     };
 
-    const [, { error: msgError }, { error: usageError }] = await Promise.all([
-      this.supabase.from("ai_sessions")
-        .update({ history, updated_at: new Date().toISOString() })
-        .eq("id", currentSessionId),
-      this.supabase.from("ai_chat_messages").insert([
-        { session_id: currentSessionId, agent_id: agentId, role: "user", content: message, prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    await this.aiSessionService.saveChatRound(
+      agentId,
+      currentSessionId!,
+      history,
+      [
+        { role: "user", content: message, promptTokens: 0, completionTokens: 0, totalTokens: 0 },
         {
-          session_id: currentSessionId, agent_id: agentId, role: "classify", content: null,
-          prompt_tokens: classifyTokens.promptTokens,
-          completion_tokens: classifyTokens.completionTokens,
-          total_tokens: classifyTokens.totalTokens,
+          role: "classify",
+          content: null,
+          promptTokens: classifyTokens.promptTokens,
+          completionTokens: classifyTokens.completionTokens,
+          totalTokens: classifyTokens.totalTokens,
         },
         {
-          session_id: currentSessionId, agent_id: agentId, role: "model", content: finalText,
-          prompt_tokens: loopUsage.promptTokens,
-          completion_tokens: loopUsage.completionTokens,
-          total_tokens: loopUsage.totalTokens,
+          role: "model",
+          content: finalText,
+          promptTokens: loopUsage.promptTokens,
+          completionTokens: loopUsage.completionTokens,
+          totalTokens: loopUsage.totalTokens,
         },
-      ]),
-      this.supabase.rpc("increment_session_usage", {
-        p_session_id: currentSessionId,
-        p_prompt_tokens: totalUsage.promptTokens,
-        p_completion_tokens: totalUsage.completionTokens,
-        p_total_tokens: totalUsage.totalTokens,
-      }),
-    ]);
-
-    console.log("[ai_chat:diag] messages:", msgError ? msgError.message : "ok");
-    console.log("[ai_chat:diag] usage:", usageError ? usageError.message : "ok");
+      ],
+      totalUsage,
+    );
 
     return { text: finalText, sessionId: currentSessionId!, usage: totalUsage };
   }
 
   async startPolicySession(
+    sessionId: string,
     agentId: string,
     extraction: Record<string, unknown>,
-    documentMetadataId: string,
-    ingestionUsage?: IngestionUsageData,
+    _documentMetadataId: string,
   ): Promise<ChatResponse> {
-    const { data: session } = await this.supabase
-      .from("ai_sessions")
-      .insert({
-        agent_id: agentId,
-        trigger_message: "Ingesta de póliza",
-        history: [],
-        session_type: "policy_ingestion",
-        metadata: { extraction, documentMetadataId },
-        model_name: this.aiProvider.model,
-        embedding_model_name: ingestionUsage?.embeddingModelName ?? null,
-        extraction_prompt_tokens: ingestionUsage?.extractionUsage.promptTokens ?? 0,
-        extraction_completion_tokens: ingestionUsage?.extractionUsage.completionTokens ?? 0,
-        extraction_total_tokens: ingestionUsage?.extractionUsage.totalTokens ?? 0,
-        embedding_total_tokens: ingestionUsage?.embeddingTotalTokens ?? 0,
-        embedding_count: ingestionUsage?.embeddingCount ?? 0,
-      })
-      .select()
-      .single();
-
-    const sessionId = session?.id;
-
-    if (ingestionUsage && sessionId) {
-      await this.supabase.from("ai_ingestion_usage").insert([
-        {
-          agent_id: agentId,
-          session_id: sessionId,
-          document_metadata_id: ingestionUsage.documentMetadataId,
-          operation: "extraction",
-          model_name: this.aiProvider.model,
-          prompt_tokens: ingestionUsage.extractionUsage.promptTokens,
-          completion_tokens: ingestionUsage.extractionUsage.completionTokens,
-          total_tokens: ingestionUsage.extractionUsage.totalTokens,
-          item_count: 1,
-        },
-        {
-          agent_id: agentId,
-          session_id: sessionId,
-          document_metadata_id: ingestionUsage.documentMetadataId,
-          operation: "embedding",
-          model_name: ingestionUsage.embeddingModelName,
-          prompt_tokens: 0,
-          completion_tokens: 0,
-          total_tokens: ingestionUsage.embeddingTotalTokens,
-          item_count: ingestionUsage.embeddingCount,
-        },
-      ]);
-    }
-
     const extractionSummary = JSON.stringify(extraction, null, 2);
     const initialMessage = `El sistema extrajo la siguiente información de la póliza:\n\`\`\`json\n${extractionSummary}\n\`\`\`\nPor favor presenta un resumen al asesor y solicita confirmación para crear la póliza.`;
 

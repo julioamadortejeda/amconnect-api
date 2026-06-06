@@ -6,7 +6,6 @@ import {
   AiGenerationResult,
   AiInlineData,
   AiMessage,
-  AiRole,
   IAiProvider,
   TokenUsage,
 } from "../core/ai_provider.interface.ts";
