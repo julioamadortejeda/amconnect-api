@@ -3,14 +3,14 @@ import { BaseService } from "../../core/base_service.ts";
 import { SupabaseRepository } from "../../core/base_repository.ts";
 import { objectToCamelCaseDeep, objectToSnakeCase } from "../../shared/case_converter.ts";
 
-function toDTO(row: unknown) {
-  return objectToCamelCaseDeep(row);
+function toDTO(row: unknown): Record<string, unknown> {
+  return objectToCamelCaseDeep(row) as Record<string, unknown>;
 }
 
 // ─── Catálogo global — solo lectura ──────────────────────────────────────────
 
 function makeGlobalCatalogService(supabase: SupabaseClient, tableName: string) {
-  const repo = new SupabaseRepository(supabase, tableName);
+  const repo = new SupabaseRepository<Record<string, unknown>>(supabase, tableName);
   return new (class extends BaseService<Record<string, unknown>> {
     override async getAll(limit = 100) {
       const rows = await this.repository.getAll(limit);
@@ -30,7 +30,7 @@ function makeGlobalCatalogService(supabase: SupabaseClient, tableName: string) {
 // ─── Catálogo por agente — CRUD completo ─────────────────────────────────────
 
 function makeAgentCatalogService(supabase: SupabaseClient, tableName: string, agentId: string) {
-  const repo = new SupabaseRepository(supabase, tableName);
+  const repo = new SupabaseRepository<Record<string, unknown>>(supabase, tableName);
   return new (class extends BaseService<Record<string, unknown>> {
     override async getAll(limit = 100) {
       const rows = await this.repository.getAll(limit);
@@ -54,7 +54,7 @@ function makeAgentCatalogService(supabase: SupabaseClient, tableName: string, ag
       const row = await this.repository.delete(id);
       return row ? toDTO(row) : null;
     }
-    async search(query: string) {
+    override async search(query: string) {
       const { data, error } = await supabase
         .from(tableName)
         .select("id, name")

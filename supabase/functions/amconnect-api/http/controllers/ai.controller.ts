@@ -1,4 +1,5 @@
 import { Context } from "hono";
+import type { ZodIssue } from "zod";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { AiInvokedError, AiProviderError, AppError, ConflictError } from "../../shared/errors.ts";
 import { AiChatService } from "../../features/ai_chat/ai_chat.service.ts";
@@ -19,7 +20,7 @@ export class AiController {
     const body = await c.req.json();
     const parsed = AiChatSchema.safeParse(body);
     if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
       throw new AppError(`Datos inválidos: ${issues}`, 400);
     }
     const { message, sessionId: session_id } = parsed.data;
@@ -52,7 +53,7 @@ export class AiController {
     const agentId: string = c.get("agent_id");
     const parsed = AiProcessDocumentRequestSchema.safeParse(await c.req.json());
     if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
       throw new AppError(`Datos inválidos: ${issues}`, 400);
     }
     const { filePath, fileName } = parsed.data;
@@ -93,7 +94,7 @@ export class AiController {
     const body = await c.req.json();
     const parsed = AiIngestPolicySchema.safeParse(body);
     if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
       throw new AppError(`Datos inválidos: ${issues}`, 400);
     }
     const { storagePath, fileName, mimeType, contactId } = parsed.data;
@@ -142,7 +143,7 @@ export class AiController {
     const body = await c.req.json();
     const parsed = AiIngestFileSchema.safeParse(body);
     if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
       throw new AppError(`Datos inválidos: ${issues}`, 400);
     }
     const { storagePath, fileName, mimeType, contactId, policyId } = parsed.data;
@@ -191,7 +192,7 @@ export class AiController {
     const body = await c.req.json();
     const parsed = AiIngestTextSchema.safeParse(body);
     if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
       throw new AppError(`Datos inválidos: ${issues}`, 400);
     }
     const { content, sourceType, contactId, policyId } = parsed.data;
@@ -234,7 +235,7 @@ export class AiController {
 
     const parsed = ConfirmPolicySchema.safeParse(body);
     if (!parsed.success) {
-      const issues = parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
       throw new AppError(`Datos inválidos: ${issues}`, 400);
     }
 

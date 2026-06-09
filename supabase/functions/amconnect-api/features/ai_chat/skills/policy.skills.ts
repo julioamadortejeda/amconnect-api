@@ -38,7 +38,7 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute(_args, ctx) {
       const policies = await ctx.policyService.getByField("agent_id", ctx.agentId);
-      return policies.map(slimPolicy);
+      return (policies ?? []).map((p) => slimPolicy(p as unknown as Record<string, unknown>));
     },
   },
   {
@@ -53,7 +53,7 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute({ contact_id }, ctx) {
       const policies = await ctx.policyService.getByField("contact_id", contact_id as string);
-      return policies.map(slimPolicy);
+      return (policies ?? []).map((p) => slimPolicy(p as unknown as Record<string, unknown>));
     },
   },
   {

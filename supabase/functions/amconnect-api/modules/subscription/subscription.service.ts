@@ -23,7 +23,7 @@ export class SubscriptionService {
 
     return {
       plan: agentInfo.plan,
-      status: agentInfo.subscriptionStatus,
+      status: agentInfo.subscriptionStatus as SubscriptionInfo["status"],
       trialEndsAt: agentInfo.trialEndsAt,
       subscriptionExpiresAt: agentInfo.subscriptionExpiresAt,
       trialDaysRemaining,

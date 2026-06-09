@@ -47,7 +47,7 @@ function buildVertexProvider(): VertexAiProvider {
   const projectId = Deno.env.get("VERTEX_PROJECT_ID");
   const location = Deno.env.get("VERTEX_LOCATION") ?? "us-central1";
   if (!projectId) throw new AppError("VERTEX_PROJECT_ID no configurado.", 500);
-  return new VertexAiProvider(projectId, location);
+  return new VertexAiProvider(projectId, location, AI_MODEL);
 }
 
 function buildDocProvider() {

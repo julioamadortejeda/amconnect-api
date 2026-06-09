@@ -105,7 +105,7 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
     catalogServices.policyStatusService.getByCode("ACTIVE"),
     catalogServices.currencyService.getByCode(currency === "USD" ? "USD" : "MXN"),
     paymentFreq ? resolvePaymentFrequency(catalogServices.paymentFrequencyService, paymentFreq) : null,
-  ]);
+  ]) as [{ id: string } | null, { id: string } | null, { id: string } | null];
 
   if (!statusRow?.id) throw new Error("No se encontró el estatus ACTIVE en el catálogo.");
   if (!currencyRow?.id) throw new Error(`No se encontró la moneda ${currency} en el catálogo.`);
@@ -117,9 +117,9 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
     carrierId,
     branchId,
     productId,
-    statusId: statusRow.id as string,
-    currencyId: currencyRow.id as string,
-    paymentFrequencyId: (paymentFrequencyRow?.id as string) ?? null,
+    statusId: statusRow.id,
+    currencyId: currencyRow.id,
+    paymentFrequencyId: paymentFrequencyRow?.id ?? null,
     policyNumber: policyNumber ?? null,
     premium: args.premium ?? null,
     sumInsured: args.sum_insured ?? args.sumInsured ?? null,

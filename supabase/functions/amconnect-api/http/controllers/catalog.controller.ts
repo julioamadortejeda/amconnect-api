@@ -15,7 +15,7 @@ function makeReadController(serviceKey: CatalogKey) {
     },
     async getById(c: Context) {
       const services: CatalogServices = c.get("services").catalogServices;
-      const data = await services[serviceKey].getById(c.req.param("id"));
+      const data = await services[serviceKey].getById(c.req.param("id") as string);
       return sendSuccess(c, data);
     },
   };
@@ -31,7 +31,7 @@ function makeAgentCatalogController(serviceKey: CatalogKey, schema: typeof Carri
     },
     async getById(c: Context) {
       const services: CatalogServices = c.get("services").catalogServices;
-      const data = await services[serviceKey].getById(c.req.param("id"));
+      const data = await services[serviceKey].getById(c.req.param("id") as string);
       return sendSuccess(c, data);
     },
     async create(c: Context) {
@@ -43,12 +43,12 @@ function makeAgentCatalogController(serviceKey: CatalogKey, schema: typeof Carri
     async update(c: Context) {
       const body = schema.partial().parse(await c.req.json());
       const services: CatalogServices = c.get("services").catalogServices;
-      const data = await services[serviceKey].update(c.req.param("id"), body as Record<string, unknown>);
+      const data = await services[serviceKey].update(c.req.param("id") as string, body as Record<string, unknown>);
       return sendSuccess(c, data);
     },
     async remove(c: Context) {
       const services: CatalogServices = c.get("services").catalogServices;
-      const data = await services[serviceKey].delete(c.req.param("id"));
+      const data = await services[serviceKey].delete(c.req.param("id") as string);
       return sendSuccess(c, data);
     },
   };

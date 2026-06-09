@@ -54,7 +54,7 @@ export const reminderSkills: SkillDefinition[] = [
         policyId: args.policy_id as string ?? null,
         isDone: false,
       });
-      return slimReminder(result as Record<string, unknown>);
+      return slimReminder(result as unknown as Record<string, unknown>);
     },
   },
   {
@@ -68,7 +68,7 @@ export const reminderSkills: SkillDefinition[] = [
     },
     async execute({ days }, ctx) {
       const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, (days as number) ?? 7);
-      return reminders.map(slimReminder);
+      return (reminders ?? []).map((r) => slimReminder(r as unknown as Record<string, unknown>));
     },
   },
   {
@@ -92,7 +92,7 @@ export const reminderSkills: SkillDefinition[] = [
         dueDate: args.due_date as string | undefined,
         typeId: args.type_id as string | undefined,
       });
-      return slimReminder(result as Record<string, unknown>);
+      return slimReminder(result as unknown as Record<string, unknown>);
     },
   },
   {
@@ -107,7 +107,7 @@ export const reminderSkills: SkillDefinition[] = [
     },
     async execute({ reminder_id }, ctx) {
       const result = await ctx.reminderService.markDone(reminder_id as string);
-      return slimReminder(result as Record<string, unknown>);
+      return slimReminder(result as unknown as Record<string, unknown>);
     },
   },
 ];

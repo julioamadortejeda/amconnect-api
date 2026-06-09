@@ -74,7 +74,7 @@ export class AiProviderError extends AppError {
  * call markSessionFailed instead of deleteSession.
  */
 export class AiInvokedError extends AppError {
-  constructor(message: string, public readonly cause?: Error) {
+  constructor(message: string, public override readonly cause?: Error) {
     super(message, 500);
     this.name = "AiInvokedError";
   }

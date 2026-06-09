@@ -130,6 +130,38 @@ Estado: `[ ]` pendiente · `[~]` en progreso · `[x]` resuelto · `[-]` descarta
 
 ---
 
+## 🔴 Bugs activos (segunda revisión)
+
+### N1 — `DocumentProcessorService` llamaba `saveNote()` inexistente
+**Archivos:** `features/document_processing/document_processor.service.ts:42`
+**Problema:** `this.embeddingsService.saveNote()` no existe — `EmbeddingsService` solo tiene `saveDocument()`. Falla con TypeError en runtime al llamar `POST /ai/process-document`.
+**Fix aplicado:** Reemplazado por `saveDocument()` con `sourceType: "pdf"` y `documentMetadataId` correctos.
+**Estado:** `[x]`
+
+---
+
+## 🟡 Inconsistencias / deuda técnica (segunda revisión)
+
+### N2 — `getById` firma dice `T | null` pero nunca devuelve null
+**Archivos:** `core/base_repository.ts:39-48`
+**Problema:** La firma dice `Promise<T | null>` pero si no existe la fila, `handleSupabaseError` lanza `AppError` — nunca retorna `null`. Los servicios tienen código muerto del tipo `row ? this.toDTO(row) : null` que nunca alcanza el `null`.
+**Fix:** Cambiar la firma a `Promise<T>` (lanza en not-found) o hacer que el método capture `PGRST116` y retorne `null` según el caso de uso.
+**Estado:** `[ ]`
+
+### N3 — `getUpcoming` filtra fechas en memoria
+**Archivos:** `modules/reminder/reminder.service.ts:77-85`
+**Problema:** Trae todos los recordatorios del agente a memoria y filtra por rango de fechas en TypeScript. Con muchos recordatorios escala mal.
+**Fix:** Agregar método en `ReminderRepository` con `.gte("due_date", from).lte("due_date", to)` para hacer el filtro en DB.
+**Estado:** `[ ]`
+
+### N4 — `getActivePendingTasks` se llama en cada mensaje incluso en `policy_ingestion`
+**Archivos:** `features/ai_chat/ai_chat.service.ts`
+**Problema:** En sesiones `policy_ingestion` nunca hay pending tasks del tipo normal, pero igual se hace la query en cada mensaje.
+**Fix:** Omitir la llamada cuando `sessionType === "policy_ingestion"`.
+**Estado:** `[ ]`
+
+---
+
 ## 🔵 Futuro / integración de pagos
 
 ### F1 — `subscription_status` se actualiza de forma lazy

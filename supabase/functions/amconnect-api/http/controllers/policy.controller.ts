@@ -15,16 +15,16 @@ export class PolicyController {
 
   static async getByContact(c: Context) {
     const service: PolicyService = c.get("services").policyService;
-    const data = await service.getByField("contact_id", c.req.param("contactId"));
+    const data = await service.getByField("contact_id", c.req.param("contactId") as string);
     return sendSuccess(c, data);
   }
 
   static async getById(c: Context) {
     const service: PolicyService = c.get("services").policyService;
     const [policy, participants, beneficiaries] = await Promise.all([
-      service.getById(c.req.param("id")),
-      service.getParticipants(c.req.param("id")),
-      service.getBeneficiaries(c.req.param("id")),
+      service.getById(c.req.param("id") as string),
+      service.getParticipants(c.req.param("id") as string),
+      service.getBeneficiaries(c.req.param("id") as string),
     ]);
     return sendSuccess(c, { policy, participants, beneficiaries });
   }
@@ -40,13 +40,13 @@ export class PolicyController {
   static async update(c: Context) {
     const body = PolicyRequestSchema.partial().parse(await c.req.json());
     const service: PolicyService = c.get("services").policyService;
-    const data = await service.update(c.req.param("id"), body);
+    const data = await service.update(c.req.param("id") as string, body);
     return sendSuccess(c, data);
   }
 
   static async remove(c: Context) {
     const service: PolicyService = c.get("services").policyService;
-    const data = await service.delete(c.req.param("id"));
+    const data = await service.delete(c.req.param("id") as string);
     return sendSuccess(c, data);
   }
 

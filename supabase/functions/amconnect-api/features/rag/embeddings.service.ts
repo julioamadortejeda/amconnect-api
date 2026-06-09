@@ -3,7 +3,7 @@ import type { IEmbeddingProvider } from "../../core/embedding_provider.interface
 import { AppError } from "../../shared/errors.ts";
 import { TextSplitter } from "../../shared/text_splitter.ts";
 
-export type NoteSourceType = "pdf" | "image" | "audio" | "document" | "text";
+export type NoteSourceType = "pdf" | "image" | "audio" | "document" | "text" | "whatsapp";
 
 export interface DocumentInput {
   content: string;

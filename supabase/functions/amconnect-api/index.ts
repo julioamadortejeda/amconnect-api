@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { authMiddleware } from "./http/middleware/auth.middleware.ts";
 import { injectServices } from "./http/middleware/di/index.ts";
@@ -12,7 +12,7 @@ app.onError(globalErrorHandler);
 const allowedOrigin = Deno.env.get("ALLOWED_ORIGIN");
 app.use("*", cors(allowedOrigin ? { origin: allowedOrigin } : {}));
 
-app.get("/amconnect-api/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
+app.get("/amconnect-api/health", (c: Context) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
 
 app.use("/amconnect-api/*", authMiddleware);
 app.use("/amconnect-api/*", injectServices);

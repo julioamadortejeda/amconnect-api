@@ -16,7 +16,7 @@ export class ContactController {
 
   static async getById(c: Context) {
     const service: ContactService = c.get("services").contactService;
-    const data = await service.getById(c.req.param("id"));
+    const data = await service.getById(c.req.param("id") as string);
     return sendSuccess(c, data);
   }
 
@@ -40,13 +40,13 @@ export class ContactController {
   static async update(c: Context) {
     const body = ContactRequestSchema.partial().parse(await c.req.json());
     const service: ContactService = c.get("services").contactService;
-    const data = await service.update(c.req.param("id"), body);
+    const data = await service.update(c.req.param("id") as string, body);
     return sendSuccess(c, data);
   }
 
   static async remove(c: Context) {
     const service: ContactService = c.get("services").contactService;
-    const data = await service.delete(c.req.param("id"));
+    const data = await service.delete(c.req.param("id") as string);
     return sendSuccess(c, data);
   }
 }

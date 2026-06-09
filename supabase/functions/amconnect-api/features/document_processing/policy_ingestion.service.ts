@@ -52,7 +52,7 @@ export class PolicyIngestionService {
         PolicyExtractionSchema,
         { mimeType, data: base64 },
       );
-      extraction = result.data;
+      extraction = result.data as PolicyExtraction;
       extractionUsage = result.usage;
     } catch (err) {
       if (err instanceof AiProviderError) throw err;

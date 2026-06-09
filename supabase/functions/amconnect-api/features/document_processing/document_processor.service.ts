@@ -23,11 +23,12 @@ export class DocumentProcessorService {
   ): Promise<{ extraction: PolicyExtraction; documentMetadataId: string }> {
     const base64 = await this.storageService.downloadAsBase64("policies", storagePath);
 
-    const { data: extraction } = await this.docAiProvider.generateStructuredData(
+    const { data: _rawExtraction } = await this.docAiProvider.generateStructuredData(
       POLICY_EXTRACTION_PROMPT,
       PolicyExtractionSchema,
       { mimeType: "application/pdf", data: base64 },
     );
+    const extraction = _rawExtraction as PolicyExtraction;
 
     const docMeta = await this.documentMetadataRepository.create({
       agent_id: agentId,
@@ -39,8 +40,10 @@ export class DocumentProcessorService {
     });
 
     const noteContent = this.buildNoteFromExtraction(extraction, fileName);
-    await this.embeddingsService.saveNote(agentId, {
+    await this.embeddingsService.saveDocument(agentId, {
       content: noteContent,
+      sourceType: "pdf",
+      documentMetadataId: docMeta?.id ?? null,
       metadata: { source: "policy_document", storagePath, fileName },
     });
 

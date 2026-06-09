@@ -52,7 +52,7 @@ export const globalErrorHandler = async (err: Error, c: Context) => {
   // Errores de validación Zod — cliente, no se persisten
   if (err instanceof ZodError) {
     return c.json(
-      { success: false, error: "Datos de entrada inválidos.", details: err.flatten() },
+      { success: false, error: "Datos de entrada inválidos.", details: (err as ZodError).flatten() },
       422,
     );
   }

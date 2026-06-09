@@ -107,7 +107,7 @@ export class SubscriptionRepository implements ISubscriptionRepository {
       .order("price_mxn", { ascending: true });
 
     if (error) throw new AppError("No se pudieron obtener los planes.", 500);
-    return (data ?? []).map((p) => ({
+    return (data ?? []).map((p: { id: string; slug: string; name: string; price_mxn: number; price_usd: number; limits: unknown }) => ({
       id: p.id,
       slug: p.slug,
       name: p.name,

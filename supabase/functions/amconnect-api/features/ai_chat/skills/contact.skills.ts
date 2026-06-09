@@ -27,7 +27,7 @@ export const contactSkills: SkillDefinition[] = [
     },
     async execute({ query }, ctx) {
       const results = await ctx.contactService.findSimilarContact(ctx.agentId, query as string);
-      return results.map(slimContact);
+      return (results ?? []).map((c) => slimContact(c as unknown as Record<string, unknown>));
     },
   },
   {
@@ -86,7 +86,7 @@ export const contactSkills: SkillDefinition[] = [
     },
     async execute(_args, ctx) {
       const contacts = await ctx.contactService.getByField("agent_id", ctx.agentId);
-      return contacts.map(slimContact);
+      return (contacts ?? []).map((c) => slimContact(c as unknown as Record<string, unknown>));
     },
   },
   {
