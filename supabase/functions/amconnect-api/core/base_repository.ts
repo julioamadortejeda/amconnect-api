@@ -1,5 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { IRepository } from "./repository.interface.ts";
+import { IRepository, PaginatedResult } from "./repository.interface.ts";
 import { handleSupabaseError } from "../shared/errors.ts";
 
 export class SupabaseRepository<T> implements IRepository<T> {
@@ -109,6 +109,56 @@ export class SupabaseRepository<T> implements IRepository<T> {
     return data as T[];
   }
 
+  async paginate(
+    filters: Partial<Record<string, unknown>> = {},
+    page = 1,
+    pageSize = 20,
+  ): Promise<PaginatedResult<T>> {
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    let dataQuery = this.applyActiveFilter(this.table.select(this.selectString));
+    let countQuery = this.applyActiveFilter(
+      this.table.select("*", { count: "exact", head: true }),
+    );
+
+    for (const [field, value] of Object.entries(filters)) {
+      if (value === null) {
+        // deno-lint-ignore no-explicit-any
+        dataQuery = (dataQuery as any).is(field, null);
+        // deno-lint-ignore no-explicit-any
+        countQuery = (countQuery as any).is(field, null);
+      } else if (value !== undefined) {
+        // deno-lint-ignore no-explicit-any
+        dataQuery = (dataQuery as any).eq(field, value);
+        // deno-lint-ignore no-explicit-any
+        countQuery = (countQuery as any).eq(field, value);
+      }
+    }
+
+    const [
+      { data, error },
+      { count, error: countError },
+    ] = await Promise.all([
+      // deno-lint-ignore no-explicit-any
+      (dataQuery as any).order("created_at", { ascending: false }).range(from, to),
+      // deno-lint-ignore no-explicit-any
+      (countQuery as any),
+    ]);
+
+    if (error) handleSupabaseError(error, `Error al cargar datos de ${this.tableName}.`);
+    if (countError) handleSupabaseError(countError, `Error al contar datos de ${this.tableName}.`);
+
+    const total = count ?? 0;
+    return {
+      data: (data ?? []) as T[],
+      total,
+      page,
+      pageSize,
+      hasMore: from + pageSize < total,
+    };
+  }
+
   async create(data: Partial<T>): Promise<T | null> {
     // deno-lint-ignore no-explicit-any
     const { data: result, error } = await this.table.insert([data as any]).select().single();
@@ -164,8 +214,13 @@ export class SupabaseRepository<T> implements IRepository<T> {
       this.table.select("*", { count: "exact", head: true })
     );
     for (const [field, value] of Object.entries(filters)) {
-      // deno-lint-ignore no-explicit-any
-      if (value !== undefined) query = (query as any).eq(field, value);
+      if (value === null) {
+        // deno-lint-ignore no-explicit-any
+        query = (query as any).is(field, null);
+      } else if (value !== undefined) {
+        // deno-lint-ignore no-explicit-any
+        query = (query as any).eq(field, value);
+      }
     }
     // deno-lint-ignore no-explicit-any
     const { count, error } = await (query as any);

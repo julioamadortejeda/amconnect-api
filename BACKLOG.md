@@ -75,8 +75,12 @@ Estado: `[ ]` pendiente · `[~]` en progreso · `[x]` resuelto · `[-]` descarta
 ### P4 — `getAll` con límite hardcodeado de 100 sin paginación
 **Archivos:** `core/base_repository.ts:28`
 **Problema:** `getAll(limit = 100)` trunca silenciosamente sin indicarlo al cliente. Un agente con >100 contactos/pólizas no ve todos sus registros.
-**Fix:** Implementar paginación (offset/cursor) o al menos devolver un header/campo `hasMore` cuando se alcanza el límite.
-**Estado:** `[ ]`
+**Fix aplicado:**
+- `PaginatedResult<T>` + `paginate` en `IRepository` y `SupabaseRepository`. Lanza data query + count en `Promise.all` paralelo.
+- `BaseService.paginate` delega al repositorio.
+- `ContactService`, `PolicyService`, `ReminderService` — override `paginate` para aplicar `toDTO` al array resultante.
+- `ContactController`, `PolicyController`, `ReminderController` — `getAll` acepta `?page=&pageSize=` (default 20, cap 100). Responde `{ data, total, page, pageSize, hasMore }`.
+**Estado:** `[x]`
 
 ---
 
@@ -85,20 +89,24 @@ Estado: `[ ]` pendiente · `[~]` en progreso · `[x]` resuelto · `[-]` descarta
 ### E1 — `AiChatService` recibe `SupabaseClient` directamente
 **Archivos:** `features/ai_chat/ai_chat.service.ts:59-63`
 **Problema:** Hace queries directas a `ai_pending_tasks` y `ai_sessions` sin repository. Viola el patrón del proyecto.
-**Fix:** Crear `AiPendingTaskRepository` y moverle las queries de pending tasks. Las de `ai_sessions` ya están en `AiSessionService`.
-**Estado:** `[ ]`
+**Fix aplicado:**
+- `AiSessionRepository` — 4 nuevos métodos: `getSessionContext`, `cancelPendingTasksBySession`, `getActivePendingTasks`. Interface `PendingTaskRow`.
+- `AiSessionService` — 3 nuevos métodos: `cancelSession` (corre cancel tasks + update session en paralelo), `getSessionContext`, `getActivePendingTasks`.
+- `AiChatService` — `SupabaseClient` eliminado del constructor. `cancelSession` delega a `aiSessionService`. `processMessage` usa `getSessionContext` + `getActivePendingTasks`.
+- `di/index.ts` — `supabase` removido del constructor de `AiChatService`.
+**Estado:** `[x]`
 
 ### E2 — Default model name hardcodeado en dos lugares
 **Archivos:** `features/ai_chat/ai_session.service.ts:34`, `http/middleware/di/index.ts:41`
 **Problema:** `"gemini-3.1-flash-lite"` como default aparece en ambos archivos. Si cambia el modelo default hay que actualizarlo en dos lugares.
-**Fix:** Extraer a una constante compartida en `shared/` o leerlo siempre del env en el DI y pasarlo explícitamente.
-**Estado:** `[ ]`
+**Fix aplicado:** `shared/config.ts` — `AI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.1-flash-lite"`. Ambos archivos importan `AI_MODEL`. Agregar `GEMINI_MODEL=...` en `.env.local` y en las variables de entorno de Supabase.
+**Estado:** `[x]`
 
 ### E3 — `count` en `SupabaseRepository` ignora filtros `null`
 **Archivos:** `core/base_repository.ts:165-170`
 **Problema:** `if (value !== undefined) query = (query as any).eq(field, value)` — si `value` es `null`, no aplica el filtro. `findByFilters` sí maneja `null` con `.is(field, null)`. Inconsistencia entre los dos métodos.
-**Fix:** Replicar el mismo manejo de `null` de `findByFilters` en `count`.
-**Estado:** `[ ]`
+**Fix aplicado:** `count` ahora tiene el mismo bloque `if null → .is() / else if not undefined → .eq()` que `findByFilters`.
+**Estado:** `[x]`
 
 ---
 
@@ -107,20 +115,18 @@ Estado: `[ ]` pendiente · `[~]` en progreso · `[x]` resuelto · `[-]` descarta
 ### C1 — `cancelSession` devuelve 200 aunque la sesión no exista
 **Archivos:** `features/ai_chat/ai_chat.service.ts:66-85`
 **Problema:** Si el `sessionId` no existe, la update no hace nada pero el endpoint devuelve `{ cancelled: true }` con 200.
-**Fix:** Verificar que la sesión existe antes de cancelar; devolver 404 si no.
-**Estado:** `[ ]`
+**Fix aplicado:** `AiSessionService.cancelSession` llama `getSessionContext` primero. Si retorna `null`, lanza `AppError("Sesión no encontrada.", 404)`. Si existe, corre cancelación en paralelo.
+**Estado:** `[x]`
 
 ### C2 — Sin rollback si `trackIngestionUsage` falla después de `saveDocument`
 **Archivos:** `features/document_processing/knowledge_ingestion.service.ts`, `features/document_processing/policy_ingestion.service.ts`
-**Problema:** Si `saveDocument` pasa OK pero `trackIngestionUsage` falla, los embeddings quedan en DB sin registro de costo. No hay transacción que garantice atomicidad.
-**Fix:** Evaluar si se puede mover el tracking dentro de la misma operación o al menos logear el fallo para auditoría manual.
-**Estado:** `[ ]`
+**Problema:** Si `saveDocument` pasa OK pero `trackIngestionUsage` falla, los embeddings quedan en DB sin registro de costo.
+**Estado:** `[-]` descartado — La Edge Function y la DB corren en la misma instancia de Supabase. Si la DB falla para `trackIngestionUsage`, ya habría fallado antes en `saveDocument`. El escenario es imposible en este deployment.
 
 ### C3 — `forceNextTurnToGenerateText` no se resetea si hay múltiples skills en el mismo turno
 **Archivos:** `features/ai_chat/ai_chat.service.ts:173, 239-243`
 **Problema:** Si un turno tiene múltiples function calls y `search_knowledge` devuelve vacío, `forceNextTurnToGenerateText = true` se activa aunque otras skills del mismo turno devuelvan datos útiles.
-**Fix:** Mover el `forceNextTurnToGenerateText = true` a después de procesar TODAS las function calls del turno, solo si TODAS devolvieron vacío.
-**Estado:** `[ ]`
+**Estado:** `[-]` descartado — El comportamiento es intencional. Activar el flag apenas una búsqueda devuelve vacío fuerza al modelo a responder al usuario de inmediato, evitando loops. Si se cambiara a "solo cuando TODAS las búsquedas están vacías", el AI podría seguir llamando más tools antes de preguntar (ej: contacto con nombre ambiguo donde se esperan múltiples resultados).
 
 ---
 

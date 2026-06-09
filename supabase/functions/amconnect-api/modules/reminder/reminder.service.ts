@@ -27,6 +27,11 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     return rows ? rows.map((r) => this.toDTO(r)) : null;
   }
 
+  override async paginate(filters: Partial<Record<string, unknown>> = {}, page = 1, pageSize = 20) {
+    const result = await this.repository.paginate(filters, page, pageSize);
+    return { ...result, data: result.data.map((r) => this.toDTO(r)) };
+  }
+
   override async create(data: Partial<ReminderRequestDTO>) {
     const row = await this.repository.create(this.prepareForCreate(data) as Partial<ReminderResponseDTO>);
     return row ? this.toDTO(row) : null;

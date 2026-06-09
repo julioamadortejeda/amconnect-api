@@ -48,14 +48,23 @@ export interface ChatMessageRow {
   totalTokens: number;
 }
 
+export interface PendingTaskRow {
+  id: string;
+  taskType: string;
+  payload: Record<string, unknown>;
+}
+
 export interface IAiSessionRepository {
   createSession(data: CreateSessionData): Promise<string>;
   updateSession(sessionId: string, data: UpdateSessionData): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
   getSessionTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number }>;
+  getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string } | null>;
   getMetadata(sessionId: string): Promise<Record<string, unknown> | null>;
   savePendingTask(sessionId: string, agentId: string, taskType: string, payload: Record<string, unknown>): Promise<string>;
   resolvePendingTask(pendingTaskId: string, sessionId: string): Promise<void>;
+  cancelPendingTasksBySession(sessionId: string): Promise<number>;
+  getActivePendingTasks(sessionId: string): Promise<PendingTaskRow[]>;
   insertIngestionUsage(rows: IngestionUsageRow | IngestionUsageRow[]): Promise<void>;
   insertChatMessages(rows: ChatMessageRow[]): Promise<void>;
 }
@@ -119,6 +128,15 @@ export class AiSessionRepository implements IAiSessionRepository {
     await this.supabase.from("ai_sessions").delete().eq("id", sessionId);
   }
 
+  async getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string } | null> {
+    const { data } = await this.supabase
+      .from("ai_sessions")
+      .select("history, type")
+      .eq("id", sessionId)
+      .single();
+    return data ?? null;
+  }
+
   async getMetadata(sessionId: string): Promise<Record<string, unknown> | null> {
     const { data } = await this.supabase
       .from("ai_sessions")
@@ -126,6 +144,29 @@ export class AiSessionRepository implements IAiSessionRepository {
       .eq("id", sessionId)
       .single();
     return (data?.metadata as Record<string, unknown>) ?? null;
+  }
+
+  async cancelPendingTasksBySession(sessionId: string): Promise<number> {
+    const { data } = await this.supabase
+      .from("ai_pending_tasks")
+      .update({ status: "cancelled", cancellation_reason: "user_left", updated_at: new Date().toISOString() })
+      .eq("session_id", sessionId)
+      .eq("status", "pending")
+      .select("id");
+    return data?.length ?? 0;
+  }
+
+  async getActivePendingTasks(sessionId: string): Promise<PendingTaskRow[]> {
+    const { data } = await this.supabase
+      .from("ai_pending_tasks")
+      .select("id, task_type, payload")
+      .eq("session_id", sessionId)
+      .eq("status", "pending");
+    return (data ?? []).map((t: Record<string, unknown>) => ({
+      id: t.id as string,
+      taskType: t.task_type as string,
+      payload: t.payload as Record<string, unknown>,
+    }));
   }
 
   async savePendingTask(sessionId: string, agentId: string, taskType: string, payload: Record<string, unknown>): Promise<string> {

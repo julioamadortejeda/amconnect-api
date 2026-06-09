@@ -34,11 +34,12 @@ import { PolicyIngestionService } from "../../../features/document_processing/po
 import { ConfirmPolicyService } from "../../../features/document_processing/confirm_policy.service.ts";
 import { DocumentMetadataRepository } from "../../../modules/document_metadata/document_metadata.repository.ts";
 import { AppError } from "../../../shared/errors.ts";
+import { AI_MODEL } from "../../../shared/config.ts";
 
 function buildGeminiProvider(): GeminiProvider {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) throw new AppError("GEMINI_API_KEY no configurada.", 500);
-  const model = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.1-flash-lite";
+  const model = AI_MODEL;
   return new GeminiProvider(apiKey, model);
 }
 
@@ -127,7 +128,6 @@ export const injectServices = async (c: Context, next: Next) => {
   const getAiChatService = () => {
     if (!aiChatService) {
       aiChatService = new AiChatService(
-        supabase,
         getGeminiProvider(),
         {
           contactService,

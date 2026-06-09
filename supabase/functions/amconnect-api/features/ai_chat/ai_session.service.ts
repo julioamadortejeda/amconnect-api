@@ -1,4 +1,6 @@
-import type { IAiSessionRepository, IngestionUsageRow, ChatMessageRow } from "./ai_session.repository.ts";
+import type { IAiSessionRepository, IngestionUsageRow, ChatMessageRow, PendingTaskRow } from "./ai_session.repository.ts";
+import { AI_MODEL } from "../../shared/config.ts";
+import { AppError } from "../../shared/errors.ts";
 
 export interface CreateSessionInput {
   triggerMessage: string;
@@ -30,7 +32,7 @@ export class AiSessionService {
       triggerMessage: input.triggerMessage,
       history: [],
       type: input.sessionType,
-      modelName: input.modelName ?? Deno.env.get("GEMINI_MODEL") ?? "gemini-3.1-flash-lite",
+      modelName: input.modelName ?? AI_MODEL,
       embeddingModelName: input.embeddingModelName,
     });
   }
@@ -195,5 +197,24 @@ export class AiSessionService {
 
   async resolvePendingTask(pendingTaskId: string, sessionId: string): Promise<void> {
     await this.repository.resolvePendingTask(pendingTaskId, sessionId);
+  }
+
+  async cancelSession(sessionId: string): Promise<{ cancelledTasks: number }> {
+    const session = await this.repository.getSessionContext(sessionId);
+    if (!session) throw new AppError("Sesión no encontrada.", 404);
+
+    const [cancelledTasks] = await Promise.all([
+      this.repository.cancelPendingTasksBySession(sessionId),
+      this.repository.updateSession(sessionId, { status: "cancelled" }),
+    ]);
+    return { cancelledTasks };
+  }
+
+  async getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string } | null> {
+    return await this.repository.getSessionContext(sessionId);
+  }
+
+  async getActivePendingTasks(sessionId: string): Promise<PendingTaskRow[]> {
+    return await this.repository.getActivePendingTasks(sessionId);
   }
 }

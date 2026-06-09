@@ -34,6 +34,11 @@ export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseD
     return rows ? rows.map(this.toDTO) : null;
   }
 
+  override async paginate(filters: Partial<Record<string, unknown>> = {}, page = 1, pageSize = 20) {
+    const result = await this.repository.paginate(filters, page, pageSize);
+    return { ...result, data: result.data.map((r) => this.toDTO(r)) };
+  }
+
   override async create(data: Partial<PolicyRequestDTO>) {
     const row = await this.repository.create(this.prepareForCreate(data) as Partial<PolicyResponseDTO>);
     return row ? this.toDTO(row) : null;

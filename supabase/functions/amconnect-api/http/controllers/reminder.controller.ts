@@ -2,12 +2,14 @@ import { Context } from "hono";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { ReminderService } from "../../modules/reminder/reminder.service.ts";
 import { ReminderRequestSchema } from "../../modules/reminder/reminder.dto.ts";
+import { parsePagination } from "../../shared/pagination.ts";
 
 export class ReminderController {
   static async getAll(c: Context) {
     const agentId: string = c.get("agent_id");
+    const { page, pageSize } = parsePagination(c);
     const service: ReminderService = c.get("services").reminderService;
-    const data = await service.getByField("agent_id", agentId);
+    const data = await service.paginate({ agent_id: agentId }, page, pageSize);
     return sendSuccess(c, data);
   }
 

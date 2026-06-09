@@ -1,4 +1,4 @@
-import { IRepository } from "./repository.interface.ts";
+import { IRepository, PaginatedResult } from "./repository.interface.ts";
 import { IService } from "./service.interface.ts";
 
 export abstract class BaseService<TRequest, TResponse = TRequest>
@@ -23,6 +23,14 @@ export abstract class BaseService<TRequest, TResponse = TRequest>
 
   async findByFilters(filters: Partial<Record<string, unknown>>, limit = 100): Promise<TResponse[] | null> {
     return await this.repository.findByFilters(filters, limit);
+  }
+
+  async paginate(
+    filters: Partial<Record<string, unknown>> = {},
+    page = 1,
+    pageSize = 20,
+  ): Promise<PaginatedResult<TResponse>> {
+    return await this.repository.paginate(filters, page, pageSize);
   }
 
   async count(filters: Partial<Record<string, unknown>> = {}): Promise<number> {

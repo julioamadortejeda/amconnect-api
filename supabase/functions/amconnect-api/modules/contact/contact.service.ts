@@ -30,6 +30,11 @@ export class ContactService extends BaseService<ContactRequestDTO, ContactRespon
     return rows ? rows.map(this.toDTO) : null;
   }
 
+  override async paginate(filters: Partial<Record<string, unknown>> = {}, page = 1, pageSize = 20) {
+    const result = await this.repository.paginate(filters, page, pageSize);
+    return { ...result, data: result.data.map((r) => this.toDTO(r)) };
+  }
+
   override async create(data: Partial<ContactRequestDTO>) {
     const row = await this.repository.create(this.prepareForCreate(data) as Partial<ContactResponseDTO>);
     return row ? this.toDTO(row) : null;

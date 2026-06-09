@@ -1,4 +1,3 @@
-import { SupabaseClient } from "@supabase/supabase-js";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface.ts";
 import { AiSessionService } from "./ai_session.service.ts";
@@ -57,31 +56,13 @@ export interface ChatResponse {
 
 export class AiChatService {
   constructor(
-    private supabase: SupabaseClient,
     private aiProvider: IAiProvider,
-    private skillContext: Omit<SkillContext, "agentId" | "sessionId" | "supabase" | "aiSessionService">,
+    private skillContext: Omit<SkillContext, "agentId" | "sessionId" | "aiSessionService">,
     private aiSessionService: AiSessionService,
   ) {}
 
   async cancelSession(sessionId: string): Promise<{ cancelledTasks: number }> {
-    const [{ data }] = await Promise.all([
-      this.supabase
-        .from("ai_pending_tasks")
-        .update({
-          status: "cancelled",
-          cancellation_reason: "user_left",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("session_id", sessionId)
-        .eq("status", "pending")
-        .select("id"),
-      this.supabase
-        .from("ai_sessions")
-        .update({ status: "cancelled", updated_at: new Date().toISOString() })
-        .eq("id", sessionId),
-    ]);
-
-    return { cancelledTasks: data?.length ?? 0 };
+    return await this.aiSessionService.cancelSession(sessionId);
   }
 
   async processMessage(
@@ -96,12 +77,7 @@ export class AiChatService {
     let sessionType = "chat";
 
     if (sessionId) {
-      const { data: session } = await this.supabase
-        .from("ai_sessions")
-        .select("history, type")
-        .eq("id", sessionId)
-        .single();
-
+      const session = await this.aiSessionService.getSessionContext(sessionId);
       if (session?.history) history.push(...(session.history as AiMessage[]));
       sessionType = session?.type ?? "chat";
     } else {
@@ -116,11 +92,7 @@ export class AiChatService {
     history.push({ role: AiRole.USER, parts: [{ text: message }] });
 
     // Cargar pending tasks activos de la sesión para darle contexto al AI
-    const { data: pendingTasks } = await this.supabase
-      .from("ai_pending_tasks")
-      .select("id, task_type, payload")
-      .eq("session_id", currentSessionId)
-      .eq("status", "pending");
+    const pendingTasks = await this.aiSessionService.getActivePendingTasks(currentSessionId!);
 
     // Seleccionar domains y system prompt según tipo de sesión
     const isPolicyIngestion = sessionType === "policy_ingestion";
@@ -146,9 +118,9 @@ export class AiChatService {
 
     // Construir system prompt con contexto de pending tasks si los hay
     let systemPrompt = isPolicyIngestion ? POLICY_INGESTION_PROMPT : SYSTEM_PROMPT;
-    if (pendingTasks && pendingTasks.length > 0) {
+    if (pendingTasks.length > 0) {
       const tasksContext = pendingTasks
-        .map((t) => `- ID: ${t.id}, tipo: ${t.task_type}, datos: ${JSON.stringify(t.payload)}`)
+        .map((t) => `- ID: ${t.id}, tipo: ${t.taskType}, datos: ${JSON.stringify(t.payload)}`)
         .join("\n");
       systemPrompt += `\n\nTareas pendientes en esta sesión que esperan resolución:\n${tasksContext}`;
     }

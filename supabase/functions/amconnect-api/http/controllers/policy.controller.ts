@@ -2,12 +2,14 @@ import { Context } from "hono";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { PolicyService } from "../../modules/policy/policy.service.ts";
 import { PolicyRequestSchema, PolicyParticipantSchema, BeneficiarySchema } from "../../modules/policy/policy.dto.ts";
+import { parsePagination } from "../../shared/pagination.ts";
 
 export class PolicyController {
   static async getAll(c: Context) {
     const agentId: string = c.get("agent_id");
+    const { page, pageSize } = parsePagination(c);
     const service: PolicyService = c.get("services").policyService;
-    const data = await service.getByField("agent_id", agentId);
+    const data = await service.paginate({ agent_id: agentId }, page, pageSize);
     return sendSuccess(c, data);
   }
 
