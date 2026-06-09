@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { SkillDefinition } from "./skill.core.ts";
+import { ContactResponseDTO } from "../../../modules/contact/contact.dto.ts";
 
-const slimContact = (c: Record<string, unknown>) => ({
+const slimContact = (c: ContactResponseDTO) => ({
   id: c.id,
   fullName: c.fullName,
   phone: c.phone,
@@ -27,7 +28,7 @@ export const contactSkills: SkillDefinition[] = [
     },
     async execute({ query }, ctx) {
       const results = await ctx.contactService.findSimilarContact(ctx.agentId, query as string);
-      return (results ?? []).map((c) => slimContact(c as unknown as Record<string, unknown>));
+      return (results ?? []).map(slimContact);
     },
   },
   {
@@ -86,7 +87,7 @@ export const contactSkills: SkillDefinition[] = [
     },
     async execute(_args, ctx) {
       const contacts = await ctx.contactService.getByField("agent_id", ctx.agentId);
-      return (contacts ?? []).map((c) => slimContact(c as unknown as Record<string, unknown>));
+      return (contacts ?? []).map(slimContact);
     },
   },
   {

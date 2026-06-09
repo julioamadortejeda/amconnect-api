@@ -3,26 +3,18 @@ import { BaseService } from "../../core/base_service.ts";
 import { SupabaseRepository } from "../../core/base_repository.ts";
 import { objectToCamelCaseDeep, objectToSnakeCase } from "../../shared/case_converter.ts";
 
-function toDTO(row: unknown): Record<string, unknown> {
-  return objectToCamelCaseDeep(row) as Record<string, unknown>;
-}
-
 // ─── Catálogo global — solo lectura ──────────────────────────────────────────
 
 function makeGlobalCatalogService(supabase: SupabaseClient, tableName: string) {
   const repo = new SupabaseRepository<Record<string, unknown>>(supabase, tableName);
   return new (class extends BaseService<Record<string, unknown>> {
-    override async getAll(limit = 100) {
-      const rows = await this.repository.getAll(limit);
-      return rows ? rows.map(toDTO) : null;
+    protected override toDTO(row: unknown): Record<string, unknown> {
+      return objectToCamelCaseDeep(row) as Record<string, unknown>;
     }
-    override async getById(id: string) {
-      const row = await this.repository.getById(id);
-      return row ? toDTO(row) : null;
-    }
+
     async getByCode(code: string) {
       const rows = await this.repository.findByFilters({ code }, 1);
-      return rows?.[0] ? toDTO(rows[0]) : null;
+      return rows?.[0] ? this.toDTO(rows[0]) : null;
     }
   })(repo);
 }
@@ -32,29 +24,19 @@ function makeGlobalCatalogService(supabase: SupabaseClient, tableName: string) {
 function makeAgentCatalogService(supabase: SupabaseClient, tableName: string, agentId: string) {
   const repo = new SupabaseRepository<Record<string, unknown>>(supabase, tableName);
   return new (class extends BaseService<Record<string, unknown>> {
-    override async getAll(limit = 100) {
-      const rows = await this.repository.getAll(limit);
-      return rows ? rows.map(toDTO) : null;
+    protected override toDTO(row: unknown): Record<string, unknown> {
+      return objectToCamelCaseDeep(row) as Record<string, unknown>;
     }
-    override async getById(id: string) {
-      const row = await this.repository.getById(id);
-      return row ? toDTO(row) : null;
+
+    protected override prepareForCreate(data: Partial<Record<string, unknown>>): Record<string, unknown> {
+      return { ...objectToSnakeCase(data as Record<string, unknown>), agent_id: agentId };
     }
-    override async create(data: Partial<Record<string, unknown>>) {
-      const payload = { ...objectToSnakeCase(data as Record<string, unknown>), agent_id: agentId };
-      const row = await this.repository.create(payload);
-      return row ? toDTO(row) : null;
+
+    protected override prepareForUpdate(_id: string, data: Partial<Record<string, unknown>>): Record<string, unknown> {
+      return objectToSnakeCase(data as Record<string, unknown>);
     }
-    override async update(id: string, data: Partial<Record<string, unknown>>) {
-      const payload = objectToSnakeCase(data as Record<string, unknown>);
-      const row = await this.repository.update(id, payload);
-      return row ? toDTO(row) : null;
-    }
-    override async delete(id: string) {
-      const row = await this.repository.delete(id);
-      return row ? toDTO(row) : null;
-    }
-    override async search(query: string) {
+
+    override async search(query: string, _threshold?: number): Promise<Record<string, unknown>[] | null> {
       const { data, error } = await supabase
         .from(tableName)
         .select("id, name")
@@ -64,7 +46,7 @@ function makeAgentCatalogService(supabase: SupabaseClient, tableName: string, ag
         .order("name")
         .limit(10);
       if (error) console.error(`[catalog.search] ${tableName}:`, error.message);
-      return data ? data.map(toDTO) : [];
+      return data ? data.map((r) => this.toDTO(r)) : [];
     }
   })(repo);
 }

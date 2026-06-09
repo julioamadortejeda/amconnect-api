@@ -16,11 +16,11 @@ export interface ReminderGenerationResult {
 
 interface PolicyRow {
   id: string;
-  policy_number?: string | null;
-  next_payment_date?: string | null;
-  renewal_date?: string | null;
-  end_date?: string | null;
-  start_date?: string | null;
+  policyNumber?: string | null;
+  nextPaymentDate?: string | null;
+  renewalDate?: string | null;
+  endDate?: string | null;
+  startDate?: string | null;
 }
 
 function nextAnniversary(startDate: string): string {
@@ -36,31 +36,31 @@ export class ReminderGenerationService {
   constructor(private readonly repository: IReminderGenerationRepository) {}
 
   async generateForPolicy(policy: PolicyRow, agentId: string): Promise<ReminderGenerationResult> {
-    const policyLabel = policy.policy_number ?? "póliza";
+    const policyLabel = policy.policyNumber ?? "póliza";
     const candidates: Array<{ typeCode: string; title: string; dueDate: string }> = [];
 
-    if (policy.next_payment_date) {
+    if (policy.nextPaymentDate) {
       candidates.push({
-        typeCode: "PAGO",
+        typeCode: "PAYMENT",
         title: `Pago de Prima · ${policyLabel}`,
-        dueDate: policy.next_payment_date,
+        dueDate: policy.nextPaymentDate,
       });
     }
 
-    const renewalDate = policy.renewal_date ?? policy.end_date;
+    const renewalDate = policy.renewalDate ?? policy.endDate;
     if (renewalDate) {
       candidates.push({
-        typeCode: "RENOVACION",
+        typeCode: "RENEWAL",
         title: `Renovación · ${policyLabel}`,
         dueDate: renewalDate,
       });
     }
 
-    if (policy.start_date) {
+    if (policy.startDate) {
       candidates.push({
-        typeCode: "ANNIVERSARY",
+        typeCode: "ANIVERSARIO",
         title: `Aniversario · ${policyLabel}`,
-        dueDate: nextAnniversary(policy.start_date),
+        dueDate: nextAnniversary(policy.startDate),
       });
     }
 

@@ -53,7 +53,7 @@ function field(args: PolicyIngestionArgs, snake: string, camel: string): string 
 async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillContext) {
   const {
     agentId, sessionId,
-    contactService, policyService, embeddingsService, aiSessionService,
+    policyService, embeddingsService, aiSessionService,
     reminderGenerationService, catalogServices,
   } = ctx;
 
@@ -207,12 +207,19 @@ async function findOrCreateContact(ctx: SkillContext, fullName: string, rfc: str
 
 // deno-lint-ignore no-explicit-any
 async function resolvePaymentFrequency(service: any, frequency: string): Promise<{ id: string } | null> {
-  const normalized = frequency.toLowerCase();
+  const normalized = frequency.toUpperCase().trim();
+  // Primero intentamos buscar directamente por el código ya normalizado
+  const res = await service.getByCode(normalized);
+  if (res) return res;
+
+  // Fallback si por alguna razón vino en minúsculas o español completo
   const keywordMap: Record<string, string> = {
     mensual: "MONTHLY", anual: "ANNUAL", semestral: "SEMIANNUAL",
-    trimestral: "QUARTERLY", "único": "SINGLE",
+    trimestral: "QUARTERLY", monthly: "MONTHLY", quarterly: "QUARTERLY",
+    semiannual: "SEMIANNUAL", annual: "ANNUAL",
   };
-  const code = Object.entries(keywordMap).find(([k]) => normalized.includes(k))?.[1];
+  const key = frequency.toLowerCase().trim();
+  const code = keywordMap[key] ?? Object.entries(keywordMap).find(([k]) => key.includes(k))?.[1];
   if (!code) return null;
   return await service.getByCode(code);
 }

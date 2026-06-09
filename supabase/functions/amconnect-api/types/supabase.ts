@@ -848,18 +848,21 @@ export type Database = {
       }
       participant_roles: {
         Row: {
+          code: string
           created_at: string
           id: string
           is_active: boolean
           name: string
         }
         Insert: {
+          code: string
           created_at?: string
           id?: string
           is_active?: boolean
           name: string
         }
         Update: {
+          code?: string
           created_at?: string
           id?: string
           is_active?: boolean
@@ -869,6 +872,7 @@ export type Database = {
       }
       payment_frequencies: {
         Row: {
+          code: string
           created_at: string
           id: string
           is_active: boolean
@@ -876,6 +880,7 @@ export type Database = {
           name: string
         }
         Insert: {
+          code: string
           created_at?: string
           id?: string
           is_active?: boolean
@@ -883,6 +888,7 @@ export type Database = {
           name: string
         }
         Update: {
+          code?: string
           created_at?: string
           id?: string
           is_active?: boolean
@@ -893,18 +899,21 @@ export type Database = {
       }
       payment_methods: {
         Row: {
+          code: string
           created_at: string
           id: string
           is_active: boolean
           name: string
         }
         Insert: {
+          code: string
           created_at?: string
           id?: string
           is_active?: boolean
           name: string
         }
         Update: {
+          code?: string
           created_at?: string
           id?: string
           is_active?: boolean

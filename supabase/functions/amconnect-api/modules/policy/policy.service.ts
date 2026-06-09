@@ -15,51 +15,14 @@ export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseD
     this.beneficiaryRepo = new SupabaseRepository(supabase, "beneficiaries", "*", false);
   }
 
-  private toDTO(row: unknown): PolicyResponseDTO {
+  protected override toDTO(row: unknown): PolicyResponseDTO {
     return objectToCamelCaseDeep(row) as PolicyResponseDTO;
-  }
-
-  override async getAll(limit = 100) {
-    const rows = await this.repository.getAll(limit);
-    return rows ? rows.map(this.toDTO) : null;
-  }
-
-  override async getById(id: string) {
-    const row = await this.repository.getById(id);
-    return row ? this.toDTO(row) : null;
-  }
-
-  override async getByField(field: string, value: unknown, limit = 100) {
-    const rows = await this.repository.getByField(field, value, limit);
-    return rows ? rows.map(this.toDTO) : null;
-  }
-
-  override async paginate(filters: Partial<Record<string, unknown>> = {}, page = 1, pageSize = 20) {
-    const result = await this.repository.paginate(filters, page, pageSize);
-    return { ...result, data: result.data.map((r) => this.toDTO(r)) };
-  }
-
-  override async create(data: Partial<PolicyRequestDTO>) {
-    const row = await this.repository.create(this.prepareForCreate(data) as Partial<PolicyResponseDTO>);
-    return row ? this.toDTO(row) : null;
-  }
-
-  override async update(id: string, data: Partial<PolicyRequestDTO>) {
-    const row = await this.repository.update(id, this.prepareForUpdate(id, data) as Partial<PolicyResponseDTO>);
-    return row ? this.toDTO(row) : null;
-  }
-
-  override async delete(id: string) {
-    const row = await this.repository.delete(id);
-    return row ? this.toDTO(row) : null;
   }
 
   protected override prepareForCreate(data: Partial<PolicyRequestDTO>): Record<string, unknown> {
     return {
       agent_id: data.agentId,
       contact_id: data.contactId,
-      carrier_id: data.carrierId,
-      branch_id: data.branchId,
       product_id: data.productId,
       status_id: data.statusId,
       currency_id: data.currencyId,

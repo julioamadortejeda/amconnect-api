@@ -35,7 +35,7 @@ export class DocumentProcessorService {
       file_name: fileName,
       storage_path: storagePath,
       mime_type: "application/pdf",
-      raw_extraction: extraction as unknown as Record<string, unknown>,
+      raw_extraction: extraction,
       extracted_at: new Date().toISOString(),
     });
 
@@ -64,7 +64,7 @@ export class DocumentProcessorService {
       extraction.startDate ? `Vigencia: ${extraction.startDate} al ${extraction.endDate}` : null,
       extraction.renewalDate ? `Renovación: ${extraction.renewalDate}` : null,
       extraction.beneficiaries.length > 0
-        ? `Beneficiarios: ${extraction.beneficiaries.map((b) => `${b.fullName} (${b.percentage ?? "?"}%)`).join(", ")}`
+        ? `Beneficiarios: ${extraction.beneficiaries.map((b: { fullName: string; percentage: number | null }) => `${b.fullName} (${b.percentage ?? "?"}%)`).join(", ")}`
         : null,
       extraction.notes ?? null,
     ].filter(Boolean);

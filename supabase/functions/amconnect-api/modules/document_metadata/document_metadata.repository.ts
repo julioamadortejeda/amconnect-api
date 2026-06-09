@@ -7,7 +7,7 @@ export interface DocumentMetadataInsert {
   storage_path: string;
   mime_type: string;
   ingestion_type?: string;
-  raw_extraction?: Record<string, unknown>;
+  raw_extraction?: unknown;
   extracted_at?: string;
   contact_id?: string | null;
   policy_id?: string | null;

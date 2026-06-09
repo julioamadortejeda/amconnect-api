@@ -71,6 +71,7 @@ export class AiChatService {
     sessionId?: string,
   ): Promise<ChatResponse> {
     const history: AiMessage[] = [];
+    debugger;
     let currentSessionId = sessionId;
 
     // Cargar historial si hay sesión
@@ -179,7 +180,7 @@ export class AiChatService {
           const validation = skill.declaration.schema.safeParse(call.args);
           if (!validation.success) {
             const missing = validation.error.issues
-              .map((i) => `${i.path.join(".") || "campo"}: ${i.message}`)
+              .map((i: { path: (string | number)[]; message: string }) => `${i.path.join(".") || "campo"}: ${i.message}`)
               .join("; ");
             response = { error: `Faltan datos requeridos — ${missing}. Pídelos al usuario antes de volver a llamar este skill.` };
           } else {
@@ -269,7 +270,7 @@ export class AiChatService {
   async startPolicySession(
     sessionId: string,
     agentId: string,
-    extraction: Record<string, unknown>,
+    extraction: unknown,
     _documentMetadataId: string,
   ): Promise<ChatResponse> {
     const extractionSummary = JSON.stringify(extraction, null, 2);

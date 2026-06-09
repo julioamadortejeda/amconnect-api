@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { SkillDefinition } from "./skill.core.ts";
+import { PolicyResponseDTO } from "../../../modules/policy/policy.dto.ts";
 
-const slimPolicy = (p: Record<string, unknown>) => ({
+const slimPolicy = (p: PolicyResponseDTO) => ({
   id: p.id,
   policyNumber: p.policyNumber,
   contact: p.contact,
@@ -38,7 +39,7 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute(_args, ctx) {
       const policies = await ctx.policyService.getByField("agent_id", ctx.agentId);
-      return (policies ?? []).map((p) => slimPolicy(p as unknown as Record<string, unknown>));
+      return (policies ?? []).map(slimPolicy);
     },
   },
   {
@@ -53,7 +54,7 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute({ contact_id }, ctx) {
       const policies = await ctx.policyService.getByField("contact_id", contact_id as string);
-      return (policies ?? []).map((p) => slimPolicy(p as unknown as Record<string, unknown>));
+      return (policies ?? []).map(slimPolicy);
     },
   },
   {

@@ -11,43 +11,8 @@ export class ContactService extends BaseService<ContactRequestDTO, ContactRespon
     this.contactRepo = repository;
   }
 
-  private toDTO(row: unknown): ContactResponseDTO {
+  protected override toDTO(row: unknown): ContactResponseDTO {
     return objectToCamelCaseDeep(row) as ContactResponseDTO;
-  }
-
-  override async getAll(limit = 100) {
-    const rows = await this.repository.getAll(limit);
-    return rows ? rows.map(this.toDTO) : null;
-  }
-
-  override async getById(id: string) {
-    const row = await this.repository.getById(id);
-    return row ? this.toDTO(row) : null;
-  }
-
-  override async getByField(field: string, value: unknown, limit = 100) {
-    const rows = await this.repository.getByField(field, value, limit);
-    return rows ? rows.map(this.toDTO) : null;
-  }
-
-  override async paginate(filters: Partial<Record<string, unknown>> = {}, page = 1, pageSize = 20) {
-    const result = await this.repository.paginate(filters, page, pageSize);
-    return { ...result, data: result.data.map((r) => this.toDTO(r)) };
-  }
-
-  override async create(data: Partial<ContactRequestDTO>) {
-    const row = await this.repository.create(this.prepareForCreate(data) as Partial<ContactResponseDTO>);
-    return row ? this.toDTO(row) : null;
-  }
-
-  override async update(id: string, data: Partial<ContactRequestDTO>) {
-    const row = await this.repository.update(id, this.prepareForUpdate(id, data) as Partial<ContactResponseDTO>);
-    return row ? this.toDTO(row) : null;
-  }
-
-  override async delete(id: string) {
-    const row = await this.repository.delete(id);
-    return row ? this.toDTO(row) : null;
   }
 
   protected override prepareForCreate(data: Partial<ContactRequestDTO>): Record<string, unknown> {
@@ -85,6 +50,6 @@ export class ContactService extends BaseService<ContactRequestDTO, ContactRespon
 
   async findSimilarContact(agentId: string, query: string): Promise<ContactResponseDTO[] | null> {
     const rows = await this.contactRepo.findSimilar(agentId, query);
-    return rows ? rows.map(this.toDTO) : null;
+    return rows ? rows.map((r) => this.toDTO(r)) : null;
   }
 }

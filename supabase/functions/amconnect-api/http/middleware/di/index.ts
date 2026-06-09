@@ -165,7 +165,16 @@ export const injectServices = async (c: Context, next: Next) => {
 
   const getPolicyIngestionService = () => {
     if (!policyIngestionService) {
-      policyIngestionService = new PolicyIngestionService(documentMetadataRepository, getDocProvider(), getEmbeddingsService(), getEmbeddingProvider(), aiSessionService, storageService, policyService);
+      policyIngestionService = new PolicyIngestionService(
+        documentMetadataRepository,
+        getDocProvider(),
+        getEmbeddingsService(),
+        getEmbeddingProvider(),
+        aiSessionService,
+        storageService,
+        policyService,
+        catalogServices,
+      );
     }
     return policyIngestionService;
   };

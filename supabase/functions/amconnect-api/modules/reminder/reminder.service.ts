@@ -8,43 +8,8 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     super(repository);
   }
 
-  private toDTO(row: unknown): ReminderResponseDTO {
+  protected override toDTO(row: unknown): ReminderResponseDTO {
     return objectToCamelCaseDeep(row) as ReminderResponseDTO;
-  }
-
-  override async getAll(limit = 100) {
-    const rows = await this.repository.getAll(limit);
-    return rows ? rows.map((r) => this.toDTO(r)) : null;
-  }
-
-  override async getById(id: string) {
-    const row = await this.repository.getById(id);
-    return row ? this.toDTO(row) : null;
-  }
-
-  override async getByField(field: string, value: unknown, limit = 100) {
-    const rows = await this.repository.getByField(field, value, limit);
-    return rows ? rows.map((r) => this.toDTO(r)) : null;
-  }
-
-  override async paginate(filters: Partial<Record<string, unknown>> = {}, page = 1, pageSize = 20) {
-    const result = await this.repository.paginate(filters, page, pageSize);
-    return { ...result, data: result.data.map((r) => this.toDTO(r)) };
-  }
-
-  override async create(data: Partial<ReminderRequestDTO>) {
-    const row = await this.repository.create(this.prepareForCreate(data) as Partial<ReminderResponseDTO>);
-    return row ? this.toDTO(row) : null;
-  }
-
-  override async update(id: string, data: Partial<ReminderRequestDTO>) {
-    const row = await this.repository.update(id, this.prepareForUpdate(id, data) as Partial<ReminderResponseDTO>);
-    return row ? this.toDTO(row) : null;
-  }
-
-  override async delete(id: string) {
-    const row = await this.repository.delete(id);
-    return row ? this.toDTO(row) : null;
   }
 
   protected override prepareForCreate(data: Partial<ReminderRequestDTO>): Record<string, unknown> {

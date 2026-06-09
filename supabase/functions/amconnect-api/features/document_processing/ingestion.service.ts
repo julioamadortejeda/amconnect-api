@@ -160,7 +160,8 @@ export class IngestionService {
         ingestion_type: params.ingestionType,
         contact_id: params.contactId,
         policy_id: params.policyId,
-        raw_extraction: params.extraction as unknown as Record<string, unknown>,
+        // deno-lint-ignore no-explicit-any
+        raw_extraction: params.extraction as any,
         extracted_at: new Date().toISOString(),
       })
       .select("id")

@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { SkillDefinition } from "./skill.core.ts";
+import { ReminderResponseDTO } from "../../../modules/reminder/reminder.dto.ts";
 
-const slimReminder = (r: Record<string, unknown>) => ({
+const slimReminder = (r: ReminderResponseDTO) => ({
   id: r.id,
   title: r.title,
   description: r.description,
@@ -54,7 +55,7 @@ export const reminderSkills: SkillDefinition[] = [
         policyId: args.policy_id as string ?? null,
         isDone: false,
       });
-      return slimReminder(result as unknown as Record<string, unknown>);
+      return result ? slimReminder(result) : null;
     },
   },
   {
@@ -68,7 +69,7 @@ export const reminderSkills: SkillDefinition[] = [
     },
     async execute({ days }, ctx) {
       const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, (days as number) ?? 7);
-      return (reminders ?? []).map((r) => slimReminder(r as unknown as Record<string, unknown>));
+      return (reminders ?? []).map(slimReminder);
     },
   },
   {
@@ -92,7 +93,7 @@ export const reminderSkills: SkillDefinition[] = [
         dueDate: args.due_date as string | undefined,
         typeId: args.type_id as string | undefined,
       });
-      return slimReminder(result as unknown as Record<string, unknown>);
+      return result ? slimReminder(result) : null;
     },
   },
   {
@@ -107,7 +108,7 @@ export const reminderSkills: SkillDefinition[] = [
     },
     async execute({ reminder_id }, ctx) {
       const result = await ctx.reminderService.markDone(reminder_id as string);
-      return slimReminder(result as unknown as Record<string, unknown>);
+      return result ? slimReminder(result) : null;
     },
   },
 ];

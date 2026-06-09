@@ -112,7 +112,7 @@ export class AiController {
       const { text } = await aiChatService.startPolicySession(
         sessionId,
         agentId,
-        extraction as unknown as Record<string, unknown>,
+        extraction,
         documentMetadataId,
       );
 

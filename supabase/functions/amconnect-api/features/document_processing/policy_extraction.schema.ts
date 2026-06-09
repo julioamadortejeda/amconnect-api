@@ -15,8 +15,8 @@ export const PolicyExtractionSchema = z.object({
   sumInsured: z.number().nullable().describe("Suma asegurada o cobertura total"),
   premium: z.number().nullable().describe("Prima total del período"),
   currency: z.string().nullable().describe("Moneda: MXN o USD"),
-  paymentFrequency: z.string().nullable().describe("Frecuencia de pago: Mensual, Trimestral, Semestral, Anual"),
-  paymentMethod: z.string().nullable().describe("Forma de pago: Domiciliación, Transferencia, etc."),
+  paymentFrequency: z.string().nullable().describe("Frecuencia de pago: MONTHLY, QUARTERLY, SEMIANNUAL, ANNUAL"),
+  paymentMethod: z.string().nullable().describe("Forma de pago: DIRECT_DEBIT, BANK_TRANSFER, CHECK, CASH, CREDIT_CARD"),
 
   // Vigencia
   startDate: z.string().nullable().describe("Fecha de inicio de vigencia (YYYY-MM-DD)"),

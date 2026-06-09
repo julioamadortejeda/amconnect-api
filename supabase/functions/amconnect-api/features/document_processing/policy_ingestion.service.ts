@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { IAiProvider } from "../../core/ai_provider.interface.ts";
 import { IEmbeddingProvider } from "../../core/embedding_provider.interface.ts";
 import { EmbeddingsService } from "../rag/embeddings.service.ts";
@@ -34,6 +35,8 @@ export class PolicyIngestionService {
     private aiSessionService: AiSessionService,
     private storageService: StorageService,
     private policyService: PolicyService,
+    // deno-lint-ignore no-explicit-any
+    private catalogServices: any,
   ) {}
 
   async extract(agentId: string, sessionId: string, input: PolicyIngestInput): Promise<PolicyIngestResult> {
@@ -42,14 +45,60 @@ export class PolicyIngestionService {
     // Download throws AppError (pre-AI) — controller will deleteSession on catch
     const base64 = await this.storageService.downloadAsBase64("policies", storagePath);
 
+    // Obtener los catálogos globales de base de datos de manera dinámica
+    const [frequencies, methods, currencies] = await Promise.all([
+      this.catalogServices.paymentFrequencyService.getAll(),
+      this.catalogServices.paymentMethodService.getAll(),
+      this.catalogServices.currencyService.getAll(),
+    ]);
+
+    // Extraer los códigos de catálogo
+    const frequencyCodes = (frequencies || []).map((f: { code: string }) => f.code);
+    const methodCodes = (methods || []).map((m: { code: string }) => m.code);
+    const currencyCodes = (currencies || []).map((c: { code: string }) => c.code);
+
+    // Construir el Zod Schema adaptado dinámicamente
+    // Si no hay valores en base de datos, usamos fallbacks para que no falle z.enum
+    const dynamicFrequencyEnum = frequencyCodes.length > 0
+      ? z.enum(frequencyCodes as [string, ...string[]])
+      : z.string();
+    const dynamicMethodEnum = methodCodes.length > 0
+      ? z.enum(methodCodes as [string, ...string[]])
+      : z.string();
+    const dynamicCurrencyEnum = currencyCodes.length > 0
+      ? z.enum(currencyCodes as [string, ...string[]])
+      : z.string();
+
+    const dynamicSchema = PolicyExtractionSchema.extend({
+      paymentFrequency: dynamicFrequencyEnum.nullable().describe(`Frecuencia de pago. Códigos válidos: ${frequencyCodes.join(", ") || "Cualquiera"}`),
+      paymentMethod: dynamicMethodEnum.nullable().describe(`Forma de pago. Códigos válidos: ${methodCodes.join(", ") || "Cualquiera"}`),
+      currency: dynamicCurrencyEnum.nullable().describe(`Moneda de la póliza. Códigos válidos: ${currencyCodes.join(", ") || "Cualquiera"}`),
+    });
+
+    // Construir prompt dinámico inyectando los catálogos actuales
+    const dynamicPrompt = `
+${POLICY_EXTRACTION_PROMPT}
+
+Use the following catalog values for matching fields:
+
+1. paymentFrequency:
+${(frequencies || []).map((f: { code: string; name: string }) => `   - ${f.code} (${f.name})`).join("\n")}
+
+2. paymentMethod:
+${(methods || []).map((m: { code: string; name: string }) => `   - ${m.code} (${m.name})`).join("\n")}
+
+3. currency:
+${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} (${c.name})`).join("\n")}
+`.trim();
+
     // From this point forward, any error must be AiInvokedError so the controller
     // marks the session as failed instead of deleting it.
     let extraction: PolicyExtraction;
     let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
     try {
       const result = await this.aiProvider.generateStructuredData(
-        POLICY_EXTRACTION_PROMPT,
-        PolicyExtractionSchema,
+        dynamicPrompt,
+        dynamicSchema,
         { mimeType, data: base64 },
       );
       extraction = result.data as PolicyExtraction;
@@ -90,7 +139,7 @@ export class PolicyIngestionService {
         storage_path: storagePath,
         mime_type: mimeType,
         ingestion_type: "pdf",
-        raw_extraction: extraction as unknown as Record<string, unknown>,
+        raw_extraction: extraction,
         extracted_at: new Date().toISOString(),
       });
 
@@ -164,7 +213,7 @@ function buildCoveragesNote(extraction: PolicyExtraction): string | null {
     .filter(Boolean)
     .join(" – ");
 
-  const lines = extraction.coverages.map((c) => {
+  const lines = extraction.coverages.map((c: { name: string; amount: number | null; description: string | null }) => {
     let line = `- ${c.name}`;
     if (c.description) line += `: ${c.description}`;
     if (c.amount != null) line += ` (${c.amount} ${extraction.currency ?? "MXN"})`;

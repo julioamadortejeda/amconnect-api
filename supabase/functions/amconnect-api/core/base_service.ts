@@ -9,20 +9,28 @@ export abstract class BaseService<TRequest, TResponse = TRequest>
     this.repository = repository;
   }
 
+  protected toDTO(row: unknown): TResponse {
+    return row as TResponse;
+  }
+
   async getAll(limit = 100): Promise<TResponse[] | null> {
-    return await this.repository.getAll(limit);
+    const rows = await this.repository.getAll(limit);
+    return rows ? rows.map((r) => this.toDTO(r)) : null;
   }
 
   async getByField(field: string, value: unknown, limit = 100): Promise<TResponse[] | null> {
-    return await this.repository.getByField(field, value, limit);
+    const rows = await this.repository.getByField(field, value, limit);
+    return rows ? rows.map((r) => this.toDTO(r)) : null;
   }
 
   async getById(id: string): Promise<TResponse | null> {
-    return await this.repository.getById(id);
+    const row = await this.repository.getById(id);
+    return row ? this.toDTO(row) : null;
   }
 
   async findByFilters(filters: Partial<Record<string, unknown>>, limit = 100): Promise<TResponse[] | null> {
-    return await this.repository.findByFilters(filters, limit);
+    const rows = await this.repository.findByFilters(filters, limit);
+    return rows ? rows.map((r) => this.toDTO(r)) : null;
   }
 
   async paginate(
@@ -30,7 +38,11 @@ export abstract class BaseService<TRequest, TResponse = TRequest>
     page = 1,
     pageSize = 20,
   ): Promise<PaginatedResult<TResponse>> {
-    return await this.repository.paginate(filters, page, pageSize);
+    const result = await this.repository.paginate(filters, page, pageSize);
+    return {
+      ...result,
+      data: result.data ? result.data.map((r) => this.toDTO(r)) : [],
+    };
   }
 
   async count(filters: Partial<Record<string, unknown>> = {}): Promise<number> {
@@ -38,7 +50,8 @@ export abstract class BaseService<TRequest, TResponse = TRequest>
   }
 
   async search(query: string, threshold = 0.3): Promise<TResponse[] | null> {
-    return await this.repository.search(query, threshold);
+    const rows = await this.repository.search(query, threshold);
+    return rows ? rows.map((r) => this.toDTO(r)) : null;
   }
 
   protected prepareForCreate(data: Partial<TRequest>): Record<string, unknown> {
@@ -52,22 +65,26 @@ export abstract class BaseService<TRequest, TResponse = TRequest>
   async create(data: Partial<TRequest>): Promise<TResponse | null> {
     const prepared = this.prepareForCreate(data);
     // deno-lint-ignore no-explicit-any
-    return await this.repository.create(prepared as any);
+    const row = await this.repository.create(prepared as any);
+    return row ? this.toDTO(row) : null;
   }
 
   async update(id: string, data: Partial<TRequest>): Promise<TResponse | null> {
     const prepared = this.prepareForUpdate(id, data);
     // deno-lint-ignore no-explicit-any
-    return await this.repository.update(id, prepared as any);
+    const row = await this.repository.update(id, prepared as any);
+    return row ? this.toDTO(row) : null;
   }
 
   async upsert(data: Partial<TRequest>): Promise<TResponse | null> {
     const prepared = this.prepareForCreate(data);
     // deno-lint-ignore no-explicit-any
-    return await this.repository.upsert(prepared as any);
+    const row = await this.repository.upsert(prepared as any);
+    return row ? this.toDTO(row) : null;
   }
 
   async delete(id: string): Promise<TResponse | null> {
-    return await this.repository.delete(id);
+    const row = await this.repository.delete(id);
+    return row ? this.toDTO(row) : null;
   }
 }

@@ -70,7 +70,7 @@ export class ConfirmPolicyService {
     // Agregar beneficiarios y participantes en paralelo
     const [beneficiaries, participants] = await Promise.all([
       Promise.all(
-        (data.beneficiaries ?? []).map((b) =>
+        (data.beneficiaries ?? []).map((b: { fullName: string; relationship?: string | null; percentage?: number | null }) =>
           this.policyService.addBeneficiary({
             policyId: policy.id,
             fullName: b.fullName,
@@ -80,7 +80,7 @@ export class ConfirmPolicyService {
         ),
       ),
       Promise.all(
-        (data.participants ?? []).map((p) =>
+        (data.participants ?? []).map((p: { contactId?: string | null; fullName?: string | null; roleId: string; relationship?: string | null }) =>
           this.policyService.addParticipant({
             policyId: policy.id,
             contactId: p.contactId ?? null,
