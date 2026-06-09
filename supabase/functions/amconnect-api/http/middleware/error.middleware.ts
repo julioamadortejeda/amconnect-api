@@ -1,9 +1,11 @@
 import { Context } from "hono";
 import { AppError } from "../../shared/errors.ts";
+import { ErrorLogRepository } from "../../modules/error_log/error_log.repository.ts";
+import { ErrorLogService } from "../../modules/error_log/error_log.service.ts";
 import { ZodError } from "zod";
 
 // Errores de cliente esperados — no se persisten, se devuelven directo
-const CLIENT_ERROR_CODES = new Set([400, 401, 402, 403, 404, 409, 422]);
+const CLIENT_ERROR_CODES = new Set([400, 401, 402, 403, 404, 409, 422, 429]);
 
 async function persistError(
   c: Context,
@@ -13,32 +15,22 @@ async function persistError(
   stack?: string,
   extra?: Record<string, unknown>,
 ): Promise<string | null> {
-  try {
-    const supabase = c.get("supabase");
-    if (!supabase) return null;
+  const supabase = c.get("supabase");
+  if (!supabase) return null;
 
-    const agentId: string | undefined = c.get("agent_id");
-    const req = c.req;
+  const service = new ErrorLogService(new ErrorLogRepository(supabase));
+  const req = c.req;
 
-    const { data } = await supabase
-      .from("error_logs")
-      .insert({
-        agent_id: agentId ?? null,
-        error_type: errorType,
-        status_code: statusCode,
-        error_message: message,
-        stack_trace: stack ?? null,
-        request_path: new URL(req.url).pathname,
-        request_method: req.method,
-        metadata: extra ?? null,
-      })
-      .select("id")
-      .single();
-
-    return data?.id ?? null;
-  } catch {
-    return null;
-  }
+  return await service.log({
+    agentId: c.get("agent_id") ?? null,
+    errorType,
+    statusCode,
+    errorMessage: message,
+    stackTrace: stack ?? null,
+    requestPath: new URL(req.url).pathname,
+    requestMethod: req.method,
+    metadata: extra ?? null,
+  });
 }
 
 export const globalErrorHandler = async (err: Error, c: Context) => {

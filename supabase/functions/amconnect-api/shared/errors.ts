@@ -57,6 +57,18 @@ export class AiError extends AppError {
 }
 
 /**
+ * Thrown when the AI provider itself returns an error (503 high demand, 500 server error).
+ * Unlike AiError (logic/model errors), this is NOT the user's fault.
+ * Controllers catch this to mark sessions as non-billable and decrement monthly usage.
+ */
+export class AiProviderError extends AppError {
+  constructor(message: string) {
+    super(message, 503);
+    this.name = "AiProviderError";
+  }
+}
+
+/**
  * Thrown by ingestion services when an error occurs AFTER the AI provider
  * has already been invoked (tokens consumed). The controller uses this to
  * call markSessionFailed instead of deleteSession.

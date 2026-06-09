@@ -2,7 +2,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface.ts";
 import { AiSessionService } from "./ai_session.service.ts";
-import { AiError } from "../../shared/errors.ts";
+import { AiError, AiProviderError } from "../../shared/errors.ts";
 import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
 import { SkillContext } from "./skills/skill.core.ts";
 
@@ -41,23 +41,25 @@ Always address the advisor in second person: use "you have", "your clients", "yo
 - NEVER invent or copy values between fields to satisfy required fields. If the user did not provide a contact's full name, ask for it — do not use CURP, RFC, email or any other field as a name.
 - Save data EXACTLY as the user provided it — never interpret, translate or look up external information (e.g. if they say "zócalo", save "zócalo", do not look up the real address).
 - If you cannot find information, say so clearly.
-- When a tool returns multiple records, decide based on the user's intent:
-- If the user requested a LIST or general query → show all results without asking.
-- If the user wants to act on a SPECIFIC record and there is ambiguity or it was not found → FIRST use save_pending_task saving all known data, THEN ask the user.
-- When the user responds to an ambiguity question and you have the correct record → use resolve_pending_task and then execute the action with the data saved in the pending task.
+- When a tool returns multiple records, apply this rule strictly:
+  - LIST or general query (e.g. "show me all my clients", "list all policies"): show all results, no clarification needed.
+  - SPECIFIC entity query (user mentions a name, partial name, or any identifier — e.g. "tell me about Julio", "what does Mariana's policy cover", "when does Juan's renewal expire"): if the search returns MORE THAN ONE match, STOP immediately. Do NOT call any more tools to fetch details of each match. Use save_pending_task to save what you already know, then list the matches briefly and ask the user which one they mean.
+  - SINGLE match for a specific query: proceed directly with that record.
+- When the user clarifies which record they mean → use resolve_pending_task, then continue with the correct record.
 `.trim();
 
 export interface ChatResponse {
   text: string;
   sessionId: string;
   usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+  metadata?: Record<string, unknown>;
 }
 
 export class AiChatService {
   constructor(
     private supabase: SupabaseClient,
     private aiProvider: IAiProvider,
-    private skillContext: Omit<SkillContext, "agentId" | "sessionId" | "supabase">,
+    private skillContext: Omit<SkillContext, "agentId" | "sessionId" | "supabase" | "aiSessionService">,
     private aiSessionService: AiSessionService,
   ) {}
 
@@ -96,12 +98,12 @@ export class AiChatService {
     if (sessionId) {
       const { data: session } = await this.supabase
         .from("ai_sessions")
-        .select("history, session_type")
+        .select("history, type")
         .eq("id", sessionId)
         .single();
 
       if (session?.history) history.push(...(session.history as AiMessage[]));
-      sessionType = session?.session_type ?? "chat";
+      sessionType = session?.type ?? "chat";
     } else {
       // Crear nueva sesión
       currentSessionId = await this.aiSessionService.createSession(agentId, {
@@ -154,7 +156,7 @@ export class AiChatService {
     const ctx: SkillContext = {
       agentId,
       sessionId: currentSessionId!,
-      supabase: this.supabase,
+      aiSessionService: this.aiSessionService,
       ...this.skillContext,
     };
 
@@ -169,7 +171,9 @@ export class AiChatService {
     let finalText = "";
     let loops = 0;
     let forceNextTurnToGenerateText = false;
+    let skillMetadata: Record<string, unknown> | undefined;
 
+    try {
     while (loops < MAX_LOOPS) {
       loops++;
       const currentTools = forceNextTurnToGenerateText ? [] : tools;
@@ -208,7 +212,19 @@ export class AiChatService {
             response = { error: `Faltan datos requeridos — ${missing}. Pídelos al usuario antes de volver a llamar este skill.` };
           } else {
             try {
-              response = await skill.execute(validation.data, ctx);
+              const rawResponse = await skill.execute(validation.data, ctx);
+              // Interceptar __skillMetadata sin enviarlo al modelo
+              if (
+                rawResponse &&
+                typeof rawResponse === "object" &&
+                "__skillMetadata" in (rawResponse as Record<string, unknown>)
+              ) {
+                const { __skillMetadata, ...rest } = rawResponse as Record<string, unknown>;
+                skillMetadata = __skillMetadata as Record<string, unknown>;
+                response = rest;
+              } else {
+                response = rawResponse;
+              }
             } catch (e) {
               const msg = e instanceof Error ? e.message : "Error ejecutando la herramienta.";
               console.error(`[CHAT] skill=${call.name} threw: ${msg}`);
@@ -232,6 +248,13 @@ export class AiChatService {
       }
 
       history.push({ role: AiRole.FUNCTION as never, parts: functionResults as never[] });
+    }
+
+    } catch (e) {
+      if (e instanceof AiProviderError && currentSessionId) {
+        await this.aiSessionService.markSessionProviderError(currentSessionId, e.message);
+      }
+      throw e;
     }
 
     if (!finalText) {
@@ -268,7 +291,7 @@ export class AiChatService {
       totalUsage,
     );
 
-    return { text: finalText, sessionId: currentSessionId!, usage: totalUsage };
+    return { text: finalText, sessionId: currentSessionId!, usage: totalUsage, metadata: skillMetadata };
   }
 
   async startPolicySession(
@@ -278,7 +301,7 @@ export class AiChatService {
     _documentMetadataId: string,
   ): Promise<ChatResponse> {
     const extractionSummary = JSON.stringify(extraction, null, 2);
-    const initialMessage = `El sistema extrajo la siguiente información de la póliza:\n\`\`\`json\n${extractionSummary}\n\`\`\`\nPor favor presenta un resumen al asesor y solicita confirmación para crear la póliza.`;
+    const initialMessage = `[SYSTEM_INGESTION] El sistema extrajo la siguiente información de la póliza:\n\`\`\`json\n${extractionSummary}\n\`\`\`\nPor favor presenta un resumen al asesor y solicita confirmación para crear la póliza.`;
 
     return await this.processMessage(initialMessage, agentId, sessionId);
   }

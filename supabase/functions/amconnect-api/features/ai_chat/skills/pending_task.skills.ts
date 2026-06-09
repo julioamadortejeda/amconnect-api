@@ -17,20 +17,13 @@ export const pendingTaskSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
-      const { data, error } = await ctx.supabase
-        .from("ai_pending_tasks")
-        .insert({
-          session_id: ctx.sessionId,
-          agent_id: ctx.agentId,
-          task_type: args.task_type,
-          payload: { ...(args.payload as object), missing: args.missing },
-          status: "pending",
-        })
-        .select()
-        .single();
-
-      if (error) throw new Error("No se pudo guardar la tarea pendiente.");
-      return { pending_task_id: data.id };
+      const pendingTaskId = await ctx.aiSessionService.savePendingTask(
+        ctx.sessionId,
+        ctx.agentId,
+        args.task_type as string,
+        { ...(args.payload as object), missing: args.missing },
+      );
+      return { pending_task_id: pendingTaskId };
     },
   },
   {
@@ -44,13 +37,7 @@ export const pendingTaskSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
-      const { error } = await ctx.supabase
-        .from("ai_pending_tasks")
-        .update({ status: "confirmed", updated_at: new Date().toISOString() })
-        .eq("id", args.pending_task_id)
-        .eq("session_id", ctx.sessionId);
-
-      if (error) throw new Error("No se pudo resolver la tarea pendiente.");
+      await ctx.aiSessionService.resolvePendingTask(args.pending_task_id as string, ctx.sessionId);
       return { resolved: true };
     },
   },

@@ -9,7 +9,7 @@ import {
   IAiProvider,
   TokenUsage,
 } from "../core/ai_provider.interface.ts";
-import { AiError, AppError } from "../shared/errors.ts";
+import { AiError, AiProviderError } from "../shared/errors.ts";
 
 function wrapGeminiError(e: unknown, context: string): never {
   // deno-lint-ignore no-explicit-any
@@ -17,10 +17,9 @@ function wrapGeminiError(e: unknown, context: string): never {
   const status: number | undefined = err?.status ?? err?.statusCode ?? err?.httpStatus;
   const message: string = err?.message ?? String(e);
 
-  if (status === 429) {
-    throw new AppError(
-      `Límite de solicitudes al modelo de IA alcanzado en ${context}. Intenta de nuevo en unos segundos.`,
-      429,
+  if (status === 429 || status === 503 || status === 500) {
+    throw new AiProviderError(
+      `El servicio de IA no está disponible en este momento (${status}). Intenta de nuevo en unos segundos.`,
     );
   }
   throw new AiError(`Error en ${context}: ${message}`);

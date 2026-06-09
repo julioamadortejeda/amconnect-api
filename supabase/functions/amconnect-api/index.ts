@@ -9,7 +9,8 @@ const app = new Hono();
 
 app.onError(globalErrorHandler);
 
-app.use("*", cors());
+const allowedOrigin = Deno.env.get("ALLOWED_ORIGIN");
+app.use("*", cors(allowedOrigin ? { origin: allowedOrigin } : {}));
 
 app.get("/amconnect-api/health", (c) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
 

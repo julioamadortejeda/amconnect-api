@@ -1,6 +1,5 @@
-import { SupabaseClient } from "@supabase/supabase-js";
-import { PlanLimits } from "./subscription.dto.ts";
-import { QuotaExceededError } from "../../shared/errors.ts";
+import type { IUsageRepository } from "./usage.repository.ts";
+import { AppError, QuotaExceededError } from "../../shared/errors.ts";
 
 export interface MonthlyUsage {
   chatCount: number;
@@ -13,39 +12,42 @@ function currentYearMonth(): string {
 }
 
 export class UsageService {
-  constructor(private supabase: SupabaseClient) {}
+  constructor(private repository: IUsageRepository) {}
 
   async getMonthlyUsage(agentId: string): Promise<MonthlyUsage> {
-    const { data } = await this.supabase
-      .from("agent_monthly_usage")
-      .select("chat_count, ingestion_count")
-      .eq("agent_id", agentId)
-      .eq("year_month", currentYearMonth())
-      .maybeSingle();
-
-    return {
-      chatCount: data?.chat_count ?? 0,
-      ingestionCount: data?.ingestion_count ?? 0,
-    };
+    const row = await this.repository.getMonthlyUsage(agentId, currentYearMonth());
+    return { chatCount: row?.chatCount ?? 0, ingestionCount: row?.ingestionCount ?? 0 };
   }
 
-  async checkAndIncrementChat(agentId: string, limits: PlanLimits): Promise<void> {
-    const usage = await this.getMonthlyUsage(agentId);
-    if (usage.chatCount >= limits.chat_messages_monthly) {
-      throw new QuotaExceededError(
-        `Alcanzaste el límite de ${limits.chat_messages_monthly} mensajes de chat este mes. Actualiza tu plan para continuar.`,
-      );
+  async checkAndIncrementChat(agentId: string): Promise<void> {
+    const { error } = await this.repository.incrementUsage(agentId, "chat");
+    if (error) {
+      if (error.message === "quota_exceeded") {
+        throw new QuotaExceededError(
+          "Alcanzaste el límite de mensajes de chat este mes. Actualiza tu plan para continuar.",
+        );
+      }
+      throw new AppError(`Error al verificar cuota de chat: ${error.message}`, 500);
     }
-    await this.supabase.rpc("increment_monthly_usage", { p_agent_id: agentId, p_field: "chat" });
   }
 
-  async checkAndIncrementIngestion(agentId: string, limits: PlanLimits): Promise<void> {
-    const usage = await this.getMonthlyUsage(agentId);
-    if (usage.ingestionCount >= limits.ingestions_monthly) {
-      throw new QuotaExceededError(
-        `Alcanzaste el límite de ${limits.ingestions_monthly} ingestas este mes. Actualiza tu plan para continuar.`,
-      );
+  async checkAndIncrementIngestion(agentId: string): Promise<void> {
+    const { error } = await this.repository.incrementUsage(agentId, "ingestion");
+    if (error) {
+      if (error.message === "quota_exceeded") {
+        throw new QuotaExceededError(
+          "Alcanzaste el límite de ingestas este mes. Actualiza tu plan para continuar.",
+        );
+      }
+      throw new AppError(`Error al verificar cuota de ingesta: ${error.message}`, 500);
     }
-    await this.supabase.rpc("increment_monthly_usage", { p_agent_id: agentId, p_field: "ingestion" });
+  }
+
+  async decrementChat(agentId: string): Promise<void> {
+    await this.repository.decrementUsage(agentId, "chat");
+  }
+
+  async decrementIngestion(agentId: string): Promise<void> {
+    await this.repository.decrementUsage(agentId, "ingestion");
   }
 }

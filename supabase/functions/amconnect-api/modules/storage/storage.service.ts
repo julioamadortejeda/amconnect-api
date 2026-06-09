@@ -1,4 +1,4 @@
-import { SupabaseClient } from "@supabase/supabase-js";
+import type { IStorageRepository } from "./storage.repository.ts";
 import { AppError } from "../../shared/errors.ts";
 
 export const ALLOWED_MIME_TYPES = [
@@ -15,7 +15,7 @@ export const ALLOWED_MIME_TYPES = [
 ];
 
 export class StorageService {
-  constructor(private supabase: SupabaseClient) {}
+  constructor(private repository: IStorageRepository) {}
 
   validateMimeType(mimeType: string): void {
     if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
@@ -40,16 +40,7 @@ export class StorageService {
     this.validateMimeType(mimeType);
 
     const storagePath = this.buildStoragePath(agentId, file.name);
-
-    const { error } = await this.supabase.storage
-      .from(bucket)
-      .upload(storagePath, await file.arrayBuffer(), {
-        contentType: mimeType,
-        upsert: false,
-      });
-
-    if (error) throw new AppError(`No se pudo subir el archivo: ${error.message}`, 500);
-
+    await this.repository.upload(bucket, storagePath, await file.arrayBuffer(), mimeType);
     return { storagePath, fileName: file.name, mimeType };
   }
 
@@ -62,36 +53,18 @@ export class StorageService {
     this.validateMimeType(mimeType);
 
     const storagePath = this.buildStoragePath(agentId, fileName);
-
-    const { data, error } = await this.supabase.storage
-      .from(bucket)
-      .createSignedUploadUrl(storagePath);
-
-    if (error || !data) {
-      throw new AppError(`No se pudo generar la URL de carga: ${error?.message}`, 500);
-    }
-
-    return { uploadUrl: data.signedUrl, storagePath, token: data.token, mimeType };
+    const { signedUrl, token } = await this.repository.createSignedUploadUrl(bucket, storagePath);
+    return { uploadUrl: signedUrl, storagePath, token, mimeType };
   }
 
   async download(bucket: string, filePath: string): Promise<Uint8Array> {
-    const { data, error } = await this.supabase.storage.from(bucket).download(filePath);
-
-    if (error || !data) {
-      throw new AppError(`No se pudo descargar el archivo: ${error?.message}`, 500);
-    }
-
-    return new Uint8Array(await data.arrayBuffer());
+    const blob = await this.repository.download(bucket, filePath);
+    return new Uint8Array(await blob.arrayBuffer());
   }
 
   async downloadAsBase64(bucket: string, filePath: string): Promise<string> {
-    const { data, error } = await this.supabase.storage.from(bucket).download(filePath);
-
-    if (error || !data) {
-      throw new AppError(`No se pudo descargar el archivo: ${error?.message}`, 500);
-    }
-
-    const bytes = new Uint8Array(await data.arrayBuffer());
+    const blob = await this.repository.download(bucket, filePath);
+    const bytes = new Uint8Array(await blob.arrayBuffer());
     let binary = "";
     for (let i = 0; i < bytes.byteLength; i += 8192) {
       binary += String.fromCharCode(...bytes.subarray(i, i + 8192));

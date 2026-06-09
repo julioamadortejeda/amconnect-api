@@ -1,20 +1,11 @@
-import { SupabaseClient } from "@supabase/supabase-js";
-import { IEmbeddingProvider } from "../../core/embedding_provider.interface.ts";
+import type { IRagRepository, NoteMatch } from "./rag.repository.ts";
+import type { IEmbeddingProvider } from "../../core/embedding_provider.interface.ts";
 
-export interface NoteMatch {
-  chunkId: string;
-  noteId: string;
-  content: string;
-  contactId: string | null;
-  policyId: string | null;
-  similarity: number;
-  sourceType: string;
-  metadata: Record<string, unknown> | null;
-}
+export type { NoteMatch };
 
 export class RagService {
   constructor(
-    private supabase: SupabaseClient,
+    private repository: IRagRepository,
     private embeddingProvider: IEmbeddingProvider,
   ) {}
 
@@ -25,34 +16,13 @@ export class RagService {
   ): Promise<NoteMatch[]> {
     const { embedding } = await this.embeddingProvider.generateEmbedding(query);
 
-    // deno-lint-ignore no-explicit-any
-    const { data, error } = await (this.supabase.rpc as any)("search_agent_note_chunks", {
-      p_agent_id: agentId,
-      p_query_embedding: JSON.stringify(embedding),
-      p_match_threshold: options?.threshold ?? 0.7,
-      p_match_count: options?.limit ?? 5,
-    });
-
-    if (error) {
-      console.error("[RagService.searchNotes]:", error);
-      return [];
-    }
-
-    let results: NoteMatch[] = (data ?? []).map((r: Record<string, unknown>) => ({
-      chunkId: r.chunk_id as string,
-      noteId: r.note_id as string,
-      content: r.content as string,
-      contactId: r.contact_id as string | null,
-      policyId: r.policy_id as string | null,
-      similarity: r.similarity as number,
-      sourceType: r.source_type as string,
-      metadata: r.metadata as Record<string, unknown> | null,
-    }));
-
-    if (options?.contactId) results = results.filter((r) => r.contactId === options.contactId);
-    if (options?.policyId) results = results.filter((r) => r.policyId === options.policyId);
-
-    return results;
+    return await this.repository.searchNoteChunks(
+      agentId,
+      JSON.stringify(embedding),
+      options?.threshold ?? 0.7,
+      options?.limit ?? 5,
+      { contactId: options?.contactId, policyId: options?.policyId },
+    );
   }
 
   formatContextForPrompt(notes: NoteMatch[]): string {

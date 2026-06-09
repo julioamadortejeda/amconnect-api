@@ -1,27 +1,5 @@
 import { z } from "zod";
-import { createClient } from "@supabase/supabase-js";
 import { SkillDefinition, SkillContext } from "./skill.core.ts";
-
-async function logSkillError(agentId: string, message: string, stack?: string, meta?: Record<string, unknown>) {
-  try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-    await supabase.from("error_logs").insert({
-      agent_id: agentId,
-      error_type: "SkillError",
-      status_code: 500,
-      error_message: message,
-      stack_trace: stack ?? null,
-      request_path: "/skill/confirm_policy_ingestion",
-      request_method: "SKILL",
-      metadata: meta ?? null,
-    });
-  } catch {
-    // silencioso — no podemos hacer nada más
-  }
-}
 
 const BeneficiarySchema = z.object({
   full_name: z.string(),
@@ -59,12 +37,7 @@ export const policyIngestionSkills: SkillDefinition[] = [
       try {
         return await resolveAndCreatePolicy(args as PolicyIngestionArgs, ctx);
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        await logSkillError(ctx.agentId, msg, e instanceof Error ? e.stack : undefined, {
-          args: { carrier: (args as PolicyIngestionArgs).carrier_name, holder: (args as PolicyIngestionArgs).holder_name },
-          sessionId: ctx.sessionId,
-        });
-        return { error: msg };
+        return { error: e instanceof Error ? e.message : String(e) };
       }
     },
   },
@@ -78,191 +51,162 @@ function field(args: PolicyIngestionArgs, snake: string, camel: string): string 
 }
 
 async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillContext) {
-  const { supabase, agentId, sessionId } = ctx;
+  const {
+    agentId, sessionId,
+    contactService, policyService, embeddingsService, aiSessionService,
+    reminderGenerationService, catalogServices,
+  } = ctx;
 
-  const carrierName   = field(args, "carrier_name", "carrierName");
-  const branchName    = field(args, "branch_name", "branchName");
-  const productName   = field(args, "product_name", "productName");
-  const holderName    = field(args, "holder_name", "holderName");
-  const holderRfc     = field(args, "holder_rfc", "holderRfc");
-  const policyNumber  = field(args, "policy_number", "policyNumber");
-  const currency      = args.currency ?? "MXN";
-  const startDate     = field(args, "start_date", "startDate");
-  const endDate       = field(args, "end_date", "endDate");
-  const renewalDate   = field(args, "renewal_date", "renewalDate");
+  const carrierName     = field(args, "carrier_name", "carrierName");
+  const branchName      = field(args, "branch_name", "branchName");
+  const productName     = field(args, "product_name", "productName");
+  const holderName      = field(args, "holder_name", "holderName");
+  const holderRfc       = field(args, "holder_rfc", "holderRfc");
+  const policyNumber    = field(args, "policy_number", "policyNumber");
+  const currency        = args.currency ?? "MXN";
+  const startDate       = field(args, "start_date", "startDate");
+  const endDate         = field(args, "end_date", "endDate");
+  const renewalDate     = field(args, "renewal_date", "renewalDate");
   const nextPaymentDate = field(args, "next_payment_date", "nextPaymentDate");
-  const paymentFreq   = field(args, "payment_frequency", "paymentFrequency");
-  const beneficiaries = args.beneficiaries ?? [];
+  const paymentFreq     = field(args, "payment_frequency", "paymentFrequency");
+  const beneficiaries   = args.beneficiaries ?? [];
 
   if (!carrierName || !branchName || !holderName) {
     return { error: "Faltan datos requeridos: carrier_name, branch_name y holder_name son obligatorios." };
   }
 
-  // ─── Leer metadatos de la sesión ──────────────────────────────────────────
-  const { data: session } = await supabase
-    .from("ai_sessions")
-    .select("metadata")
-    .eq("id", sessionId)
-    .single();
-
-  const documentMetadataId = session?.metadata?.documentMetadataId as string | null ?? null;
+  // ─── Leer documentMetadataId de la sesión ────────────────────────────────
+  const sessionMetadata = await aiSessionService.getSessionMetadata(sessionId);
+  const documentMetadataId = sessionMetadata?.documentMetadataId as string | null ?? null;
 
   // ─── Resolver carrier ─────────────────────────────────────────────────────
-  const carrierId = await findOrCreateCarrier(supabase, agentId, carrierName);
-
-  // ─── Resolver branch ──────────────────────────────────────────────────────
-  const branchId = await findOrCreateBranch(supabase, agentId, branchName);
-
-  // ─── Resolver product ─────────────────────────────────────────────────────
-  const productId = await findOrCreateProduct(
-    supabase, agentId,
-    productName ?? `${carrierName} ${branchName}`,
-    carrierId, branchId,
+  const carrierId = await findOrCreateCatalogItem(
+    catalogServices.carrierService, carrierName,
   );
 
-  // ─── Resolver contact ─────────────────────────────────────────────────────
-  const contactId = await findOrCreateContact(supabase, agentId, holderName, holderRfc);
+  // ─── Resolver branch ──────────────────────────────────────────────────────
+  const branchId = await findOrCreateCatalogItem(
+    catalogServices.branchService, branchName,
+    { code: branchName.toUpperCase().replace(/\s+/g, "_").slice(0, 20) },
+  );
+
+  // ─── Resolver product ─────────────────────────────────────────────────────
+  const productId = await findOrCreateCatalogItem(
+    catalogServices.productService,
+    productName ?? `${carrierName} ${branchName}`,
+    { carrierId, branchId },
+  );
+
+  // ─── Resolver contacto ───────────────────────────────────────────────────
+  const contactId = await findOrCreateContact(ctx, holderName, holderRfc ?? null);
 
   // ─── Resolver catálogos globales ──────────────────────────────────────────
-  const [statusId, currencyId, paymentFrequencyId] = await Promise.all([
-    getCatalogId(supabase, "policy_statuses", "ACTIVE"),
-    getCatalogId(supabase, "currencies", currency === "USD" ? "USD" : "MXN"),
-    paymentFreq ? getPaymentFrequencyId(supabase, paymentFreq) : Promise.resolve(null),
+  const [statusRow, currencyRow, paymentFrequencyRow] = await Promise.all([
+    catalogServices.policyStatusService.getByCode("ACTIVE"),
+    catalogServices.currencyService.getByCode(currency === "USD" ? "USD" : "MXN"),
+    paymentFreq ? resolvePaymentFrequency(catalogServices.paymentFrequencyService, paymentFreq) : null,
   ]);
 
-  // ─── Crear póliza ─────────────────────────────────────────────────────────
-  const { data: policy, error: policyError } = await supabase
-    .from("policies")
-    .insert({
-      agent_id: agentId,
-      contact_id: contactId,
-      product_id: productId,
-      status_id: statusId,
-      currency_id: currencyId,
-      payment_frequency_id: paymentFrequencyId,
-      policy_number: policyNumber ?? null,
-      premium: args.premium ?? null,
-      sum_insured: args.sum_insured ?? args.sumInsured ?? null,
-      start_date: startDate ?? null,
-      end_date: endDate ?? null,
-      renewal_date: renewalDate ?? null,
-      next_payment_date: nextPaymentDate ?? null,
-      notes: args.notes ?? null,
-    })
-    .select()
-    .single();
+  if (!statusRow?.id) throw new Error("No se encontró el estatus ACTIVE en el catálogo.");
+  if (!currencyRow?.id) throw new Error(`No se encontró la moneda ${currency} en el catálogo.`);
 
-  if (policyError || !policy) {
-    throw new Error(`No se pudo crear la póliza: ${policyError?.message ?? "sin datos"}`);
-  }
+  // ─── Crear póliza ─────────────────────────────────────────────────────────
+  const policy = await policyService.create({
+    agentId,
+    contactId,
+    carrierId,
+    branchId,
+    productId,
+    statusId: statusRow.id as string,
+    currencyId: currencyRow.id as string,
+    paymentFrequencyId: (paymentFrequencyRow?.id as string) ?? null,
+    policyNumber: policyNumber ?? null,
+    premium: args.premium ?? null,
+    sumInsured: args.sum_insured ?? args.sumInsured ?? null,
+    startDate: startDate ?? null,
+    endDate: endDate ?? null,
+    renewalDate: renewalDate ?? null,
+    nextPaymentDate: nextPaymentDate ?? null,
+    notes: args.notes ?? null,
+  });
+
+  if (!policy) throw new Error("No se pudo crear la póliza.");
 
   // ─── Agregar beneficiarios ────────────────────────────────────────────────
   if (beneficiaries.length > 0) {
-    await supabase.from("policy_beneficiaries").insert(
-      beneficiaries.map((b: { full_name: string; relationship?: string | null; percentage?: number | null }) => ({
-        policy_id: policy.id,
-        full_name: b.full_name,
-        relationship: b.relationship ?? null,
-        percentage: b.percentage ?? null,
-      })),
+    await Promise.all(
+      beneficiaries.map((b: { full_name: string; relationship?: string | null; percentage?: number | null }) =>
+        policyService.addBeneficiary({
+          policyId: policy.id,
+          fullName: b.full_name,
+          relationship: b.relationship ?? null,
+          percentage: b.percentage ?? null,
+        })
+      ),
     );
   }
 
-  // ─── Vincular nota a la póliza y contacto confirmados ────────────────────
+  // ─── Vincular notas al contacto y póliza confirmados ─────────────────────
   if (documentMetadataId) {
-    await supabase
-      .from("agent_notes")
-      .update({ contact_id: contactId, policy_id: policy.id })
-      .eq("document_metadata_id", documentMetadataId)
-      .eq("agent_id", agentId);
+    await embeddingsService.updateNoteLinks(agentId, documentMetadataId, contactId, policy.id);
   }
+
+  // ─── Generar recordatorios automáticos ───────────────────────────────────
+  const reminders = await reminderGenerationService.generateForPolicy(policy, agentId);
+
+  const fieldCount = [
+    carrierName, branchName, holderName, productName,
+    policyNumber, startDate, endDate, renewalDate, nextPaymentDate,
+    args.premium, args.sum_insured ?? args.sumInsured, paymentFreq, args.notes,
+  ].filter((v) => v !== null && v !== undefined && v !== "").length;
 
   return {
     success: true,
     policyId: policy.id,
-    policyNumber: policy.policy_number,
+    policyNumber: policy.policyNumber,
     message: "Póliza creada exitosamente.",
+    __skillMetadata: {
+      type: "policy_confirmed",
+      policyId: policy.id,
+      policyNumber: policy.policyNumber,
+      carrierName,
+      branchName,
+      holderName,
+      fieldCount,
+      reminders,
+    },
   };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-// Busca por proximidad trigram (search_catalog RPC). Si no hay match, crea el registro.
-async function searchCatalog(
-  supabase: SkillContext["supabase"],
-  table: string,
-  name: string,
-  agentId: string,
-  threshold = 0.2,
-): Promise<string | null> {
-  const { data } = await supabase.rpc("search_catalog", {
-    p_table_name: table,
-    p_query: name,
-    p_threshold: threshold,
-    p_agent_id: agentId,
-  });
-  return (data as Array<{ id: string }>)?.[0]?.id ?? null;
+// deno-lint-ignore no-explicit-any
+async function findOrCreateCatalogItem(service: any, name: string, extra: Record<string, unknown> = {}): Promise<string> {
+  const results = await service.search(name);
+  if (results?.[0]?.id) return results[0].id as string;
+  const created = await service.create({ name, ...extra });
+  if (!created?.id) throw new Error(`No se pudo crear el registro de catálogo: ${name}`);
+  return created.id as string;
 }
 
-async function findOrCreateCarrier(supabase: SkillContext["supabase"], agentId: string, name: string): Promise<string> {
-  const id = await searchCatalog(supabase, "carriers", name, agentId);
-  if (id) return id;
+async function findOrCreateContact(ctx: SkillContext, fullName: string, rfc: string | null): Promise<string> {
+  const { agentId, contactService } = ctx;
 
-  const { data: created } = await supabase
-    .from("carriers").insert({ agent_id: agentId, name, is_active: true }).select("id").single();
-  return created!.id;
-}
-
-async function findOrCreateBranch(supabase: SkillContext["supabase"], agentId: string, name: string): Promise<string> {
-  const id = await searchCatalog(supabase, "branches", name, agentId);
-  if (id) return id;
-
-  const code = name.toUpperCase().replace(/\s+/g, "_").slice(0, 20);
-  const { data: created } = await supabase
-    .from("branches").insert({ agent_id: agentId, name, code, is_active: true }).select("id").single();
-  return created!.id;
-}
-
-async function findOrCreateProduct(
-  supabase: SkillContext["supabase"], agentId: string, name: string, carrierId: string, branchId: string,
-): Promise<string> {
-  const id = await searchCatalog(supabase, "products", name, agentId);
-  if (id) return id;
-
-  const { data: created } = await supabase
-    .from("products")
-    .insert({ agent_id: agentId, name, carrier_id: carrierId, branch_id: branchId, is_active: true })
-    .select("id").single();
-  return created!.id;
-}
-
-async function findOrCreateContact(
-  supabase: SkillContext["supabase"], agentId: string, fullName: string, rfc?: string | null,
-): Promise<string> {
   if (rfc) {
-    const { data } = await supabase
-      .from("contacts").select("id").eq("agent_id", agentId).eq("rfc", rfc).limit(1).single();
-    if (data?.id) return data.id;
+    const byRfc = await contactService.getByField("rfc", rfc, 1);
+    if (byRfc?.[0]?.id) return byRfc[0].id;
   }
 
-  const { data } = await supabase
-    .from("contacts").select("id").eq("agent_id", agentId).ilike("full_name", `%${fullName}%`).limit(1).single();
-  if (data?.id) return data.id;
+  const similar = await contactService.findSimilarContact(agentId, fullName);
+  if (similar?.[0]?.id) return similar[0].id;
 
-  const { data: created } = await supabase
-    .from("contacts")
-    .insert({ agent_id: agentId, full_name: fullName, rfc: rfc ?? null, is_active: true })
-    .select("id").single();
-  return created!.id;
+  const created = await contactService.create({ agentId, fullName, rfc });
+  if (!created?.id) throw new Error(`No se pudo crear el contacto: ${fullName}`);
+  return created.id;
 }
 
-async function getCatalogId(supabase: SkillContext["supabase"], table: string, code: string): Promise<string> {
-  const { data } = await supabase.from(table).select("id").eq("code", code).single();
-  if (!data?.id) throw new Error(`No se encontró el catálogo ${table} con código ${code}.`);
-  return data.id;
-}
-
-async function getPaymentFrequencyId(supabase: SkillContext["supabase"], frequency: string): Promise<string | null> {
+// deno-lint-ignore no-explicit-any
+async function resolvePaymentFrequency(service: any, frequency: string): Promise<{ id: string } | null> {
   const normalized = frequency.toLowerCase();
   const keywordMap: Record<string, string> = {
     mensual: "MONTHLY", anual: "ANNUAL", semestral: "SEMIANNUAL",
@@ -270,7 +214,5 @@ async function getPaymentFrequencyId(supabase: SkillContext["supabase"], frequen
   };
   const code = Object.entries(keywordMap).find(([k]) => normalized.includes(k))?.[1];
   if (!code) return null;
-
-  const { data } = await supabase.from("payment_frequencies").select("id").eq("code", code).single();
-  return data?.id ?? null;
+  return await service.getByCode(code);
 }

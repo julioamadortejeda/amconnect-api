@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { SupabaseClient } from "@supabase/supabase-js";
 import { PolicyService } from "../../modules/policy/policy.service.ts";
 import { EmbeddingsService } from "../rag/embeddings.service.ts";
 
@@ -40,7 +39,6 @@ export type ConfirmPolicyDTO = z.infer<typeof ConfirmPolicySchema>;
 
 export class ConfirmPolicyService {
   constructor(
-    private supabase: SupabaseClient,
     private policyService: PolicyService,
     private embeddingsService: EmbeddingsService,
   ) {}

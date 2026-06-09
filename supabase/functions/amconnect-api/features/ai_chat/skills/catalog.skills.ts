@@ -125,14 +125,7 @@ export const catalogSkills: SkillDefinition[] = [
       schema: z.object({}),
     },
     async execute(_args, ctx) {
-      const { data, error } = await ctx.supabase
-        .from("products")
-        .select("id, name, carrier:carriers!carrier_id(id, name), branch:branches!branch_id(id, name)")
-        .eq("agent_id", ctx.agentId)
-        .eq("is_active", true)
-        .order("name");
-      if (error) console.error("[get_products]:", error.message);
-      return data ?? [];
+      return await ctx.catalogServices.productService.getWithRelations();
     },
   },
   {

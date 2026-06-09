@@ -1,11 +1,11 @@
 import { z } from "zod";
-import { SupabaseClient } from "@supabase/supabase-js";
 import { IAiProvider } from "../../core/ai_provider.interface.ts";
 import { IEmbeddingProvider } from "../../core/embedding_provider.interface.ts";
 import { EmbeddingsService, NoteSourceType } from "../rag/embeddings.service.ts";
 import { AiSessionService } from "../ai_chat/ai_session.service.ts";
 import { StorageService } from "../../modules/storage/storage.service.ts";
-import { AiInvokedError, AppError, ValidationError } from "../../shared/errors.ts";
+import { DocumentMetadataRepository } from "../../modules/document_metadata/document_metadata.repository.ts";
+import { AiInvokedError, AiProviderError, AppError, ValidationError } from "../../shared/errors.ts";
 
 // Solo para archivos binarios (pdf/imagen/audio): extraer texto fiel, sin resumir
 const RawExtractionSchema = z.object({
@@ -53,7 +53,7 @@ export interface KnowledgeIngestResult {
 
 export class KnowledgeIngestionService {
   constructor(
-    private supabase: SupabaseClient,
+    private documentMetadataRepository: DocumentMetadataRepository,
     private aiProvider: IAiProvider,
     private embeddingsService: EmbeddingsService,
     private embeddingProvider: IEmbeddingProvider,
@@ -62,6 +62,7 @@ export class KnowledgeIngestionService {
   ) {}
 
   async ingestFile(agentId: string, sessionId: string, input: KnowledgeIngestFileInput): Promise<KnowledgeIngestResult> {
+    debugger;
     const { storagePath, fileName, mimeType, contactId, policyId } = input;
 
     // Download throws AppError (pre-AI) — controller will deleteSession on catch
@@ -84,6 +85,7 @@ export class KnowledgeIngestionService {
       extraction = result.data;
       extractionUsage = result.usage;
     } catch (err) {
+      if (err instanceof AiProviderError) throw err;
       throw new AiInvokedError(
         `Error en la extracción de IA: ${err instanceof Error ? err.message : String(err)}`,
         err instanceof Error ? err : undefined,
@@ -91,19 +93,15 @@ export class KnowledgeIngestionService {
     }
 
     try {
-      const { data: docMeta } = await this.supabase
-        .from("document_metadata")
-        .insert({
-          agent_id: agentId,
-          file_name: fileName,
-          storage_path: storagePath,
-          mime_type: mimeType,
-          ingestion_type: sourceType,
-          raw_extraction: { content: extraction.content } as unknown as Record<string, unknown>,
-          extracted_at: new Date().toISOString(),
-        })
-        .select("id")
-        .single();
+      const docMeta = await this.documentMetadataRepository.create({
+        agent_id: agentId,
+        file_name: fileName,
+        storage_path: storagePath,
+        mime_type: mimeType,
+        ingestion_type: sourceType,
+        raw_extraction: { content: extraction.content },
+        extracted_at: new Date().toISOString(),
+      });
 
       const { noteId, embeddingTotalTokens, embeddingCount } = await this.embeddingsService.saveDocument(agentId, {
         content: extraction.content,
@@ -156,7 +154,7 @@ export class KnowledgeIngestionService {
     contactId: string | null,
     policyId: string | null,
   ): Promise<KnowledgeIngestResult> {
-
+    debugger;
     const isLong = content.length > 4000;
     const excerpt = isLong ? content.slice(0, 4000) : content;
     const lengthNote = isLong
@@ -170,52 +168,50 @@ export class KnowledgeIngestionService {
       `2. A friendly confirmation message (max 30 words) for the advisor summarizing what was saved.\n\n` +
       `Text content:\n${excerpt}${lengthNote}`;
 
-    let metadata: z.infer<typeof TextMetadataSchema>;
-    let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
+    // LLM (metadata) y embeddings (saveDocument) son independientes — corren en paralelo
+    let aiResult: { data: z.infer<typeof TextMetadataSchema>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } };
+    let docResult: { noteId: string; embeddingTotalTokens: number; embeddingCount: number };
     try {
-      const result = await this.aiProvider.generateStructuredData(
-        prompt,
-        TextMetadataSchema,
-      );
-      metadata = result.data;
-      extractionUsage = result.usage;
+      [aiResult, docResult] = await Promise.all([
+        this.aiProvider.generateStructuredData(prompt, TextMetadataSchema),
+        this.embeddingsService.saveDocument(agentId, {
+          content,
+          sourceType,
+          contactId,
+          policyId,
+          metadata: { sourceType },
+        }),
+      ]);
     } catch (err) {
+      if (err instanceof AiProviderError) throw err;
       throw new AiInvokedError(
-        `Error en la generación de metadata de IA: ${err instanceof Error ? err.message : String(err)}`,
+        `Error en la generación de IA: ${err instanceof Error ? err.message : String(err)}`,
         err instanceof Error ? err : undefined,
       );
     }
 
     try {
-      const { noteId, embeddingTotalTokens, embeddingCount } = await this.embeddingsService.saveDocument(agentId, {
-        content,
-        sourceType,
-        contactId,
-        policyId,
-        metadata: { sourceType },
-      });
-
       await this.aiSessionService.trackIngestionUsage(
         agentId,
         sessionId,
         null,
         this.aiProvider.model,
-        extractionUsage,
+        aiResult.usage,
         this.embeddingProvider.model,
-        embeddingTotalTokens,
-        embeddingCount,
+        docResult.embeddingTotalTokens,
+        docResult.embeddingCount,
       );
 
       await this.aiSessionService.updateMetadata(sessionId, {
-        noteId,
+        noteId: docResult.noteId,
         sourceType,
-        label: metadata.label,
+        label: aiResult.data.label,
       });
 
       return {
-        noteId,
-        label: metadata.label,
-        responseMessage: metadata.responseMessage,
+        noteId: docResult.noteId,
+        label: aiResult.data.label,
+        responseMessage: aiResult.data.responseMessage,
       };
     } catch (err) {
       if (err instanceof AppError) {

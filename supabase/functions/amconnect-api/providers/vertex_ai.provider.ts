@@ -8,7 +8,7 @@ import {
   IAiProvider,
   TokenUsage,
 } from "../core/ai_provider.interface.ts";
-import { AiError } from "../shared/errors.ts";
+import { AiError, AiProviderError } from "../shared/errors.ts";
 
 /**
  * VertexAiProvider — usa Vertex AI con Service Account.
@@ -54,14 +54,28 @@ export class VertexAiProvider implements IAiProvider {
       parts.push({ inlineData: { mimeType: inlineData.mimeType, data: inlineData.data } });
     }
 
-    const response = await this.ai.models.generateContent({
-      model: this.model,
-      contents: [{ role: "user", parts }],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: jsonSchema as never,
-      },
-    });
+    // deno-lint-ignore no-explicit-any
+    let response: any;
+    try {
+      response = await this.ai.models.generateContent({
+        model: this.model,
+        contents: [{ role: "user", parts }],
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: jsonSchema as never,
+        },
+      });
+    } catch (e) {
+      // deno-lint-ignore no-explicit-any
+      const err = e as any;
+      const status: number | undefined = err?.status ?? err?.statusCode ?? err?.httpStatus;
+      if (status === 429 || status === 503 || status === 500) {
+        throw new AiProviderError(
+          `El servicio de IA no está disponible en este momento (${status}). Intenta de nuevo en unos segundos.`,
+        );
+      }
+      throw new AiError(`Error en generateStructuredData: ${err?.message ?? String(e)}`);
+    }
 
     const text = response.text ?? "{}";
     const parsed = JSON.parse(text);

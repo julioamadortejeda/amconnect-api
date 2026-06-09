@@ -455,13 +455,14 @@ export type Database = {
           extraction_total_tokens: number
           history: Json | null
           id: string
+          is_billable: boolean
           metadata: Json | null
           model_name: string | null
           prompt_tokens: number
-          session_type: string
           status: string
           total_tokens: number
           trigger_message: string | null
+          type: string
           updated_at: string
         }
         Insert: {
@@ -476,13 +477,14 @@ export type Database = {
           extraction_total_tokens?: number
           history?: Json | null
           id?: string
+          is_billable?: boolean
           metadata?: Json | null
           model_name?: string | null
           prompt_tokens?: number
-          session_type?: string
           status?: string
           total_tokens?: number
           trigger_message?: string | null
+          type?: string
           updated_at?: string
         }
         Update: {
@@ -497,13 +499,14 @@ export type Database = {
           extraction_total_tokens?: number
           history?: Json | null
           id?: string
+          is_billable?: boolean
           metadata?: Json | null
           model_name?: string | null
           prompt_tokens?: number
-          session_type?: string
           status?: string
           total_tokens?: number
           trigger_message?: string | null
+          type?: string
           updated_at?: string
         }
         Relationships: [
@@ -1379,18 +1382,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      increment_monthly_usage: {
+      apply_promo_code: {
+        Args: { p_agent_id: string; p_code: string }
+        Returns: Json
+      }
+      decrement_monthly_usage: {
         Args: { p_agent_id: string; p_field: string }
         Returns: undefined
       }
-      increment_session_usage: {
-        Args: {
-          p_completion_tokens: number
-          p_prompt_tokens: number
-          p_session_id: string
-          p_total_tokens: number
-        }
-        Returns: undefined
+      increment_monthly_usage: {
+        Args: { p_agent_id: string; p_field: string }
+        Returns: Json
       }
       search_agent_note_chunks: {
         Args: {

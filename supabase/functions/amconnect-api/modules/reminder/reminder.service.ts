@@ -1,23 +1,11 @@
-import { SupabaseClient } from "@supabase/supabase-js";
 import { BaseService } from "../../core/base_service.ts";
-import { SupabaseRepository } from "../../core/base_repository.ts";
 import { ReminderRequestDTO, ReminderResponseDTO } from "./reminder.dto.ts";
+import { ReminderRepository } from "./reminder.repository.ts";
 import { objectToCamelCaseDeep, stripUndefined } from "../../shared/case_converter.ts";
 
-const REMINDER_SELECT = `
-  *,
-  type:reminder_types(id, name, code),
-  contact:contacts(id, full_name),
-  policy:policies(id, policy_number)
-`.trim();
-
 export class ReminderService extends BaseService<ReminderRequestDTO, ReminderResponseDTO> {
-  private reminderRepo: SupabaseRepository<ReminderResponseDTO>;
-
-  constructor(supabase: SupabaseClient) {
-    const repo = new SupabaseRepository<ReminderResponseDTO>(supabase, "reminders", REMINDER_SELECT);
-    super(repo);
-    this.reminderRepo = repo;
+  constructor(repository: ReminderRepository) {
+    super(repository);
   }
 
   private toDTO(row: unknown): ReminderResponseDTO {
@@ -85,12 +73,11 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
   }
 
   // TODO: mover el filtro de fecha a la DB — findByFilters solo soporta igualdad (.eq),
-  // habría que añadir soporte de rangos (.gte/.lte) al repo base o una query directa aquí,
-  // para no traer todos los reminders del agente en memoria antes de filtrar.
+  // habría que añadir soporte de rangos (.gte/.lte) al repo base o una query directa aquí.
   async getUpcoming(agentId: string, days = 7): Promise<ReminderResponseDTO[] | null> {
     const from = new Date().toISOString();
     const to = new Date(Date.now() + days * 86400000).toISOString();
-    const items = await this.reminderRepo.findByFilters({ agent_id: agentId, is_done: false });
+    const items = await this.repository.findByFilters({ agent_id: agentId, is_done: false });
     if (!items) return null;
     return items
       .map((r) => this.toDTO(r))

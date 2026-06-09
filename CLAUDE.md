@@ -46,3 +46,29 @@ supabase/
 - **snake_case en DB, camelCase en DTOs** — conversión en `prepareForCreate/Update` de cada service
 - **Convención SQL:** funciones standalone sin prefijo (`search_contacts`), triggers con `tg_`, funciones de trigger con `tgfn_`
 - **Migraciones:** `supabase migration up` para local; NUNCA `supabase db push` (apunta al remoto)
+
+## RLS — cobertura confirmada
+
+Las siguientes tablas tienen RLS con `agent_id = auth.uid()` y están protegidas contra acceso cruzado entre agentes sin necesidad de filtros extra en el código TypeScript:
+
+- `ai_sessions` — policy `"ai_sessions: own records"`
+- `ai_pending_tasks` — policy `"ai_pending_tasks: own records"`
+- `contacts`, `policies`, `reminders`, `agent_notes`, `agent_note_chunks`, `ai_chat_messages`, `document_metadata`, `beneficiaries`, `policy_participants` — todas con `agent_id = auth.uid()`
+- Catálogos por agente (`carriers`, `branches`, `products`) — RLS desde migración 008
+
+**Regla:** no es necesario agregar `.eq("agent_id", agentId)` en queries TypeScript cuando el cliente Supabase ya viene autenticado con el JWT del usuario — el RLS lo impone automáticamente.
+
+## Mini-framework de servicios
+
+Cada responsabilidad transversal tiene su propio servicio inyectable — no lógica inline en controllers ni middleware:
+
+| Servicio | Ubicación | Responsabilidad |
+|---|---|---|
+| `ErrorLogService` | `modules/error_log/error_log.service.ts` | Inserta en `error_logs`, retorna `errorId \| null` |
+| `UsageService` | `modules/subscription/usage.service.ts` | `checkAndIncrement*`, `decrement*` — usa `this.supabase` (RLS permite) |
+| `AiSessionService` | `features/ai_chat/ai_session.service.ts` | Crear, marcar, trackear tokens de sesiones IA |
+
+**Reglas:**
+- Nunca usar `SUPABASE_SERVICE_ROLE_KEY` en los servicios — el RLS debe estar correctamente configurado para que el cliente autenticado pueda hacer lo que necesita
+- El `errorId` se incluye en la respuesta JSON al cliente pero el mensaje de error es lo que ve el usuario; el ID es para uso interno futuro
+- No usar RPCs de Postgres para operaciones que se pueden hacer con TypeScript (ej: decrement = read-then-update en TS)
