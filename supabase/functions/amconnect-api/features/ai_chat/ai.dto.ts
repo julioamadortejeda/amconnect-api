@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const AiChatSchema = z.object({
   message: z.string().min(1, "El campo 'message' es requerido."),
-  sessionId: z.string().uuid().optional(),
+  sessionId: z.string().uuid().optional().nullable(),
 });
 
 export type AiChatDTO = z.infer<typeof AiChatSchema>;

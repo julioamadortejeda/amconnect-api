@@ -1284,9 +1284,11 @@ export type Database = {
           agent_id: string
           contact_id: string | null
           created_at: string
+          deleted_at: string | null
           description: string | null
           due_date: string
           id: string
+          is_active: boolean
           is_done: boolean
           notified_at: string | null
           policy_id: string | null
@@ -1298,9 +1300,11 @@ export type Database = {
           agent_id: string
           contact_id?: string | null
           created_at?: string
+          deleted_at?: string | null
           description?: string | null
           due_date: string
           id?: string
+          is_active?: boolean
           is_done?: boolean
           notified_at?: string | null
           policy_id?: string | null
@@ -1312,9 +1316,11 @@ export type Database = {
           agent_id?: string
           contact_id?: string | null
           created_at?: string
+          deleted_at?: string | null
           description?: string | null
           due_date?: string
           id?: string
+          is_active?: boolean
           is_done?: boolean
           notified_at?: string | null
           policy_id?: string | null

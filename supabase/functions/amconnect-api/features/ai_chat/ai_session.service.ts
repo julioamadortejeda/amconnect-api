@@ -217,4 +217,63 @@ export class AiSessionService {
   async getActivePendingTasks(sessionId: string): Promise<PendingTaskRow[]> {
     return await this.repository.getActivePendingTasks(sessionId);
   }
+
+  async getSessionCost(sessionId: string): Promise<Record<string, any>> {
+    const data = await this.repository.getSessionWithRates(sessionId);
+    if (!data) throw new AppError("Sesión no encontrada.", 404);
+
+    // deno-lint-ignore any
+    const chatModel = data.chat_model ? (Array.isArray(data.chat_model) ? data.chat_model[0] : data.chat_model) as any : null;
+    // deno-lint-ignore any
+    const embeddingModel = data.embedding_model ? (Array.isArray(data.embedding_model) ? data.embedding_model[0] : data.embedding_model) as any : null;
+
+    let chatCostUsd = 0;
+    if (chatModel) {
+      const inputCost = (data.prompt_tokens * Number(chatModel.input_cost_per_1m)) / 1_000_000;
+      const outputCost = (data.completion_tokens * Number(chatModel.output_cost_per_1m)) / 1_000_000;
+      chatCostUsd = inputCost + outputCost;
+    }
+
+    let extractionCostUsd = 0;
+    if (chatModel) {
+      const inputCost = (data.extraction_prompt_tokens * Number(chatModel.input_cost_per_1m)) / 1_000_000;
+      const outputCost = (data.extraction_completion_tokens * Number(chatModel.output_cost_per_1m)) / 1_000_000;
+      extractionCostUsd = inputCost + outputCost;
+    }
+
+    let embeddingCostUsd = 0;
+    if (embeddingModel) {
+      embeddingCostUsd = (data.embedding_total_tokens * Number(embeddingModel.input_cost_per_1m)) / 1_000_000;
+    }
+
+    const totalCostUsd = chatCostUsd + extractionCostUsd + embeddingCostUsd;
+
+    return {
+      sessionId: data.id,
+      chat: {
+        model: data.model_name ?? null,
+        displayName: chatModel?.display_name ?? null,
+        promptTokens: data.prompt_tokens,
+        completionTokens: data.completion_tokens,
+        totalTokens: data.total_tokens,
+        costUsd: chatCostUsd,
+      },
+      extraction: {
+        model: data.model_name ?? null,
+        displayName: chatModel?.display_name ?? null,
+        promptTokens: data.extraction_prompt_tokens,
+        completionTokens: data.extraction_completion_tokens,
+        totalTokens: data.extraction_total_tokens,
+        costUsd: extractionCostUsd,
+      },
+      embedding: {
+        model: data.embedding_model_name ?? null,
+        displayName: embeddingModel?.display_name ?? null,
+        totalTokens: data.embedding_total_tokens,
+        count: data.embedding_count,
+        costUsd: embeddingCostUsd,
+      },
+      totalCostUsd,
+    };
+  }
 }

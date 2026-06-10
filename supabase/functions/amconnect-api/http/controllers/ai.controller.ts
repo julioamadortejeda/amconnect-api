@@ -29,8 +29,9 @@ export class AiController {
     await usageService.checkAndIncrementChat(agentId);
 
     try {
+      const timezone = c.req.header("x-timezone") || "America/Mexico_City";
       const service: AiChatService = c.get("services").aiChatService;
-      const response = await service.processMessage(message, agentId, session_id);
+      const response = await service.processMessage(message, agentId, session_id, timezone);
       return sendSuccess(c, response);
     } catch (err) {
       if (err instanceof AiProviderError) {
@@ -240,6 +241,15 @@ export class AiController {
     }
 
     const result = await c.get("services").confirmPolicyService.confirm(agentId, parsed.data);
+    return sendSuccess(c, result);
+  }
+
+  static async getSessionCost(c: Context) {
+    const sessionId = c.req.param("sessionId");
+    if (!sessionId) throw new AppError("El parámetro 'sessionId' es requerido.", 400);
+
+    const aiSessionService = c.get("services").aiSessionService as AiSessionService;
+    const result = await aiSessionService.getSessionCost(sessionId);
     return sendSuccess(c, result);
   }
 }

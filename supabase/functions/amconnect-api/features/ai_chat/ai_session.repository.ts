@@ -67,6 +67,7 @@ export interface IAiSessionRepository {
   getActivePendingTasks(sessionId: string): Promise<PendingTaskRow[]>;
   insertIngestionUsage(rows: IngestionUsageRow | IngestionUsageRow[]): Promise<void>;
   insertChatMessages(rows: ChatMessageRow[]): Promise<void>;
+  getSessionWithRates(sessionId: string): Promise<Record<string, any> | null>;
 }
 
 export class AiSessionRepository implements IAiSessionRepository {
@@ -222,5 +223,30 @@ export class AiSessionRepository implements IAiSessionRepository {
     }
   }
 
+  async getSessionWithRates(sessionId: string): Promise<Record<string, any> | null> {
+    const { data, error } = await this.supabase
+      .from("ai_sessions")
+      .select(`
+        id,
+        model_name,
+        embedding_model_name,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        extraction_prompt_tokens,
+        extraction_completion_tokens,
+        extraction_total_tokens,
+        embedding_total_tokens,
+        embedding_count,
+        chat_model:model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m),
+        embedding_model:embedding_model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m)
+      `)
+      .eq("id", sessionId)
+      .single();
 
+    if (error) {
+      throw new AppError(`No se pudo obtener el costo de la sesión: ${error.message}`, 404);
+    }
+    return data;
+  }
 }

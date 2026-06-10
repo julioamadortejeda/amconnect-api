@@ -20,7 +20,7 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "get_reminder_types",
-      description: "Obtiene los tipos de recordatorio disponibles (id, code, name). Llamar antes de create_reminder para obtener el type_id correcto.",
+      description: "Retrieves all available reminder types (e.g., PAYMENT, RENEWAL, FOLLOW_UP, etc.) with their IDs, codes, and names. Call this tool whenever the user asks what types of reminders they can create, or when you need the type_id to create or update a reminder.",
       schema: z.object({}),
     },
     async execute(_args, ctx) {
@@ -31,17 +31,17 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "create_reminder",
-      description: "Crea un recordatorio. Requiere type_id — usar get_reminder_types primero si no se conoce.",
+      description: "Creates a new reminder for the advisor. Requires type_id — call get_reminder_types first if you don't know it.",
       schema: z.object({
-        type_id: z.string({ required_error: "Se requiere el UUID del tipo de recordatorio. Llamar get_reminder_types primero para obtenerlo." })
-          .describe("UUID del tipo de recordatorio (obtenido de get_reminder_types)"),
-        title: z.string({ required_error: "El título del recordatorio es obligatorio" })
-          .describe("Título del recordatorio"),
-        description: z.string().optional().describe("Descripción o notas adicionales"),
-        due_date: z.string({ required_error: "La fecha del recordatorio es obligatoria. Usar formato ISO 8601 (ej: 2026-06-02T15:00:00)" })
-          .describe("Fecha y hora en formato ISO 8601 (ej: 2026-06-02T15:00:00). Usar exactamente 'due_date'"),
-        contact_id: z.string().optional().describe("UUID del contacto relacionado (opcional)"),
-        policy_id: z.string().optional().describe("UUID de la póliza relacionada (opcional)"),
+        type_id: z.string({ required_error: "The UUID of the reminder type is required. Call get_reminder_types first to retrieve it." })
+          .describe("UUID of the reminder type (obtained from get_reminder_types)"),
+        title: z.string({ required_error: "The title of the reminder is required" })
+          .describe("Title of the reminder"),
+        description: z.string().optional().describe("Additional description or notes for the reminder"),
+        due_date: z.string({ required_error: "The due date is required. Use ISO 8601 format with timezone offset matching the advisor's local time (e.g., 2026-06-02T15:00:00-06:00)" })
+          .describe("Due date and time in ISO 8601 format with timezone offset matching the advisor's local time (e.g., 2026-06-02T15:00:00-06:00). Must use exactly 'due_date'"),
+        contact_id: z.string().optional().describe("UUID of the related contact (optional)"),
+        policy_id: z.string().optional().describe("UUID of the related policy (optional)"),
       }),
     },
     async execute(args, ctx) {
@@ -62,9 +62,9 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "get_upcoming_reminders",
-      description: "Obtiene los recordatorios próximos del asesor (por defecto los próximos 7 días).",
+      description: "Retrieves the advisor's upcoming reminders (defaults to the next 7 days).",
       schema: z.object({
-        days: z.number().optional().describe("Número de días hacia adelante (default: 7)"),
+        days: z.number().optional().describe("Number of days to look ahead (default: 7)"),
       }),
     },
     async execute({ days }, ctx) {
@@ -76,14 +76,14 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "update_reminder",
-      description: "Modifica o reprograma un recordatorio existente. Usar get_upcoming_reminders o buscar el recordatorio primero para obtener el reminder_id.",
+      description: "Modifies or reschedules an existing reminder. Call get_upcoming_reminders or search first to get the reminder_id.",
       schema: z.object({
-        reminder_id: z.string({ required_error: "Se requiere el UUID del recordatorio a actualizar" })
-          .describe("UUID del recordatorio a actualizar"),
+        reminder_id: z.string({ required_error: "The UUID of the reminder to update is required" })
+          .describe("UUID of the reminder to update"),
         title: z.string().optional(),
         description: z.string().optional(),
-        due_date: z.string().optional().describe("Nueva fecha en formato ISO 8601"),
-        type_id: z.string().optional().describe("UUID del nuevo tipo (usar get_reminder_types si no se conoce)"),
+        due_date: z.string().optional().describe("New due date in ISO 8601 format with timezone offset matching the advisor's local time (e.g., 2026-06-02T15:00:00-06:00)"),
+        type_id: z.string().optional().describe("UUID of the new type (call get_reminder_types if you don't know it)"),
       }),
     },
     async execute(args, ctx) {
@@ -100,10 +100,10 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "mark_reminder_done",
-      description: "Marca un recordatorio como completado.",
+      description: "Marks a reminder as completed.",
       schema: z.object({
-        reminder_id: z.string({ required_error: "Se requiere el UUID del recordatorio" })
-          .describe("UUID del recordatorio"),
+        reminder_id: z.string({ required_error: "The UUID of the reminder is required" })
+          .describe("UUID of the reminder"),
       }),
     },
     async execute({ reminder_id }, ctx) {

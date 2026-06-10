@@ -29,6 +29,7 @@ Always address the advisor in second person: use "you have", "your clients", "yo
 - Detect the language of each message and respond in that same language.
 - Respond naturally and professionally.
 - STRICT KNOWLEDGE CONSTRAINT: You must ONLY answer questions using the information retrieved from your tools (structured data or search_knowledge RAG). You are strictly prohibited from using your pre-trained internet knowledge to answer questions about companies, products, addresses, locations, or definitions. 
+- If the advisor asks about system metadata, configurations, or available options (such as available reminder types, policy statuses, currencies, branches, etc.), you MUST call the appropriate catalog or metadata retrieval tool (e.g., get_reminder_types) to retrieve the information from the database. Never invent lists of options or answer using your pre-trained knowledge.
 - If a user asks a question that requires external information (e.g., "donde esta la torre reforma") and your search_knowledge tool or database query returns empty or doesn't contain the answer, you must state that you do not have that information in your knowledge base. Do NOT answer from your general knowledge.
 - When the user asks about a person, search for them first with search_contact.
 - Data hierarchy: ALWAYS try structured skills first (contacts, policies, reminders, catalog). Only use search_knowledge when the information is not available in structured data — for example, notes from meetings, ingested documents, audio transcripts, or WhatsApp conversations.
@@ -68,17 +69,19 @@ export class AiChatService {
   async processMessage(
     message: string,
     agentId: string,
-    sessionId?: string,
+    sessionId?: string | null,
+    timezone?: string,
   ): Promise<ChatResponse> {
     const history: AiMessage[] = [];
     debugger;
-    let currentSessionId = sessionId;
+    const sId = sessionId ?? undefined;
+    let currentSessionId = sId;
 
     // Cargar historial si hay sesión
     let sessionType = "chat";
 
-    if (sessionId) {
-      const session = await this.aiSessionService.getSessionContext(sessionId);
+    if (sId) {
+      const session = await this.aiSessionService.getSessionContext(sId);
       if (session?.history) history.push(...(session.history as AiMessage[]));
       sessionType = session?.type ?? "chat";
     } else {
@@ -103,10 +106,19 @@ export class AiChatService {
     if (isPolicyIngestion) {
       activeDomains = POLICY_INGESTION_DOMAINS;
     } else {
-      const ALWAYS_ACTIVE = ["catalog", "pending_task", "knowledge"];
+      // TODO: Previously 'catalog' was always active. Kept as dynamic load to save tokens.
+      const ALWAYS_ACTIVE = ["pending_task", "knowledge"];
       const { domains, usage } = await this.aiProvider.classifyMessage(message, AVAILABLE_DOMAINS);
       classifyUsage = usage;
-      activeDomains = [...new Set([...ALWAYS_ACTIVE, ...(domains.length > 0 ? domains : AVAILABLE_DOMAINS)])];
+      
+      const parsedDomains = domains.length > 0 ? domains : AVAILABLE_DOMAINS;
+      
+      // If policy is active, we also activate catalog since policy tasks depend on catalog lookup
+      if (parsedDomains.includes("policy") && !parsedDomains.includes("catalog")) {
+        parsedDomains.push("catalog");
+      }
+      
+      activeDomains = [...new Set([...ALWAYS_ACTIVE, ...parsedDomains])];
     }
 
     const activeSkills = getSkillsByDomains(activeDomains);
@@ -117,8 +129,66 @@ export class AiChatService {
       }),
     }];
 
+    // Calcular fecha y hora local con zona horaria del servidor/asesor
+    const now = new Date();
+    let localIso = "";
+    let offsetStr = "";
+
+    try {
+      const tz = timezone || "America/Mexico_City";
+      const formatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      });
+      const parts = formatter.formatToParts(now);
+      const partVal = (type: string) => parts.find((p) => p.type === type)!.value;
+      
+      const year = partVal("year");
+      const month = partVal("month");
+      const day = partVal("day");
+      const hour = partVal("hour");
+      const minute = partVal("minute");
+      const second = partVal("second");
+
+      const tzFormatter = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        timeZoneName: "longOffset",
+      });
+      const tzParts = tzFormatter.formatToParts(now);
+      const tzNamePart = tzParts.find((p) => p.type === "timeZoneName")?.value || "";
+      
+      if (tzNamePart === "GMT" || tzNamePart === "UTC") {
+        offsetStr = "+00:00";
+      } else {
+        const match = tzNamePart.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
+        if (match) {
+          const sign = match[1];
+          const hours = match[2].padStart(2, "0");
+          const minutes = (match[3] || "00").padStart(2, "0");
+          offsetStr = `${sign}${hours}:${minutes}`;
+        } else {
+          offsetStr = "+00:00";
+        }
+      }
+      localIso = `${year}-${month}-${day}T${hour}:${minute}:${second}${offsetStr}`;
+    } catch (_e) {
+      const offsetMin = -now.getTimezoneOffset();
+      const sign = offsetMin >= 0 ? "+" : "-";
+      const pad = (n: number) => String(Math.abs(n)).padStart(2, "0");
+      offsetStr = `${sign}${pad(Math.floor(offsetMin / 60))}:${pad(offsetMin % 60)}`;
+      localIso = new Date(now.getTime() + (offsetMin * 60 * 1000)).toISOString().slice(0, 19) + offsetStr;
+    }
+
     // Construir system prompt con contexto de pending tasks si los hay
     let systemPrompt = isPolicyIngestion ? POLICY_INGESTION_PROMPT : SYSTEM_PROMPT;
+    systemPrompt += `\n\nAdvisor's Current Local Date and Time (with timezone offset): ${localIso}\nIMPORTANT: When creating or updating reminders, always resolve date/time expressions (e.g. "mañana", "el martes a las 3 de la tarde") using this current local date, and format the output "due_date" as an ISO 8601 string including this exact timezone offset (e.g., "YYYY-MM-DDTHH:mm:ss${offsetStr}").`;
+
     if (pendingTasks.length > 0) {
       const tasksContext = pendingTasks
         .map((t) => `- ID: ${t.id}, tipo: ${t.taskType}, datos: ${JSON.stringify(t.payload)}`)

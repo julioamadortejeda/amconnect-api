@@ -33,6 +33,7 @@ apiRouter.post("/ai/upload", AiController.uploadFile);
 apiRouter.post("/ai/ingest-policy", AiController.ingestPolicy);
 apiRouter.post("/ai/chat", AiController.chat);
 apiRouter.post("/ai/sessions/:sessionId/cancel", AiController.cancelSession);
+apiRouter.get("/ai/sessions/:sessionId/cost", AiController.getSessionCost);
 apiRouter.get("/ai/upload-url", AiController.getUploadUrl);
 apiRouter.post("/ai/ingest", AiController.ingest);
 apiRouter.post("/ai/ingest-text", AiController.ingestText);
