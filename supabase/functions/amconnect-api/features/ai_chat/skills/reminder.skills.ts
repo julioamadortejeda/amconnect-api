@@ -141,4 +141,56 @@ export const reminderSkills: SkillDefinition[] = [
       return (items ?? []).map(slimReminder);
     },
   },
+  {
+    domain: "reminder",
+    declaration: {
+      name: "create_reminder_for_client",
+      description: "Crea un recordatorio para el asesor asignándoselo a un cliente específico resolviendo su nombre de forma directa. Úsalo cuando el usuario pida agendar tareas o recordatorios mencionando al cliente (ej: 'recuérdame llamar a Julio mañana'). Resuelve el tipo de recordatorio (ej: LLAMADA/CALL para 'llamar', CITA/APPOINTMENT para 'reunión') automáticamente.",
+      schema: z.object({
+        client_name: z.string({ required_error: "Nombre del cliente para asignar el recordatorio" }).describe("Nombre del cliente"),
+        title: z.string({ required_error: "Título del recordatorio" }).describe("Título del recordatorio"),
+        due_date: z.string({ required_error: "Fecha de vencimiento en formato ISO 8601 con offset local del asesor (ej: 2026-06-02T15:00:00-06:00)" }).describe("Fecha y hora de vencimiento con offset (ej: YYYY-MM-DDTHH:mm:ss-06:00)"),
+        description: z.string().optional().describe("Descripción adicional"),
+        reminder_type_name_or_code: z.string().optional().describe("Código o nombre del tipo de recordatorio (ej: 'CALL', 'Llamada', 'Pago'). Si no se especifica, por defecto se asume 'Llamada'."),
+      }),
+    },
+    async execute(args, ctx) {
+      const params = args as any;
+      const contacts = await ctx.contactService.findSimilarContact(ctx.agentId, params.client_name);
+      if (!contacts || contacts.length === 0) {
+        return { error: `No se encontró ningún cliente que coincida con '${params.client_name}'.` };
+      }
+      if (contacts.length > 1) {
+        return {
+          error: `Se encontraron múltiples clientes que coinciden con '${params.client_name}'. Por favor, sé más específico.`,
+          matches: contacts.map(c => ({ id: c.id, fullName: c.fullName }))
+        };
+      }
+
+      const types = await ctx.catalogServices.reminderTypeService.getAll();
+      let typeId = "";
+      if (types) {
+        const typeQuery = (params.reminder_type_name_or_code || "CALL").toUpperCase().trim();
+        const byCode = types.find(t => String(t.code).toUpperCase() === typeQuery);
+        if (byCode) {
+          typeId = byCode.id as string;
+        } else {
+          const byName = types.find(t => String(t.name).toUpperCase().includes(typeQuery));
+          typeId = byName ? (byName.id as string) : (types.find(t => t.code === "CALL")?.id as string ?? types[0]?.id as string);
+        }
+      }
+
+      const reminder = await ctx.reminderService.create({
+        agentId: ctx.agentId,
+        typeId,
+        title: params.title,
+        description: params.description ?? null,
+        dueDate: params.due_date,
+        contactId: contacts[0].id,
+        isDone: false,
+      });
+
+      return reminder ? slimReminder(reminder) : null;
+    },
+  },
 ];

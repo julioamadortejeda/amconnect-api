@@ -174,4 +174,40 @@ export const contactSkills: SkillDefinition[] = [
       return result ? { success: true, message: `Contacto '${result.fullName}' eliminado exitosamente.` } : { success: false, error: "No se pudo encontrar el contacto para eliminar." };
     },
   },
+  {
+    domain: "contact",
+    declaration: {
+      name: "add_note_to_client",
+      description: "Agrega (concatena) una nota al perfil de un cliente por su nombre de forma directa. Úsalo cuando el usuario pida agregar comentarios, notas u observaciones a un cliente mencionando su nombre propio (ej: 'agrégale una nota a Karina Torres que diga que...'). Esto consolida la búsqueda del contacto y la edición en un solo paso y ahorra tokens.",
+      schema: z.object({
+        client_name: z.string({ required_error: "Nombre del cliente a buscar (ej: 'Karina', 'Juan')" }).describe("Nombre del cliente"),
+        note_content: z.string({ required_error: "Contenido de la nota a agregar" }).describe("Contenido de la nota"),
+      }),
+    },
+    async execute({ client_name, note_content }, ctx) {
+      const contacts = await ctx.contactService.findSimilarContact(ctx.agentId, client_name as string);
+      if (!contacts || contacts.length === 0) {
+        return { error: `No se encontró ningún cliente que coincida con '${client_name}'.` };
+      }
+      if (contacts.length > 1) {
+        return {
+          error: `Se encontraron múltiples clientes que coinciden con '${client_name}'. Por favor, sé más específico.`,
+          matches: contacts.map(c => ({ id: c.id, fullName: c.fullName }))
+        };
+      }
+
+      const contact = contacts[0];
+      const currentNotes = contact.notes;
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, "0");
+      const day = String(now.getDate()).padStart(2, "0");
+      const todayStr = `${day}/${month}/${year}`;
+      const newNoteEntry = `[${todayStr}]: ${note_content}`;
+      const finalNotes = currentNotes ? `${currentNotes}\n${newNoteEntry}` : newNoteEntry;
+
+      const updated = await ctx.contactService.update(contact.id, { notes: finalNotes });
+      return updated ? { success: true, message: `Nota agregada exitosamente a ${updated.fullName}.` } : { success: false, error: "No se pudo actualizar el contacto." };
+    },
+  },
 ];

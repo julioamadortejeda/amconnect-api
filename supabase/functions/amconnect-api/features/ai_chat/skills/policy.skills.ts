@@ -266,5 +266,30 @@ export const policySkills: SkillDefinition[] = [
       return (items ?? []).map(slimPolicy);
     },
   },
+  {
+    domain: "policy",
+    declaration: {
+      name: "find_policy_by_client",
+      description: "Busca pólizas asociando el nombre de un cliente y un criterio opcional de la póliza (ej: ramo 'auto', aseguradora 'GNP'). Si se omite 'policy_query', devolverá todas las pólizas del cliente. Úsalo cuando el usuario pida realizar una acción o preguntar sobre pólizas mencionando al cliente (ej: 'actualiza la póliza de auto de Karina' o '¿qué pólizas tiene Juan?'). Esto consolida la búsqueda en un solo paso y ahorra tokens.",
+      schema: z.object({
+        client_name: z.string({ required_error: "Nombre del cliente a buscar (ej: 'Karina', 'Juan')" }).describe("Nombre del cliente"),
+        policy_query: z.string().optional().describe("Texto para identificar la póliza (ej: 'auto', 'GNP', 'Vida'). Si se omite, devuelve todas las pólizas del cliente."),
+      }),
+    },
+    async execute({ client_name, policy_query }, ctx) {
+      const contacts = await ctx.contactService.findSimilarContact(ctx.agentId, client_name as string);
+      if (!contacts || contacts.length === 0) {
+        return { error: `No se encontró ningún cliente que coincida con '${client_name}'.` };
+      }
+      const allPolicies: PolicyResponseDTO[] = [];
+      for (const contact of contacts) {
+        const policies = policy_query
+          ? await ctx.policyService.searchPolicies(ctx.agentId, policy_query as string, contact.id)
+          : await ctx.policyService.getByField("contact_id", contact.id);
+        if (policies) allPolicies.push(...policies);
+      }
+      return allPolicies.map(slimPolicy);
+    },
+  },
 ];
 

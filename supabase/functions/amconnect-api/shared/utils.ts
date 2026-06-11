@@ -21,6 +21,9 @@ export async function resolveCatalogId(
 }
 
 export function appendNote(currentNotes: string | null | undefined, newNote: string): string {
+  if (currentNotes && newNote.startsWith(currentNotes)) {
+    return newNote;
+  }
   const now = new Date();
   const day = String(now.getDate()).padStart(2, "0");
   const month = String(now.getMonth() + 1).padStart(2, "0");
