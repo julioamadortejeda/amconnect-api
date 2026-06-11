@@ -8,10 +8,10 @@ import { DocumentMetadataRepository } from "../../modules/document_metadata/docu
 import { AiInvokedError, AiProviderError, AppError, ConflictError } from "../../shared/errors.ts";
 import { PolicyService } from "../../modules/policy/policy.service.ts";
 import {
-  POLICY_EXTRACTION_PROMPT,
   PolicyExtraction,
   PolicyExtractionSchema,
 } from "./policy_extraction.schema.ts";
+import { PromptService } from "../../modules/prompt/prompt.service.ts";
 
 export interface PolicyIngestInput {
   storagePath: string;
@@ -37,6 +37,7 @@ export class PolicyIngestionService {
     private policyService: PolicyService,
     // deno-lint-ignore no-explicit-any
     private catalogServices: any,
+    private promptService: PromptService,
   ) {}
 
   async extract(agentId: string, sessionId: string, input: PolicyIngestInput): Promise<PolicyIngestResult> {
@@ -75,9 +76,9 @@ export class PolicyIngestionService {
       currency: dynamicCurrencyEnum.nullable().describe(`Moneda de la póliza. Códigos válidos: ${currencyCodes.join(", ") || "Cualquiera"}`),
     });
 
-    // Construir prompt dinámico inyectando los catálogos actuales
+    const basePrompt = await this.promptService.getPrompt("policy_extraction_system");
     const dynamicPrompt = `
-${POLICY_EXTRACTION_PROMPT}
+${basePrompt}
 
 Use the following catalog values for matching fields:
 

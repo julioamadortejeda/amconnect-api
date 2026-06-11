@@ -2,11 +2,11 @@ import { IAiProvider } from "../../core/ai_provider.interface.ts";
 import { StorageService } from "../../modules/storage/storage.service.ts";
 import { DocumentMetadataRepository } from "../../modules/document_metadata/document_metadata.repository.ts";
 import {
-  POLICY_EXTRACTION_PROMPT,
   PolicyExtraction,
   PolicyExtractionSchema,
 } from "./policy_extraction.schema.ts";
 import { EmbeddingsService } from "../rag/embeddings.service.ts";
+import { PromptService } from "../../modules/prompt/prompt.service.ts";
 
 export class DocumentProcessorService {
   constructor(
@@ -14,6 +14,7 @@ export class DocumentProcessorService {
     private documentMetadataRepository: DocumentMetadataRepository,
     private docAiProvider: IAiProvider,
     private embeddingsService: EmbeddingsService,
+    private promptService: PromptService,
   ) {}
 
   async processDocument(
@@ -23,8 +24,9 @@ export class DocumentProcessorService {
   ): Promise<{ extraction: PolicyExtraction; documentMetadataId: string }> {
     const base64 = await this.storageService.downloadAsBase64("policies", storagePath);
 
+    const prompt = await this.promptService.getPrompt("policy_extraction_system");
     const { data: _rawExtraction } = await this.docAiProvider.generateStructuredData(
-      POLICY_EXTRACTION_PROMPT,
+      prompt,
       PolicyExtractionSchema,
       { mimeType: "application/pdf", data: base64 },
     );

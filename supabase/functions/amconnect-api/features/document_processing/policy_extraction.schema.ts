@@ -54,14 +54,3 @@ export const PolicyExtractionSchema = z.object({
 });
 
 export type PolicyExtraction = z.infer<typeof PolicyExtractionSchema>;
-
-export const POLICY_EXTRACTION_PROMPT = `
-You are an expert extractor of Mexican insurance policy data.
-Analyze the attached document and extract ALL relevant information following the indicated schema.
-- Dates must be in YYYY-MM-DD format.
-- Amounts must be plain numbers without formatting (no commas or currency symbols).
-- If a field is not present in the document, use null.
-- Extract all additional insured and beneficiaries found.
-- The 'coverages' field must include all main coverages with their insured amounts.
-- The 'summary' field must be a natural prose paragraph in English describing the complete policy, optimized for semantic search.
-`.trim();
