@@ -89,4 +89,46 @@ export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseD
     const rows = await this.beneficiaryRepo.getByField("policy_id", policyId);
     return rows ? rows.map((r) => objectToCamelCaseDeep(r)) : null;
   }
+
+  async getUpcomingExpirations(agentId: string, days = 30): Promise<PolicyResponseDTO[] | null> {
+    const items = await this.getByField("agent_id", agentId);
+    if (!items) return null;
+    const now = new Date();
+    const limitDate = new Date(Date.now() + days * 86400000);
+    return items.filter((p) => {
+      if (!p.endDate) return false;
+      const d = new Date(p.endDate);
+      return d >= now && d <= limitDate;
+    });
+  }
+
+  async searchPolicies(agentId: string, queryText: string, contactId?: string): Promise<PolicyResponseDTO[] | null> {
+    const items = await this.getByField("agent_id", agentId);
+    if (!items) return null;
+    
+    let filtered = items.map((r) => this.toDTO(r));
+    if (contactId) {
+      filtered = filtered.filter((p) => p.contactId === contactId);
+    }
+    
+    if (queryText) {
+      const q = queryText.toLowerCase().trim();
+      filtered = filtered.filter((p) => {
+        const policyNo = String(p.policyNumber || "").toLowerCase();
+        const productName = String(p.product?.name || "").toLowerCase();
+        const branchName = String(p.product?.branch?.name || "").toLowerCase();
+        const carrierName = String(p.product?.carrier?.name || "").toLowerCase();
+        const clientName = String(p.contact?.fullName || "").toLowerCase();
+        const notes = String(p.notes || "").toLowerCase();
+        
+        return policyNo.includes(q) || 
+               productName.includes(q) || 
+               branchName.includes(q) || 
+               carrierName.includes(q) || 
+               clientName.includes(q) ||
+               notes.includes(q);
+      });
+    }
+    return filtered;
+  }
 }

@@ -1,0 +1,19 @@
+meta {
+  name: Get Session Cost
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{base_url}}/ai/sessions/:sessionId/cost
+  body: none
+  auth: none
+}
+
+params:path {
+  sessionId: 740893f2-0856-4d33-bdeb-a2064963e7f0
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}

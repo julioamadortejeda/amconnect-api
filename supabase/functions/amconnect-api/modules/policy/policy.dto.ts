@@ -46,6 +46,9 @@ export interface PolicyResponseDTO {
   contact?: { id: string; fullName: string };
   product?: { id: string; name: string; carrier: { id: string; name: string }; branch: { id: string; name: string } };
   status?: { id: string; name: string };
+  currency?: { id: string; code: string; name: string };
+  paymentFrequency?: { id: string; name: string; months: number };
+  paymentMethod?: { id: string; name: string };
 }
 
 // ─── Participantes ────────────────────────────────────────────────────────────

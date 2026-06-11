@@ -111,4 +111,34 @@ export const reminderSkills: SkillDefinition[] = [
       return result ? slimReminder(result) : null;
     },
   },
+  {
+    domain: "reminder",
+    declaration: {
+      name: "delete_reminder",
+      description: "Elimina (borrado lógico) un recordatorio por su ID. SIEMPRE listar o buscar recordatorios primero para verificar el reminder_id.",
+      schema: z.object({
+        reminder_id: z.string({ required_error: "The UUID of the reminder to delete is required" })
+          .describe("UUID of the reminder to delete"),
+      }),
+    },
+    async execute({ reminder_id }, ctx) {
+      const result = await ctx.reminderService.delete(reminder_id as string);
+      return result ? { success: true, message: `Recordatorio '${result.title}' eliminado exitosamente.` } : { success: false, error: "No se pudo encontrar el recordatorio para eliminar." };
+    },
+  },
+  {
+    domain: "reminder",
+    declaration: {
+      name: "search_reminders",
+      description: "Busca recordatorios por coincidencia de texto en el título o descripción, permitiendo opcionalmente filtrar por si están completados o no.",
+      schema: z.object({
+        query: z.string().describe("Texto a buscar en título o descripción"),
+        is_done: z.boolean().optional().describe("Filtrar por completado (true) o pendiente (false)"),
+      }),
+    },
+    async execute({ query, is_done }, ctx) {
+      const items = await ctx.reminderService.searchReminders(ctx.agentId, query as string, is_done as boolean | undefined);
+      return (items ?? []).map(slimReminder);
+    },
+  },
 ];

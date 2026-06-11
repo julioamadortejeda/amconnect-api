@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SkillDefinition, SkillContext } from "./skill.core.ts";
+import { resolveCatalogId } from "../../../shared/utils.ts";
 
 const BeneficiarySchema = z.object({
   full_name: z.string(),
@@ -101,11 +102,11 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
   const contactId = await findOrCreateContact(ctx, holderName, holderRfc ?? null);
 
   // ─── Resolver catálogos globales ──────────────────────────────────────────
-  const [statusRow, currencyRow, paymentFrequencyRow] = await Promise.all([
+  const [statusRow, currencyRow, paymentFrequencyId] = await Promise.all([
     catalogServices.policyStatusService.getByCode("ACTIVE"),
     catalogServices.currencyService.getByCode(currency === "USD" ? "USD" : "MXN"),
-    paymentFreq ? resolvePaymentFrequency(catalogServices.paymentFrequencyService, paymentFreq) : null,
-  ]) as [{ id: string } | null, { id: string } | null, { id: string } | null];
+    paymentFreq ? resolveCatalogId(catalogServices.paymentFrequencyService, paymentFreq, { key: "name", value: "Anual" }) : Promise.resolve(null),
+  ]) as [{ id: string } | null, { id: string } | null, string | null];
 
   if (!statusRow?.id) throw new Error("No se encontró el estatus ACTIVE en el catálogo.");
   if (!currencyRow?.id) throw new Error(`No se encontró la moneda ${currency} en el catálogo.`);
@@ -119,7 +120,7 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
     productId,
     statusId: statusRow.id,
     currencyId: currencyRow.id,
-    paymentFrequencyId: paymentFrequencyRow?.id ?? null,
+    paymentFrequencyId: paymentFrequencyId || null,
     policyNumber: policyNumber ?? null,
     premium: args.premium ?? null,
     sumInsured: args.sum_insured ?? args.sumInsured ?? null,
@@ -206,20 +207,3 @@ async function findOrCreateContact(ctx: SkillContext, fullName: string, rfc: str
 }
 
 // deno-lint-ignore no-explicit-any
-async function resolvePaymentFrequency(service: any, frequency: string): Promise<{ id: string } | null> {
-  const normalized = frequency.toUpperCase().trim();
-  // Primero intentamos buscar directamente por el código ya normalizado
-  const res = await service.getByCode(normalized);
-  if (res) return res;
-
-  // Fallback si por alguna razón vino en minúsculas o español completo
-  const keywordMap: Record<string, string> = {
-    mensual: "MONTHLY", anual: "ANNUAL", semestral: "SEMIANNUAL",
-    trimestral: "QUARTERLY", monthly: "MONTHLY", quarterly: "QUARTERLY",
-    semiannual: "SEMIANNUAL", annual: "ANNUAL",
-  };
-  const key = frequency.toLowerCase().trim();
-  const code = keywordMap[key] ?? Object.entries(keywordMap).find(([k]) => key.includes(k))?.[1];
-  if (!code) return null;
-  return await service.getByCode(code);
-}

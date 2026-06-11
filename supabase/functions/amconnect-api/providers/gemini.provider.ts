@@ -120,10 +120,18 @@ export class GeminiProvider implements IAiProvider {
     message: string,
     availableDomains: string[],
   ): Promise<{ domains: string[]; usage?: TokenUsage }> {
-    const prompt = `Clasifica el siguiente mensaje en uno o más de estos dominios: ${availableDomains.join(", ")}.
-Responde SOLO con un JSON: { "domains": ["dominio1", "dominio2"] }
+    const prompt = `Clasifica el siguiente mensaje de un asesor de seguros en uno o más de estos dominios:
+- contact: Información sobre clientes, prospectos o contactos personales. Búsqueda de teléfonos, correos, CURP, RFC, direcciones, cumpleaños, etc.
+- policy: Información sobre pólizas de seguros, números de póliza, coberturas, sumas aseguradas, beneficiarios, participantes.
+- reminder: Tareas, eventos, recordatorios, citas, llamadas, fechas de seguimiento, pendientes de trabajo.
+- catalog: Catálogos del sistema, como aseguradoras (carriers), ramos de seguros (branches) y productos de seguros (products). Creación de nuevas compañías o ramos.
+- knowledge: Búsqueda de información general en notas libres, transcripciones de audio, WhatsApp o archivos cargados por el asesor.
 
-Mensaje: "${message}"`;
+Dominios disponibles para clasificar: ${availableDomains.join(", ")}
+
+Responde SOLO con un formato JSON: { "domains": ["dominio1", "dominio2"] }
+
+Mensaje del asesor: "${message}"`;
 
     // deno-lint-ignore no-explicit-any
     let response: any;

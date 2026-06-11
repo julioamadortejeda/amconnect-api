@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { SkillDefinition } from "./skill.core.ts";
 import { ContactResponseDTO } from "../../../modules/contact/contact.dto.ts";
+import { appendNote } from "../../../shared/utils.ts";
 
 const slimContact = (c: ContactResponseDTO) => ({
   id: c.id,
@@ -122,6 +123,12 @@ export const contactSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
+      let finalNotes: string | undefined;
+      if (args.notes) {
+        const existing = await ctx.contactService.getById(args.contact_id as string);
+        finalNotes = appendNote(existing?.notes, args.notes as string);
+      }
+
       return await ctx.contactService.update(args.contact_id as string, {
         fullName: (args.full_name ?? args.name) as string | undefined,
         email: args.email as string | undefined,
@@ -131,7 +138,7 @@ export const contactSkills: SkillDefinition[] = [
         curp: args.curp as string | undefined,
         address: args.address as string | undefined,
         occupation: args.occupation as string | undefined,
-        notes: args.notes as string | undefined,
+        notes: finalNotes,
       });
     },
   },
@@ -150,6 +157,21 @@ export const contactSkills: SkillDefinition[] = [
       return await ctx.ragService.searchNotes(ctx.agentId, query as string, {
         contactId: contact_id as string | undefined,
       });
+    },
+  },
+  {
+    domain: "contact",
+    declaration: {
+      name: "delete_contact",
+      description: "Elimina (borrado lógico) un contacto del asesor. SIEMPRE buscar el contacto primero con search_contact para confirmar su ID antes de llamar a este skill. Debe pedir confirmación al asesor antes de ejecutarlo si no fue explícito.",
+      schema: z.object({
+        contact_id: z.string({ required_error: "Se requiere el UUID del contacto a eliminar" })
+          .describe("UUID del contacto a eliminar"),
+      }),
+    },
+    async execute({ contact_id }, ctx) {
+      const result = await ctx.contactService.delete(contact_id as string);
+      return result ? { success: true, message: `Contacto '${result.fullName}' eliminado exitosamente.` } : { success: false, error: "No se pudo encontrar el contacto para eliminar." };
     },
   },
 ];

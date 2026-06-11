@@ -4,8 +4,11 @@ import { ReminderRepository } from "./reminder.repository.ts";
 import { objectToCamelCaseDeep, stripUndefined } from "../../shared/case_converter.ts";
 
 export class ReminderService extends BaseService<ReminderRequestDTO, ReminderResponseDTO> {
+  private reminderRepo: ReminderRepository;
+
   constructor(repository: ReminderRepository) {
     super(repository);
+    this.reminderRepo = repository;
   }
 
   protected override toDTO(row: unknown): ReminderResponseDTO {
@@ -52,5 +55,10 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     return items
       .map((r) => this.toDTO(r))
       .filter((r) => r.dueDate >= from && r.dueDate <= to);
+  }
+
+  async searchReminders(agentId: string, queryText: string, isDone?: boolean): Promise<ReminderResponseDTO[] | null> {
+    const items = await this.reminderRepo.searchReminders(agentId, queryText, isDone);
+    return items ? items.map((r) => this.toDTO(r)) : null;
   }
 }
