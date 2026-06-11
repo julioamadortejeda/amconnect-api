@@ -29,6 +29,7 @@ export class ContactService extends BaseService<ContactRequestDTO, ContactRespon
       notes: data.notes ?? null,
       referred_by_id: data.referredById ?? null,
       external_referrer_source: data.externalReferrerSource ?? null,
+      is_prospect: data.isProspect ?? false,
     };
   }
 
@@ -45,6 +46,7 @@ export class ContactService extends BaseService<ContactRequestDTO, ContactRespon
       notes: data.notes,
       referred_by_id: data.referredById,
       external_referrer_source: data.externalReferrerSource,
+      is_prospect: data.isProspect,
     });
   }
 

@@ -50,7 +50,7 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "create_contact",
-      description: "Crea un nuevo contacto/cliente.",
+      description: "Crea un nuevo contacto/cliente (por defecto se asume cliente, pero si se especifica que es prospecto se crea como tal).",
       schema: z.object({
         full_name: z.string({ required_error: "El nombre completo del contacto es obligatorio. Si el usuario no lo proporcionó, pregúntale antes de llamar este skill. NUNCA uses otro campo (CURP, RFC, email, etc.) como sustituto del nombre." })
           .describe("Nombre real de la persona tal como lo proporcionó el usuario. No inventar ni copiar de otros campos."),
@@ -62,6 +62,7 @@ export const contactSkills: SkillDefinition[] = [
         address: z.string().optional(),
         occupation: z.string().optional(),
         notes: z.string().optional().describe("Notas sobre el contacto (enfermedades, preferencias, etc.)"),
+        is_prospect: z.boolean().optional().describe("Establecer en true si es un prospecto, o false si es un cliente. Por defecto es false (cliente)."),
       }),
     },
     async execute(args, ctx) {
@@ -76,6 +77,7 @@ export const contactSkills: SkillDefinition[] = [
         address: args.address as string ?? null,
         occupation: args.occupation as string ?? null,
         notes: args.notes as string ?? null,
+        isProspect: args.is_prospect as boolean ?? false,
       });
     },
   },

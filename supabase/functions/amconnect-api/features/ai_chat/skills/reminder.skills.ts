@@ -31,10 +31,11 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "create_reminder",
-      description: "Creates a new reminder for the advisor. Requires type_id — call get_reminder_types first if you don't know it.",
+      description: "Creates a new general reminder (not assigned to a specific client, or optionally assigned via contact_id). Resolves the type_id automatically from 'reminder_type_name_or_code' or 'reminder_type_id' if provided.",
       schema: z.object({
-        type_id: z.string({ required_error: "The UUID of the reminder type is required. Call get_reminder_types first to retrieve it." })
-          .describe("UUID of the reminder type (obtained from get_reminder_types)"),
+        type_id: z.string().optional().describe("UUID of the reminder type (obtained from get_reminder_types)"),
+        reminder_type_id: z.string().optional().describe("Alternative name for type_id (UUID of the reminder type)"),
+        reminder_type_name_or_code: z.string().optional().describe("Alternative code or name of the reminder type (e.g. 'CALL', 'Llamada', 'Pago')"),
         title: z.string({ required_error: "The title of the reminder is required" })
           .describe("Title of the reminder"),
         description: z.string().optional().describe("Additional description or notes for the reminder"),
@@ -45,9 +46,30 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
+      const params = args as any;
+      let typeId = params.type_id || params.reminder_type_id;
+
+      if (!typeId) {
+        const types = await ctx.catalogServices.reminderTypeService.getAll();
+        if (types) {
+          const typeQuery = (params.reminder_type_name_or_code || "CALL").toUpperCase().trim();
+          const byCode = types.find(t => String(t.code).toUpperCase() === typeQuery);
+          if (byCode) {
+            typeId = byCode.id as string;
+          } else {
+            const byName = types.find(t => String(t.name).toUpperCase().includes(typeQuery));
+            typeId = byName ? (byName.id as string) : (types.find(t => t.code === "CALL")?.id as string ?? types[0]?.id as string);
+          }
+        }
+      }
+
+      if (!typeId) {
+        return { error: "No se pudo resolver el tipo de recordatorio. Asegúrate de pasar 'type_id' o 'reminder_type_name_or_code'." };
+      }
+
       const result = await ctx.reminderService.create({
         agentId: ctx.agentId,
-        typeId: args.type_id as string,
+        typeId: typeId as string,
         title: args.title as string,
         description: args.description as string ?? null,
         dueDate: args.due_date as string,

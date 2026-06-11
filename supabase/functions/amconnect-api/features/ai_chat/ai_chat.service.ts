@@ -14,6 +14,7 @@ export interface ChatResponse {
   text: string;
   sessionId: string;
   usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+  sessionUsage?: { promptTokens: number; completionTokens: number; totalTokens: number };
   metadata?: Record<string, unknown>;
 }
 
@@ -274,7 +275,7 @@ export class AiChatService {
       totalTokens: classifyTokens.totalTokens + loopUsage.totalTokens,
     };
 
-    await this.aiSessionService.saveChatRound(
+    const sessionUsage = await this.aiSessionService.saveChatRound(
       agentId,
       currentSessionId!,
       history,
@@ -298,7 +299,7 @@ export class AiChatService {
       totalUsage,
     );
 
-    return { text: finalText, sessionId: currentSessionId!, usage: totalUsage, metadata: skillMetadata };
+    return { text: finalText, sessionId: currentSessionId!, usage: totalUsage, sessionUsage, metadata: skillMetadata };
   }
 
   async startPolicySession(

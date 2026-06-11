@@ -140,7 +140,7 @@ export class AiSessionService {
     history: unknown[],
     messages: ChatMessageInput[],
     deltaUsage: UsageTokens,
-  ): Promise<void> {
+  ): Promise<UsageTokens> {
     const chatMessageRows: ChatMessageRow[] = messages.map((m) => ({
       agentId,
       sessionId,
@@ -152,16 +152,21 @@ export class AiSessionService {
     }));
 
     const current = await this.repository.getSessionTokens(sessionId);
+    const nextTokens = {
+      promptTokens: current.promptTokens + deltaUsage.promptTokens,
+      completionTokens: current.completionTokens + deltaUsage.completionTokens,
+      totalTokens: current.totalTokens + deltaUsage.totalTokens,
+    };
 
     await Promise.all([
       this.repository.updateSession(sessionId, {
         history,
-        promptTokens: current.promptTokens + deltaUsage.promptTokens,
-        completionTokens: current.completionTokens + deltaUsage.completionTokens,
-        totalTokens: current.totalTokens + deltaUsage.totalTokens,
+        ...nextTokens,
       }),
       this.repository.insertChatMessages(chatMessageRows),
     ]);
+
+    return nextTokens;
   }
 
   async updateMetadata(sessionId: string, metadata: Record<string, unknown>): Promise<void> {
