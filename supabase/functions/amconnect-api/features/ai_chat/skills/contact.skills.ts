@@ -21,10 +21,10 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "search_contact",
-      description: "Busca contactos/clientes del asesor por nombre, email o cualquier texto.",
+      description: "Searches for the advisor's contacts/clients by name, email, or any text.",
       schema: z.object({
-        query: z.string({ required_error: "Se requiere un texto de búsqueda (nombre, email, etc.)" })
-          .describe("Nombre, email o texto a buscar"),
+        query: z.string({ required_error: "A search query (name, email, etc.) is required" })
+          .describe("Name, email, or text to search for"),
       }),
     },
     async execute({ query }, ctx) {
@@ -36,10 +36,10 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "get_contact",
-      description: "Obtiene los datos completos de un contacto por su ID.",
+      description: "Retrieves the complete data of a contact by their ID.",
       schema: z.object({
-        contact_id: z.string({ required_error: "Se requiere el UUID del contacto" })
-          .describe("UUID del contacto"),
+        contact_id: z.string({ required_error: "The contact UUID is required" })
+          .describe("UUID of the contact"),
       }),
     },
     async execute({ contact_id }, ctx) {
@@ -50,19 +50,19 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "create_contact",
-      description: "Crea un nuevo contacto/cliente (por defecto se asume cliente, pero si se especifica que es prospecto se crea como tal).",
+      description: "Creates a new contact/client (by default, it creates a client, but if specified as a prospect, it will be created as one).",
       schema: z.object({
-        full_name: z.string({ required_error: "El nombre completo del contacto es obligatorio. Si el usuario no lo proporcionó, pregúntale antes de llamar este skill. NUNCA uses otro campo (CURP, RFC, email, etc.) como sustituto del nombre." })
-          .describe("Nombre real de la persona tal como lo proporcionó el usuario. No inventar ni copiar de otros campos."),
+        full_name: z.string({ required_error: "The full name of the contact is required. If the user did not provide it, ask them before calling this skill. NEVER use another field (CURP, RFC, email, etc.) as a substitute for the name." })
+          .describe("Real name of the person as provided by the user. Do not invent or copy from other fields."),
         email: z.string().optional(),
         phone: z.string().optional(),
-        birthdate: z.string().optional().describe("Fecha de nacimiento en formato YYYY-MM-DD. Usar exactamente 'birthdate', no 'birth_date'"),
+        birthdate: z.string().optional().describe("Birthdate in YYYY-MM-DD format. Must use exactly 'birthdate', not 'birth_date'"),
         rfc: z.string().optional(),
         curp: z.string().optional(),
         address: z.string().optional(),
         occupation: z.string().optional(),
-        notes: z.string().optional().describe("Notas sobre el contacto (enfermedades, preferencias, etc.)"),
-        is_prospect: z.boolean().optional().describe("Establecer en true si es un prospecto, o false si es un cliente. Por defecto es false (cliente)."),
+        notes: z.string().optional().describe("Notes about the contact (conditions, preferences, etc.)"),
+        is_prospect: z.boolean().optional().describe("Set to true if they are a prospect, or false if they are a client. Defaults to false (client)."),
       }),
     },
     async execute(args, ctx) {
@@ -85,7 +85,7 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "get_all_contacts",
-      description: "Obtiene la lista completa de contactos/clientes del asesor. Usar solo cuando el usuario quiere VER los contactos, no para contarlos.",
+      description: "Retrieves the complete list of the advisor's contacts/clients. Use only when the user wants to VIEW the contacts, not just count them.",
       schema: z.object({}),
     },
     async execute(_args, ctx) {
@@ -97,7 +97,7 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "count_contacts",
-      description: "Cuenta cuántos contactos/clientes tiene el asesor. Usar cuando el usuario pregunta '¿cuántos clientes tengo?' o similares.",
+      description: "Counts how many contacts/clients the advisor has. Use when the user asks 'how many clients do I have?' or similar.",
       schema: z.object({}),
     },
     async execute(_args, ctx) {
@@ -109,14 +109,14 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "update_contact",
-      description: "Actualiza datos de un contacto existente. Usar search_contact primero para obtener el contact_id si no se conoce.",
+      description: "Updates data of an existing contact. Use search_contact first to obtain the contact_id if unknown.",
       schema: z.object({
-        contact_id: z.string({ required_error: "Se requiere el UUID del contacto a actualizar. Usar search_contact primero si no se conoce." })
-          .describe("UUID del contacto a actualizar"),
+        contact_id: z.string({ required_error: "The UUID of the contact to update is required. Use search_contact first if unknown." })
+          .describe("UUID of the contact to update"),
         full_name: z.string().optional(),
         email: z.string().optional(),
         phone: z.string().optional(),
-        birthdate: z.string().optional().describe("Fecha en formato YYYY-MM-DD"),
+        birthdate: z.string().optional().describe("Date in YYYY-MM-DD format"),
         rfc: z.string().optional(),
         curp: z.string().optional(),
         address: z.string().optional(),
@@ -148,11 +148,11 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "search_contact_notes",
-      description: "Busca notas sobre un contacto específico. Usar cuando la pregunta es sobre UN cliente en particular. Para búsqueda general de conocimiento sin contacto específico, usar search_knowledge.",
+      description: "Searches for notes about a specific contact. Use when the question is about ONE client in particular. For general knowledge search without a specific contact, use search_knowledge.",
       schema: z.object({
-        query: z.string({ required_error: "Se requiere el texto o pregunta a buscar en las notas" })
-          .describe("Pregunta o tema a buscar en las notas"),
-        contact_id: z.string().optional().describe("UUID del contacto (opcional, para filtrar)"),
+        query: z.string({ required_error: "The text or question to search in notes is required" })
+          .describe("Question or topic to search for in notes"),
+        contact_id: z.string().optional().describe("UUID of the contact (optional, for filtering)"),
       }),
     },
     async execute({ query, contact_id }, ctx) {
@@ -165,35 +165,35 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "delete_contact",
-      description: "Elimina (borrado lógico) un contacto del asesor. SIEMPRE buscar el contacto primero con search_contact para confirmar su ID antes de llamar a este skill. Debe pedir confirmación al asesor antes de ejecutarlo si no fue explícito.",
+      description: "Deletes (logical delete) a contact of the advisor. ALWAYS search for the contact first with search_contact to confirm their ID before calling this skill. Must ask for confirmation from the advisor before executing it if they were not explicit.",
       schema: z.object({
-        contact_id: z.string({ required_error: "Se requiere el UUID del contacto a eliminar" })
-          .describe("UUID del contacto a eliminar"),
+        contact_id: z.string({ required_error: "The UUID of the contact to delete is required" })
+          .describe("UUID of the contact to delete"),
       }),
     },
     async execute({ contact_id }, ctx) {
       const result = await ctx.contactService.delete(contact_id as string);
-      return result ? { success: true, message: `Contacto '${result.fullName}' eliminado exitosamente.` } : { success: false, error: "No se pudo encontrar el contacto para eliminar." };
+      return result ? { success: true, message: `Contact '${result.fullName}' deleted successfully.` } : { success: false, error: "Could not find contact to delete." };
     },
   },
   {
     domain: "contact",
     declaration: {
       name: "add_note_to_client",
-      description: "Agrega (concatena) una nota al perfil de un cliente por su nombre de forma directa. Úsalo cuando el usuario pida agregar comentarios, notas u observaciones a un cliente mencionando su nombre propio (ej: 'agrégale una nota a Karina Torres que diga que...'). Esto consolida la búsqueda del contacto y la edición en un solo paso y ahorra tokens.",
+      description: "Adds (concatenates) a note to a client's profile directly by their name. Use when the user asks to add comments, notes, or observations to a client mentioning their proper name (e.g., 'add a note to Karina Torres saying...'). This consolidates contact search and update into a single step and saves tokens.",
       schema: z.object({
-        client_name: z.string({ required_error: "Nombre del cliente a buscar (ej: 'Karina', 'Juan')" }).describe("Nombre del cliente"),
-        note_content: z.string({ required_error: "Contenido de la nota a agregar" }).describe("Contenido de la nota"),
+        client_name: z.string({ required_error: "Name of the client to search for (e.g., 'Karina', 'Juan')" }).describe("Name of the client"),
+        note_content: z.string({ required_error: "Content of the note to add" }).describe("Content of the note"),
       }),
     },
     async execute({ client_name, note_content }, ctx) {
       const contacts = await ctx.contactService.findSimilarContact(ctx.agentId, client_name as string);
       if (!contacts || contacts.length === 0) {
-        return { error: `No se encontró ningún cliente que coincida con '${client_name}'.` };
+        return { error: `No client found matching '${client_name}'.` };
       }
       if (contacts.length > 1) {
         return {
-          error: `Se encontraron múltiples clientes que coinciden con '${client_name}'. Por favor, sé más específico.`,
+          error: `Multiple clients found matching '${client_name}'. Please be more specific.`,
           matches: contacts.map(c => ({ id: c.id, fullName: c.fullName }))
         };
       }
@@ -209,7 +209,7 @@ export const contactSkills: SkillDefinition[] = [
       const finalNotes = currentNotes ? `${currentNotes}\n${newNoteEntry}` : newNoteEntry;
 
       const updated = await ctx.contactService.update(contact.id, { notes: finalNotes });
-      return updated ? { success: true, message: `Nota agregada exitosamente a ${updated.fullName}.` } : { success: false, error: "No se pudo actualizar el contacto." };
+      return updated ? { success: true, message: `Note added successfully to ${updated.fullName}.` } : { success: false, error: "Could not update contact." };
     },
   },
 ];

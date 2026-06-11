@@ -64,7 +64,7 @@ export const reminderSkills: SkillDefinition[] = [
       }
 
       if (!typeId) {
-        return { error: "No se pudo resolver el tipo de recordatorio. Asegúrate de pasar 'type_id' o 'reminder_type_name_or_code'." };
+        return { error: "Could not resolve reminder type. Make sure to pass 'type_id' or 'reminder_type_name_or_code'." };
       }
 
       const result = await ctx.reminderService.create({
@@ -137,7 +137,7 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "delete_reminder",
-      description: "Elimina (borrado lógico) un recordatorio por su ID. SIEMPRE listar o buscar recordatorios primero para verificar el reminder_id.",
+      description: "Deletes (logical delete) a reminder by its ID. ALWAYS list or search reminders first to confirm the reminder_id.",
       schema: z.object({
         reminder_id: z.string({ required_error: "The UUID of the reminder to delete is required" })
           .describe("UUID of the reminder to delete"),
@@ -145,17 +145,17 @@ export const reminderSkills: SkillDefinition[] = [
     },
     async execute({ reminder_id }, ctx) {
       const result = await ctx.reminderService.delete(reminder_id as string);
-      return result ? { success: true, message: `Recordatorio '${result.title}' eliminado exitosamente.` } : { success: false, error: "No se pudo encontrar el recordatorio para eliminar." };
+      return result ? { success: true, message: `Reminder '${result.title}' deleted successfully.` } : { success: false, error: "Could not find the reminder to delete." };
     },
   },
   {
     domain: "reminder",
     declaration: {
       name: "search_reminders",
-      description: "Busca recordatorios por coincidencia de texto en el título o descripción, permitiendo opcionalmente filtrar por si están completados o no.",
+      description: "Searches for reminders by text matching in title or description, optionally allowing filtering by whether they are completed or not.",
       schema: z.object({
-        query: z.string().describe("Texto a buscar en título o descripción"),
-        is_done: z.boolean().optional().describe("Filtrar por completado (true) o pendiente (false)"),
+        query: z.string().describe("Text to search for in title or description"),
+        is_done: z.boolean().optional().describe("Filter by completed (true) or pending (false)"),
       }),
     },
     async execute({ query, is_done }, ctx) {
@@ -167,24 +167,24 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "create_reminder_for_client",
-      description: "Crea un recordatorio para el asesor asignándoselo a un cliente específico resolviendo su nombre de forma directa. Úsalo cuando el usuario pida agendar tareas o recordatorios mencionando al cliente (ej: 'recuérdame llamar a Julio mañana'). Resuelve el tipo de recordatorio (ej: LLAMADA/CALL para 'llamar', CITA/APPOINTMENT para 'reunión') automáticamente.",
+      description: "Creates a reminder for the advisor assigning it to a specific client by directly resolving their name. Use when the user asks to schedule tasks or reminders mentioning the client (e.g., 'remind me to call Julio tomorrow'). Resolves the reminder type (e.g., CALL for 'call', APPOINTMENT for 'meeting') automatically.",
       schema: z.object({
-        client_name: z.string({ required_error: "Nombre del cliente para asignar el recordatorio" }).describe("Nombre del cliente"),
-        title: z.string({ required_error: "Título del recordatorio" }).describe("Título del recordatorio"),
-        due_date: z.string({ required_error: "Fecha de vencimiento en formato ISO 8601 con offset local del asesor (ej: 2026-06-02T15:00:00-06:00)" }).describe("Fecha y hora de vencimiento con offset (ej: YYYY-MM-DDTHH:mm:ss-06:00)"),
-        description: z.string().optional().describe("Descripción adicional"),
-        reminder_type_name_or_code: z.string().optional().describe("Código o nombre del tipo de recordatorio (ej: 'CALL', 'Llamada', 'Pago'). Si no se especifica, por defecto se asume 'Llamada'."),
+        client_name: z.string({ required_error: "Name of the client to assign the reminder to" }).describe("Name of the client"),
+        title: z.string({ required_error: "Title of the reminder" }).describe("Title of the reminder"),
+        due_date: z.string({ required_error: "Due date in ISO 8601 format with the advisor's local offset (e.g., 2026-06-02T15:00:00-06:00)" }).describe("Due date and time with offset (e.g., YYYY-MM-DDTHH:mm:ss-06:00)"),
+        description: z.string().optional().describe("Additional description"),
+        reminder_type_name_or_code: z.string().optional().describe("Code or name of the reminder type (e.g., 'CALL', 'Llamada', 'Pago'). Defaults to 'Llamada' if not specified."),
       }),
     },
     async execute(args, ctx) {
       const params = args as any;
       const contacts = await ctx.contactService.findSimilarContact(ctx.agentId, params.client_name);
       if (!contacts || contacts.length === 0) {
-        return { error: `No se encontró ningún cliente que coincida con '${params.client_name}'.` };
+        return { error: `No client found matching '${params.client_name}'.` };
       }
       if (contacts.length > 1) {
         return {
-          error: `Se encontraron múltiples clientes que coinciden con '${params.client_name}'. Por favor, sé más específico.`,
+          error: `Multiple clients found matching '${params.client_name}'. Please be more specific.`,
           matches: contacts.map(c => ({ id: c.id, fullName: c.fullName }))
         };
       }

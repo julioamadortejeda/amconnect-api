@@ -13,7 +13,7 @@ export const policyIngestionSkills: SkillDefinition[] = [
     domain: "policy_ingestion",
     declaration: {
       name: "confirm_policy_ingestion",
-      description: "Crea la póliza en el sistema con los datos extraídos del documento. Llama este skill SOLO cuando el usuario haya confirmado explícitamente. Resuelve aseguradora, ramo, producto y contacto por nombre automáticamente.",
+      description: "Creates the policy in the system with the data extracted from the document. Call this skill ONLY when the user has explicitly confirmed. Automatically resolves carrier, branch, product, and contact by name.",
       schema: z.object({
         // snake_case (preferido) + camelCase (fallback — Gemini a veces usa el mismo case del JSON de extracción)
         carrier_name: z.string().optional(), carrierName: z.string().optional(),
@@ -24,7 +24,7 @@ export const policyIngestionSkills: SkillDefinition[] = [
         policy_number: z.string().optional().nullable(), policyNumber: z.string().optional().nullable(),
         premium: z.number().optional().nullable(),
         sum_insured: z.number().optional().nullable(),   sumInsured: z.number().optional().nullable(),
-        currency: z.string().optional().nullable().describe("MXN o USD"),
+        currency: z.string().optional().nullable().describe("MXN or USD"),
         start_date: z.string().optional().nullable(),    startDate: z.string().optional().nullable(),
         end_date: z.string().optional().nullable(),      endDate: z.string().optional().nullable(),
         renewal_date: z.string().optional().nullable(),  renewalDate: z.string().optional().nullable(),
@@ -73,7 +73,7 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
   const beneficiaries   = args.beneficiaries ?? [];
 
   if (!carrierName || !branchName || !holderName) {
-    return { error: "Faltan datos requeridos: carrier_name, branch_name y holder_name son obligatorios." };
+    return { error: "Missing required data: carrier_name, branch_name, and holder_name are required." };
   }
 
   // ─── Leer documentMetadataId de la sesión ────────────────────────────────
@@ -108,8 +108,8 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
     paymentFreq ? resolveCatalogId(catalogServices.paymentFrequencyService, paymentFreq, { key: "name", value: "Anual" }) : Promise.resolve(null),
   ]) as [{ id: string } | null, { id: string } | null, string | null];
 
-  if (!statusRow?.id) throw new Error("No se encontró el estatus ACTIVE en el catálogo.");
-  if (!currencyRow?.id) throw new Error(`No se encontró la moneda ${currency} en el catálogo.`);
+  if (!statusRow?.id) throw new Error("Status ACTIVE not found in catalog.");
+  if (!currencyRow?.id) throw new Error(`Currency ${currency} not found in catalog.`);
 
   // ─── Crear póliza ─────────────────────────────────────────────────────────
   const policy = await policyService.create({
@@ -131,7 +131,7 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
     notes: args.notes ?? null,
   });
 
-  if (!policy) throw new Error("No se pudo crear la póliza.");
+  if (!policy) throw new Error("Could not create policy.");
 
   // ─── Agregar beneficiarios ────────────────────────────────────────────────
   if (beneficiaries.length > 0) {
@@ -165,7 +165,7 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
     success: true,
     policyId: policy.id,
     policyNumber: policy.policyNumber,
-    message: "Póliza creada exitosamente.",
+    message: "Policy created successfully.",
     __skillMetadata: {
       type: "policy_confirmed",
       policyId: policy.id,
@@ -186,7 +186,7 @@ async function findOrCreateCatalogItem(service: any, name: string, extra: Record
   const results = await service.search(name);
   if (results?.[0]?.id) return results[0].id as string;
   const created = await service.create({ name, ...extra });
-  if (!created?.id) throw new Error(`No se pudo crear el registro de catálogo: ${name}`);
+  if (!created?.id) throw new Error(`Could not create catalog item: ${name}`);
   return created.id as string;
 }
 
@@ -202,8 +202,6 @@ async function findOrCreateContact(ctx: SkillContext, fullName: string, rfc: str
   if (similar?.[0]?.id) return similar[0].id;
 
   const created = await contactService.create({ agentId, fullName, rfc });
-  if (!created?.id) throw new Error(`No se pudo crear el contacto: ${fullName}`);
+  if (!created?.id) throw new Error(`Could not create contact: ${fullName}`);
   return created.id;
 }
-
-// deno-lint-ignore no-explicit-any

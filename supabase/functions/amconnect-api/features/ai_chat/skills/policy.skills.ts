@@ -23,7 +23,7 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "count_policies",
-      description: "Cuenta cuántas pólizas tiene el asesor en su cartera. Usar cuando el usuario pregunta '¿cuántas pólizas tengo?' o similares.",
+      description: "Counts how many policies the advisor has in their portfolio. Use when the user asks 'how many policies do I have?' or similar.",
       schema: z.object({}),
     },
     async execute(_args, ctx) {
@@ -35,7 +35,7 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "get_all_policies",
-      description: "Obtiene todas las pólizas de la cartera del asesor. Usar cuando el usuario pregunta por 'mis pólizas', 'todas las pólizas', fechas de pago, renovaciones, etc. sin especificar un contacto.",
+      description: "Retrieves all policies in the advisor's portfolio. Use when the user asks about 'my policies', 'all policies', payment dates, renewals, etc., without specifying a contact.",
       schema: z.object({}),
     },
     async execute(_args, ctx) {
@@ -47,10 +47,10 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "get_contact_policies",
-      description: "Obtiene todas las pólizas de un contacto.",
+      description: "Retrieves all policies of a contact.",
       schema: z.object({
-        contact_id: z.string({ required_error: "Se requiere el UUID del contacto" })
-          .describe("UUID del contacto"),
+        contact_id: z.string({ required_error: "The contact UUID is required" })
+          .describe("UUID of the contact"),
       }),
     },
     async execute({ contact_id }, ctx) {
@@ -62,10 +62,10 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "get_policy",
-      description: "Obtiene los datos completos de una póliza por su ID, incluyendo beneficiarios y participantes.",
+      description: "Retrieves the complete data of a policy by its ID, including beneficiaries and participants.",
       schema: z.object({
-        policy_id: z.string({ required_error: "Se requiere el UUID de la póliza" })
-          .describe("UUID de la póliza"),
+        policy_id: z.string({ required_error: "The policy UUID is required" })
+          .describe("UUID of the policy"),
       }),
     },
     async execute({ policy_id }, ctx) {
@@ -81,10 +81,10 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "search_policy_notes",
-      description: "Busca información sobre una póliza en las notas guardadas (coberturas, condiciones, etc.).",
+      description: "Searches for information about a policy in the saved notes (coverages, conditions, etc.).",
       schema: z.object({
-        query: z.string({ required_error: "Se requiere el texto de búsqueda" }),
-        policy_id: z.string().optional().describe("UUID de la póliza (opcional)"),
+        query: z.string({ required_error: "The search query is required" }),
+        policy_id: z.string().optional().describe("UUID of the policy (optional)"),
       }),
     },
     async execute({ query, policy_id }, ctx) {
@@ -97,22 +97,22 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "create_policy",
-      description: "Crea una nueva póliza de seguro de forma manual para el asesor. Requiere contact_id y product_id. Puedes pasar nombres amigables para status (ej: 'Vigente'), currency (ej: 'MXN', 'USD'), payment_frequency (ej: 'Anual', 'Mensual') y se resolverán automáticamente.",
+      description: "Creates a new insurance policy manually for the advisor. Requires contact_id and product_id. You can pass friendly names for status (e.g., 'Vigente'), currency (e.g., 'MXN', 'USD'), payment_frequency (e.g., 'Anual', 'Mensual') and they will be resolved automatically.",
       schema: z.object({
-        contact_id: z.string({ required_error: "Se requiere el UUID del contacto/cliente." }).uuid(),
-        product_id: z.string({ required_error: "Se requiere el UUID del producto." }).uuid(),
-        policy_number: z.string().optional().describe("Número de póliza"),
-        premium: z.number().optional().describe("Prima de la póliza"),
-        sum_insured: z.number().optional().describe("Suma asegurada"),
-        start_date: z.string().optional().describe("Fecha de inicio (YYYY-MM-DD)"),
-        end_date: z.string().optional().describe("Fecha de término (YYYY-MM-DD)"),
-        renewal_date: z.string().optional().describe("Fecha de renovación (YYYY-MM-DD)"),
-        next_payment_date: z.string().optional().describe("Fecha del próximo pago (YYYY-MM-DD)"),
-        status: z.string().optional().describe("Estatus de la póliza (ej: 'Vigente', 'Cancelada', 'Vencida'). Por defecto 'Vigente'"),
-        currency: z.string().optional().describe("Moneda de la póliza (ej: 'MXN', 'USD'). Por defecto 'MXN'"),
-        payment_frequency: z.string().optional().describe("Frecuencia de pago (ej: 'Anual', 'Mensual', 'Semestral', 'Trimestral'). Por defecto 'Anual'"),
-        payment_method: z.string().optional().describe("Método de pago (ej: 'Domiciliación', 'Transferencia Bancaria', 'Tarjeta de Crédito')"),
-        notes: z.string().optional().describe("Notas adicionales"),
+        contact_id: z.string({ required_error: "The contact/client UUID is required." }).uuid(),
+        product_id: z.string({ required_error: "The product UUID is required." }).uuid(),
+        policy_number: z.string().optional().describe("Policy number"),
+        premium: z.number().optional().describe("Policy premium"),
+        sum_insured: z.number().optional().describe("Sum insured"),
+        start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
+        end_date: z.string().optional().describe("End date (YYYY-MM-DD)"),
+        renewal_date: z.string().optional().describe("Renewal date (YYYY-MM-DD)"),
+        next_payment_date: z.string().optional().describe("Next payment date (YYYY-MM-DD)"),
+        status: z.string().optional().describe("Policy status (e.g., 'Vigente', 'Cancelada', 'Vencida'). Defaults to 'Vigente'"),
+        currency: z.string().optional().describe("Policy currency (e.g., 'MXN', 'USD'). Defaults to 'MXN'"),
+        payment_frequency: z.string().optional().describe("Payment frequency (e.g., 'Anual', 'Mensual', 'Semestral', 'Trimestral'). Defaults to 'Anual'"),
+        payment_method: z.string().optional().describe("Payment method (e.g., 'Domiciliación', 'Transferencia Bancaria', 'Tarjeta de Crédito')"),
+        notes: z.string().optional().describe("Additional notes"),
       }),
     },
     async execute(args, ctx) {
@@ -151,20 +151,20 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "update_policy",
-      description: "Modifica los datos de una póliza existente. Requiere policy_id.",
+      description: "Modifies the data of an existing policy. Requires policy_id.",
       schema: z.object({
-        policy_id: z.string({ required_error: "Se requiere el UUID de la póliza a modificar." }).uuid(),
+        policy_id: z.string({ required_error: "The UUID of the policy to update is required." }).uuid(),
         policy_number: z.string().optional(),
         premium: z.number().optional(),
         sum_insured: z.number().optional(),
-        start_date: z.string().optional().describe("Fecha (YYYY-MM-DD)"),
-        end_date: z.string().optional().describe("Fecha (YYYY-MM-DD)"),
-        renewal_date: z.string().optional().describe("Fecha (YYYY-MM-DD)"),
-        next_payment_date: z.string().optional().describe("Fecha (YYYY-MM-DD)"),
-        status: z.string().optional().describe("Nuevo estatus (ej: 'Vigente', 'Cancelada')"),
-        currency: z.string().optional().describe("Nueva moneda (ej: 'MXN', 'USD')"),
-        payment_frequency: z.string().optional().describe("Nueva frecuencia de pago"),
-        payment_method: z.string().optional().describe("Nuevo método de pago"),
+        start_date: z.string().optional().describe("Date (YYYY-MM-DD)"),
+        end_date: z.string().optional().describe("Date (YYYY-MM-DD)"),
+        renewal_date: z.string().optional().describe("Date (YYYY-MM-DD)"),
+        next_payment_date: z.string().optional().describe("Date (YYYY-MM-DD)"),
+        status: z.string().optional().describe("New status (e.g., 'Vigente', 'Cancelada')"),
+        currency: z.string().optional().describe("New currency (e.g., 'MXN', 'USD')"),
+        payment_frequency: z.string().optional().describe("New payment frequency"),
+        payment_method: z.string().optional().describe("New payment method"),
         notes: z.string().optional(),
       }),
     },
@@ -203,9 +203,9 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "get_expiring_policies",
-      description: "Obtiene las pólizas que están por vencer o renovar en los próximos días (por defecto los siguientes 30 días).",
+      description: "Retrieves policies that are about to expire or renew in the coming days (defaults to the next 30 days).",
       schema: z.object({
-        days: z.number().optional().describe("Días a futuro para buscar vencimientos (default: 30)"),
+        days: z.number().optional().describe("Days in the future to search for expirations (default: 30)"),
       }),
     },
     async execute({ days }, ctx) {
@@ -217,13 +217,13 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "get_portfolio_stats",
-      description: "Obtiene estadísticas clave agregadas de la cartera de pólizas del asesor (total de pólizas, primas totales por moneda, pólizas por ramo y pólizas por estatus).",
+      description: "Retrieves key aggregated portfolio statistics of the advisor (total policies, total premiums by currency, policies by branch, and policies by status).",
       schema: z.object({}),
     },
     async execute(_args, ctx) {
       const policies = await ctx.policyService.getByField("agent_id", ctx.agentId);
       if (!policies || policies.length === 0) {
-        return { totalPolicies: 0, message: "No tienes pólizas en tu cartera." };
+        return { totalPolicies: 0, message: "You have no policies in your portfolio." };
       }
 
       const statusCounts: Record<string, number> = {};
@@ -231,10 +231,10 @@ export const policySkills: SkillDefinition[] = [
       const premiumSums: Record<string, number> = {};
 
       for (const p of policies) {
-        const statusName = p.status?.name || "Desconocido";
+        const statusName = p.status?.name || "Unknown";
         statusCounts[statusName] = (statusCounts[statusName] || 0) + 1;
 
-        const branchName = p.product?.branch?.name || "Desconocido";
+        const branchName = p.product?.branch?.name || "Unknown";
         branchCounts[branchName] = (branchCounts[branchName] || 0) + 1;
 
         if (p.premium) {
@@ -255,10 +255,10 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "search_policies",
-      description: "Busca pólizas en la cartera del asesor por coincidencia de texto. Si el usuario menciona el nombre de un cliente en su petición, debes buscar primero al cliente con search_contact para obtener su contact_id y pasarlo en el parámetro contact_id de esta función, utilizando el parámetro query únicamente para filtrar por el ramo, producto o número de póliza (ej: 'auto', 'GNP').",
+      description: "Searches for policies in the advisor's portfolio by text matching. If the user mentions a client's name in their request, you must first search for the client using search_contact to get their contact_id and pass it in the contact_id parameter of this function, using the query parameter only to filter by branch, product, or policy number (e.g., 'auto', 'GNP').",
       schema: z.object({
-        query: z.string({ required_error: "Texto de búsqueda" }).describe("Texto a buscar (ej: 'auto', 'GNP', número de póliza)"),
-        contact_id: z.string().optional().describe("UUID del contacto para limitar la búsqueda (opcional)"),
+        query: z.string({ required_error: "Search text" }).describe("Text to search for (e.g., 'auto', 'GNP', policy number)"),
+        contact_id: z.string().optional().describe("UUID of the contact to limit search (optional)"),
       }),
     },
     async execute({ query, contact_id }, ctx) {
@@ -270,16 +270,16 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "find_policy_by_client",
-      description: "Busca pólizas asociando el nombre de un cliente y un criterio opcional de la póliza (ej: ramo 'auto', aseguradora 'GNP'). Si se omite 'policy_query', devolverá todas las pólizas del cliente. Úsalo cuando el usuario pida realizar una acción o preguntar sobre pólizas mencionando al cliente (ej: 'actualiza la póliza de auto de Karina' o '¿qué pólizas tiene Juan?'). Esto consolida la búsqueda en un solo paso y ahorra tokens.",
+      description: "Searches for policies by combining a client name and an optional policy criteria (e.g., branch 'auto', carrier 'GNP'). If 'policy_query' is omitted, it will return all policies of the client. Use when the user asks to perform an action or query about policies mentioning the client (e.g., 'update Karina's auto policy' or 'what policies does Juan have?'). This consolidates the search in a single step and saves tokens.",
       schema: z.object({
-        client_name: z.string({ required_error: "Nombre del cliente a buscar (ej: 'Karina', 'Juan')" }).describe("Nombre del cliente"),
-        policy_query: z.string().optional().describe("Texto para identificar la póliza (ej: 'auto', 'GNP', 'Vida'). Si se omite, devuelve todas las pólizas del cliente."),
+        client_name: z.string({ required_error: "Name of the client to search for (e.g., 'Karina', 'Juan')" }).describe("Name of the client"),
+        policy_query: z.string().optional().describe("Text to identify the policy (e.g., 'auto', 'GNP', 'Vida'). If omitted, returns all policies of the client."),
       }),
     },
     async execute({ client_name, policy_query }, ctx) {
       const contacts = await ctx.contactService.findSimilarContact(ctx.agentId, client_name as string);
       if (!contacts || contacts.length === 0) {
-        return { error: `No se encontró ningún cliente que coincida con '${client_name}'.` };
+        return { error: `No client found matching '${client_name}'.` };
       }
       const allPolicies: PolicyResponseDTO[] = [];
       for (const contact of contacts) {
@@ -292,4 +292,3 @@ export const policySkills: SkillDefinition[] = [
     },
   },
 ];
-

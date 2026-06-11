@@ -8,15 +8,15 @@ export const catalogSkills: SkillDefinition[] = [
     domain: "catalog",
     declaration: {
       name: "search_carrier",
-      description: "Busca aseguradoras del asesor por nombre. SIEMPRE llamar antes de create_carrier. Si devuelve al menos un resultado, usar el id del primero (mayor similarity) y NO llamar create_carrier. Solo llamar create_carrier si el resultado está vacío.",
+      description: "Searches for the advisor's insurance carriers by name. ALWAYS call before create_carrier. If it returns at least one result, use the ID of the first one (highest similarity) and DO NOT call create_carrier. Only call create_carrier if the result is empty.",
       schema: z.object({
-        query: z.string().optional().describe("Nombre de la aseguradora a buscar (ej: 'AXA', 'GNP', 'Metlife')"),
-        name: z.string().optional().describe("Alias aceptado de query"),
+        query: z.string().optional().describe("Name of the carrier to search for (e.g., 'AXA', 'GNP', 'Metlife')"),
+        name: z.string().optional().describe("Accepted alias of query"),
       }),
     },
     async execute(args, ctx) {
       const q = (args.query ?? args.name) as string | undefined;
-      if (!q) return { error: "Se requiere el nombre de la aseguradora a buscar." };
+      if (!q) return { error: "The name of the carrier to search for is required." };
       return await ctx.catalogServices.carrierService.search(q);
     },
   },
@@ -24,12 +24,12 @@ export const catalogSkills: SkillDefinition[] = [
     domain: "catalog",
     declaration: {
       name: "create_carrier",
-      description: "Crea una nueva aseguradora para el asesor. Usar search_carrier primero para verificar que no exista.",
+      description: "Creates a new insurance carrier for the advisor. Use search_carrier first to check it doesn't already exist.",
       schema: z.object({
-        name: z.string({ required_error: "Se requiere el nombre de la aseguradora" })
-          .describe("Nombre completo de la aseguradora (ej: 'AXA Seguros')"),
+        name: z.string({ required_error: "The name of the carrier is required" })
+          .describe("Full name of the carrier (e.g., 'AXA Seguros')"),
         short_name: z.string().optional()
-          .describe("Abreviación o nombre corto (ej: 'AXA', 'GNP', 'SMNYL')"),
+          .describe("Abbreviation or short name (e.g., 'AXA', 'GNP', 'SMNYL')"),
       }),
     },
     async execute({ name, short_name }, ctx) {
@@ -43,15 +43,15 @@ export const catalogSkills: SkillDefinition[] = [
     domain: "catalog",
     declaration: {
       name: "search_branch",
-      description: "Busca ramos del asesor por nombre. SIEMPRE llamar antes de create_branch. Si devuelve al menos un resultado — aunque sean varios con el mismo nombre — usar el id del primero (mayor similarity) y NO llamar create_branch. Solo llamar create_branch si el resultado está vacío.",
+      description: "Searches for the advisor's branches (lines of business) by name. ALWAYS call before create_branch. If it returns at least one result, use the ID of the first one (highest similarity) and DO NOT call create_branch. Only call create_branch if the result is empty.",
       schema: z.object({
-        query: z.string().optional().describe("Nombre del ramo (ej: 'Vida', 'Gastos Médicos', 'Auto', 'Daños')"),
-        name: z.string().optional().describe("Alias aceptado de query"),
+        query: z.string().optional().describe("Name of the branch (e.g., 'Vida', 'Gastos Médicos', 'Auto', 'Daños')"),
+        name: z.string().optional().describe("Accepted alias of query"),
       }),
     },
     async execute(args, ctx) {
       const q = (args.query ?? args.name) as string | undefined;
-      if (!q) return { error: "Se requiere el nombre del ramo a buscar." };
+      if (!q) return { error: "The name of the branch to search for is required." };
       return await ctx.catalogServices.branchService.search(q);
     },
   },
@@ -59,12 +59,12 @@ export const catalogSkills: SkillDefinition[] = [
     domain: "catalog",
     declaration: {
       name: "create_branch",
-      description: "Crea un nuevo ramo para el asesor. Usar search_branch primero para verificar que no exista.",
+      description: "Creates a new branch for the advisor. Use search_branch first to check it doesn't already exist.",
       schema: z.object({
-        name: z.string({ required_error: "Se requiere el nombre del ramo" })
-          .describe("Nombre del ramo en español (ej: 'Vida', 'Gastos Médicos Mayores', 'Auto')"),
-        code: z.string({ required_error: "Se requiere el código del ramo en inglés mayúsculas" })
-          .describe("Código corto en inglés mayúsculas derivado del nombre (ej: 'LIFE' para Vida, 'GMM' para Gastos Médicos, 'AUTO' para Auto, 'DAMAGE' para Daños)"),
+        name: z.string({ required_error: "The name of the branch is required" })
+          .describe("Name of the branch in Spanish (e.g., 'Vida', 'Gastos Médicos Mayores', 'Auto')"),
+        code: z.string({ required_error: "The uppercase English code of the branch is required" })
+          .describe("Short uppercase English code derived from the name (e.g., 'LIFE' for Vida, 'GMM' for Gastos Médicos, 'AUTO' for Auto, 'DAMAGE' for Daños)"),
       }),
     },
     async execute({ name, code }, ctx) {
@@ -76,17 +76,17 @@ export const catalogSkills: SkillDefinition[] = [
     domain: "catalog",
     declaration: {
       name: "update_carrier",
-      description: "Actualiza datos de una aseguradora existente. Usar search_carrier primero para obtener el carrier_id.",
+      description: "Updates data of an existing carrier. Use search_carrier first to obtain the carrier_id.",
       schema: z.object({
-        carrier_id: z.string().optional().describe("UUID de la aseguradora a actualizar (obtenido de search_carrier)"),
-        id: z.string().optional().describe("Alias aceptado de carrier_id"),
-        name: z.string().optional().describe("Nuevo nombre"),
-        short_name: z.string().optional().describe("Nueva abreviación"),
+        carrier_id: z.string().optional().describe("UUID of the carrier to update (obtained from search_carrier)"),
+        id: z.string().optional().describe("Accepted alias of carrier_id"),
+        name: z.string().optional().describe("New name"),
+        short_name: z.string().optional().describe("New abbreviation"),
       }),
     },
     async execute(args, ctx) {
       const carrierId = (args.carrier_id ?? args.id) as string | undefined;
-      if (!carrierId) return { error: "Se requiere el UUID de la aseguradora. Usar search_carrier para obtenerlo." };
+      if (!carrierId) return { error: "The UUID of the carrier is required. Use search_carrier to obtain it." };
       return await ctx.catalogServices.carrierService.update(carrierId, {
         name: args.name,
         shortName: args.short_name,
@@ -97,17 +97,17 @@ export const catalogSkills: SkillDefinition[] = [
     domain: "catalog",
     declaration: {
       name: "update_branch",
-      description: "Actualiza datos de un ramo existente. Usar search_branch primero para obtener el branch_id.",
+      description: "Updates data of an existing branch. Use search_branch first to obtain the branch_id.",
       schema: z.object({
-        branch_id: z.string().optional().describe("UUID del ramo a actualizar (obtenido de search_branch)"),
-        id: z.string().optional().describe("Alias aceptado de branch_id"),
-        name: z.string().optional().describe("Nuevo nombre"),
-        code: z.string().optional().describe("Nuevo código en inglés mayúsculas"),
+        branch_id: z.string().optional().describe("UUID of the branch to update (obtained from search_branch)"),
+        id: z.string().optional().describe("Accepted alias of branch_id"),
+        name: z.string().optional().describe("New name"),
+        code: z.string().optional().describe("New uppercase English code"),
       }),
     },
     async execute(args, ctx) {
       const branchId = (args.branch_id ?? args.id) as string | undefined;
-      if (!branchId) return { error: "Se requiere el UUID del ramo. Usar search_branch para obtenerlo." };
+      if (!branchId) return { error: "The UUID of the branch is required. Use search_branch to obtain it." };
       return await ctx.catalogServices.branchService.update(branchId, {
         name: args.name,
         code: args.code,
@@ -121,7 +121,7 @@ export const catalogSkills: SkillDefinition[] = [
     domain: "catalog",
     declaration: {
       name: "get_products",
-      description: "Lista todos los productos del asesor con su aseguradora y ramo. Usar cuando el usuario pregunte qué productos tiene en cartera, o quiera ver los productos de una aseguradora específica.",
+      description: "Lists all products of the advisor with their carrier and branch. Use when the user asks what products they have, or wants to see the products of a specific carrier.",
       schema: z.object({}),
     },
     async execute(_args, ctx) {
@@ -132,15 +132,15 @@ export const catalogSkills: SkillDefinition[] = [
     domain: "catalog",
     declaration: {
       name: "search_product",
-      description: "Busca productos de seguro del asesor por nombre. SIEMPRE llamar antes de create_product. Si devuelve al menos un resultado, usar el id del primero y NO llamar create_product. Solo llamar create_product si el resultado está vacío.",
+      description: "Searches for insurance products of the advisor by name. ALWAYS call before create_product. If it returns at least one result, use the ID of the first one and DO NOT call create_product. Only call create_product if the result is empty.",
       schema: z.object({
-        query: z.string().optional().describe("Nombre del producto a buscar (ej: 'Plan Familiar', 'Seguro de Vida Premium')"),
-        name: z.string().optional().describe("Alias aceptado de query"),
+        query: z.string().optional().describe("Name of the product to search for (e.g., 'Plan Familiar', 'Seguro de Vida Premium')"),
+        name: z.string().optional().describe("Accepted alias of query"),
       }),
     },
     async execute(args, ctx) {
       const q = (args.query ?? args.name) as string | undefined;
-      if (!q) return { error: "Se requiere el nombre del producto a buscar." };
+      if (!q) return { error: "The name of the product to search for is required." };
       return await ctx.catalogServices.productService.search(q);
     },
   },
@@ -148,18 +148,18 @@ export const catalogSkills: SkillDefinition[] = [
     domain: "catalog",
     declaration: {
       name: "update_product",
-      description: "Actualiza datos de un producto existente. Usar search_product primero para obtener el product_id.",
+      description: "Updates data of an existing product. Use search_product first to obtain the product_id.",
       schema: z.object({
-        product_id: z.string().optional().describe("UUID del producto a actualizar (obtenido de search_product)"),
-        id: z.string().optional().describe("Alias aceptado de product_id"),
-        name: z.string().optional().describe("Nuevo nombre del producto"),
-        carrier_id: z.string().optional().describe("Nuevo UUID de aseguradora"),
-        branch_id: z.string().optional().describe("Nuevo UUID de ramo"),
+        product_id: z.string().optional().describe("UUID of the product to update (obtained from search_product)"),
+        id: z.string().optional().describe("Accepted alias of product_id"),
+        name: z.string().optional().describe("New name of the product"),
+        carrier_id: z.string().optional().describe("New carrier UUID"),
+        branch_id: z.string().optional().describe("New branch UUID"),
       }),
     },
     async execute(args, ctx) {
       const productId = (args.product_id ?? args.id) as string | undefined;
-      if (!productId) return { error: "Se requiere el UUID del producto. Usar search_product para obtenerlo." };
+      if (!productId) return { error: "The UUID of the product is required. Use search_product to obtain it." };
       return await ctx.catalogServices.productService.update(productId, {
         name: args.name,
         carrierId: args.carrier_id,
@@ -171,14 +171,14 @@ export const catalogSkills: SkillDefinition[] = [
     domain: "catalog",
     declaration: {
       name: "create_product",
-      description: "Crea un nuevo producto de seguro. Requiere carrier_id y branch_id — usar search_carrier y search_branch primero para obtenerlos.",
+      description: "Creates a new insurance product. Requires carrier_id and branch_id — use search_carrier and search_branch first to obtain them.",
       schema: z.object({
-        name: z.string({ required_error: "Se requiere el nombre del producto" })
-          .describe("Nombre del producto (ej: 'Plan Familiar Plus')"),
-        carrier_id: z.string({ required_error: "Se requiere el UUID de la aseguradora. Usar search_carrier o create_carrier para obtenerlo." })
-          .describe("UUID de la aseguradora (obtenido de search_carrier o create_carrier)"),
-        branch_id: z.string({ required_error: "Se requiere el UUID del ramo. Usar search_branch o create_branch para obtenerlo." })
-          .describe("UUID del ramo (obtenido de search_branch o create_branch)"),
+        name: z.string({ required_error: "The name of the product is required" })
+          .describe("Name of the product (e.g., 'Plan Familiar Plus')"),
+        carrier_id: z.string({ required_error: "The carrier UUID is required. Use search_carrier or create_carrier to obtain it." })
+          .describe("UUID of the carrier (obtained from search_carrier or create_carrier)"),
+        branch_id: z.string({ required_error: "The branch UUID is required. Use search_branch or create_branch to obtain it." })
+          .describe("UUID of the branch (obtained from search_branch or create_branch)"),
       }),
     },
     async execute({ name, carrier_id, branch_id }, ctx) {
