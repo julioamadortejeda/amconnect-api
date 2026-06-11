@@ -1,5 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SupabaseRepository } from "../../core/base_repository.ts";
+import { PaginatedResult } from "../../core/repository.interface.ts";
 import { ReminderResponseDTO } from "./reminder.dto.ts";
 
 const REMINDER_SELECT = `
@@ -12,6 +13,14 @@ const REMINDER_SELECT = `
 export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> {
   constructor(supabase: SupabaseClient) {
     super(supabase, "reminders", REMINDER_SELECT);
+  }
+
+  override paginate(
+    filters: Partial<Record<string, unknown>> = {},
+    page = 1,
+    pageSize = 20,
+  ): Promise<PaginatedResult<ReminderResponseDTO>> {
+    return super.paginate(filters, page, pageSize, { column: "due_date", ascending: true, nullsFirst: false });
   }
 
   async searchReminders(agentId: string, queryText: string, isDone?: boolean): Promise<ReminderResponseDTO[] | null> {
