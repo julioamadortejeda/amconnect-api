@@ -35,6 +35,7 @@ import { ConfirmPolicyService } from "../../../features/document_processing/conf
 import { DocumentMetadataRepository } from "../../../modules/document_metadata/document_metadata.repository.ts";
 import { AppError } from "../../../shared/errors.ts";
 import { AI_MODEL } from "../../../shared/config.ts";
+import { PromptService } from "../../../modules/prompt/prompt.service.ts";
 
 function buildGeminiProvider(): GeminiProvider {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
@@ -73,6 +74,7 @@ export const injectServices = async (c: Context, next: Next) => {
   // Core modules
   const catalogServices = createCatalogServices(supabase, agentId);
   const agentService = new AgentService(new AgentRepository(supabase));
+  const promptService = new PromptService(supabase);
   const storageService = new StorageService(new StorageRepository(supabase));
   c.set("storage_service", storageService);
 
@@ -139,6 +141,7 @@ export const injectServices = async (c: Context, next: Next) => {
           catalogServices,
         },
         aiSessionService,
+        promptService,
       );
     }
     return aiChatService;
@@ -197,6 +200,7 @@ export const injectServices = async (c: Context, next: Next) => {
     policyService,
     reminderService,
     aiSessionService,
+    promptService,
     get embeddingsService() {
       return getEmbeddingsService();
     },
