@@ -59,16 +59,22 @@ Las siguientes tablas tienen RLS con `agent_id = auth.uid()` y están protegidas
 **Regla:** no es necesario agregar `.eq("agent_id", agentId)` en queries TypeScript cuando el cliente Supabase ya viene autenticado con el JWT del usuario — el RLS lo impone automáticamente.
 
 ## Mini-framework de servicios
-
+ 
 Cada responsabilidad transversal tiene su propio servicio inyectable — no lógica inline en controllers ni middleware:
-
+ 
 | Servicio | Ubicación | Responsabilidad |
 |---|---|---|
 | `ErrorLogService` | `modules/error_log/error_log.service.ts` | Inserta en `error_logs`, retorna `errorId \| null` |
 | `UsageService` | `modules/subscription/usage.service.ts` | `checkAndIncrement*`, `decrement*` — usa `this.supabase` (RLS permite) |
 | `AiSessionService` | `features/ai_chat/ai_session.service.ts` | Crear, marcar, trackear tokens de sesiones IA |
-
+| `PromptService` | `modules/prompt/prompt.service.ts` | Recuperar y cachear en memoria prompts de la tabla `system_prompts` |
+ 
 **Reglas:**
 - Nunca usar `SUPABASE_SERVICE_ROLE_KEY` en los servicios — el RLS debe estar correctamente configurado para que el cliente autenticado pueda hacer lo que necesita
 - El `errorId` se incluye en la respuesta JSON al cliente pero el mensaje de error es lo que ve el usuario; el ID es para uso interno futuro
 - No usar RPCs de Postgres para operaciones que se pueden hacer con TypeScript (ej: decrement = read-then-update en TS)
+- **Prompts en Base de Datos**: Los prompts del sistema e ingesta no deben estar hardcodeados en el backend. Deben guardarse en la tabla `system_prompts`, escribirse exclusivamente en inglés para optimizar el razonamiento y consumo de tokens, e incluir instrucciones de detección de idioma si chatean con el usuario.
+- **Caché de Prompts**: `PromptService` maneja una caché en memoria (`Map`). El TTL se configura mediante la variable de entorno `PROMPT_CACHE_TTL_MINUTES` (default 24h).
+- **Evitar lockfiles versión 5**: Para evitar errores de bootstrap en el runtime de Supabase Edge Runtime, `deno.json` debe tener siempre `"lock": false`.
+- **Inyección de PromptService**: Se inyecta a través del contenedor DI de Hono (`di/index.ts`) en todos los servicios y proveedores de IA que dependan de plantillas de prompts (ej: `AiChatService`, `GeminiProvider`, `KnowledgeIngestionService`, `PolicyIngestionService` y `DocumentProcessorService`).
+
