@@ -666,6 +666,7 @@ export type Database = {
           full_name: string
           id: string
           is_active: boolean
+          is_prospect: boolean
           notes: string | null
           occupation: string | null
           phone: string | null
@@ -685,6 +686,7 @@ export type Database = {
           full_name: string
           id?: string
           is_active?: boolean
+          is_prospect?: boolean
           notes?: string | null
           occupation?: string | null
           phone?: string | null
@@ -704,6 +706,7 @@ export type Database = {
           full_name?: string
           id?: string
           is_active?: boolean
+          is_prospect?: boolean
           notes?: string | null
           occupation?: string | null
           phone?: string | null
@@ -1213,6 +1216,45 @@ export type Database = {
         }
         Relationships: []
       }
+      reminder_comments: {
+        Row: {
+          agent_id: string
+          content: string
+          created_at: string
+          id: string
+          reminder_id: string
+        }
+        Insert: {
+          agent_id: string
+          content: string
+          created_at?: string
+          id?: string
+          reminder_id: string
+        }
+        Update: {
+          agent_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          reminder_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reminder_comments_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminder_comments_reminder_id_fkey"
+            columns: ["reminder_id"]
+            isOneToOne: false
+            referencedRelation: "reminders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reminder_settings: {
         Row: {
           agent_id: string
@@ -1255,6 +1297,30 @@ export type Database = {
           },
         ]
       }
+      reminder_statuses: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+        }
+        Relationships: []
+      }
       reminder_types: {
         Row: {
           code: string | null
@@ -1289,9 +1355,9 @@ export type Database = {
           due_date: string
           id: string
           is_active: boolean
-          is_done: boolean
           notified_at: string | null
           policy_id: string | null
+          status_id: string
           title: string
           type_id: string
           updated_at: string
@@ -1305,9 +1371,9 @@ export type Database = {
           due_date: string
           id?: string
           is_active?: boolean
-          is_done?: boolean
           notified_at?: string | null
           policy_id?: string | null
+          status_id: string
           title: string
           type_id: string
           updated_at?: string
@@ -1321,9 +1387,9 @@ export type Database = {
           due_date?: string
           id?: string
           is_active?: boolean
-          is_done?: boolean
           notified_at?: string | null
           policy_id?: string | null
+          status_id?: string
           title?: string
           type_id?: string
           updated_at?: string
@@ -1348,6 +1414,13 @@ export type Database = {
             columns: ["policy_id"]
             isOneToOne: false
             referencedRelation: "policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminders_status_id_fkey"
+            columns: ["status_id"]
+            isOneToOne: false
+            referencedRelation: "reminder_statuses"
             referencedColumns: ["id"]
           },
           {

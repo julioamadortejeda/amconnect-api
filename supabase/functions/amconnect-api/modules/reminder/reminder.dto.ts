@@ -8,10 +8,20 @@ export const ReminderRequestSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional().nullable(),
   dueDate: z.string(), // ISO 8601
-  isDone: z.boolean().optional().default(false),
+  statusId: z.string().uuid().optional().nullable(),
+  status: z.string().optional().nullable(), // Friendly code like 'PENDING', 'DONE', etc.
+  comment: z.string().optional().nullable(),
 });
 
 export type ReminderRequestDTO = z.infer<typeof ReminderRequestSchema>;
+
+export interface ReminderCommentDTO {
+  id: string;
+  reminderId: string;
+  agentId: string;
+  content: string;
+  createdAt: string;
+}
 
 export interface ReminderResponseDTO {
   id: string;
@@ -22,12 +32,16 @@ export interface ReminderResponseDTO {
   title: string;
   description: string | null;
   dueDate: string;
-  isDone: boolean;
+  statusId: string;
+  comments?: ReminderCommentDTO[];
   notifiedAt: string | null;
   createdAt: string;
   updatedAt: string;
   // Relaciones
   type?: { id: string; name: string; code: string };
+  status?: { id: string; name: string; code: string };
   contact?: { id: string; fullName: string };
   policy?: { id: string; policyNumber: string | null };
 }
+
+
