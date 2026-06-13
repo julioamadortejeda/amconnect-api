@@ -120,7 +120,6 @@ export type Database = {
           document_metadata_id: string | null
           id: string
           is_active: boolean
-          metadata: Json | null
           policy_id: string | null
           source_type: string
         }
@@ -132,7 +131,6 @@ export type Database = {
           document_metadata_id?: string | null
           id?: string
           is_active?: boolean
-          metadata?: Json | null
           policy_id?: string | null
           source_type: string
         }
@@ -144,7 +142,6 @@ export type Database = {
           document_metadata_id?: string | null
           id?: string
           is_active?: boolean
-          metadata?: Json | null
           policy_id?: string | null
           source_type?: string
         }

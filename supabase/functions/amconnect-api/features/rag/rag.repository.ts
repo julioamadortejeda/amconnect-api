@@ -8,7 +8,6 @@ export interface NoteMatch {
   policyId: string | null;
   similarity: number;
   sourceType: string;
-  metadata: Record<string, unknown> | null;
 }
 
 export interface SearchNoteChunksOptions {
@@ -63,7 +62,6 @@ export class RagRepository implements IRagRepository {
       policyId: r.policy_id as string | null,
       similarity: r.similarity as number,
       sourceType: r.source_type as string,
-      metadata: r.metadata as Record<string, unknown> | null,
     }));
   }
 }

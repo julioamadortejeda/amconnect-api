@@ -147,29 +147,14 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
       if (!docMeta) throw new AppError("No se pudo guardar los metadatos del documento.", 500);
 
       const coveragesText = buildCoveragesNote(extraction);
+      const fullContent = [extraction.summary, coveragesText].filter(Boolean).join("\n\n");
 
-      const [summaryResult, coveragesResult] = await Promise.all([
-        this.embeddingsService.saveDocument(agentId, {
-          content: extraction.summary,
-          sourceType: "pdf",
-          contactId: contactId ?? null,
-          documentMetadataId: docMeta.id,
-          metadata: { intent: "policy", fileName, documentMetadataId: docMeta.id },
-        }),
-        coveragesText
-          ? this.embeddingsService.saveDocument(agentId, {
-              content: coveragesText,
-              sourceType: "pdf",
-              contactId: contactId ?? null,
-              documentMetadataId: docMeta.id,
-              metadata: { intent: "policy_coverages", fileName, documentMetadataId: docMeta.id },
-            })
-          : null,
-      ]);
-
-      const noteId = summaryResult.noteId;
-      const embeddingTotalTokens = summaryResult.embeddingTotalTokens + (coveragesResult?.embeddingTotalTokens ?? 0);
-      const embeddingCount = summaryResult.embeddingCount + (coveragesResult?.embeddingCount ?? 0);
+      const { noteId, embeddingTotalTokens, embeddingCount } = await this.embeddingsService.saveDocument(agentId, {
+        content: fullContent,
+        sourceType: "pdf",
+        contactId: contactId ?? null,
+        documentMetadataId: docMeta.id,
+      });
 
       // Registrar detalles de ingesta en la sesión unificada
       await this.aiSessionService.trackIngestionUsage(

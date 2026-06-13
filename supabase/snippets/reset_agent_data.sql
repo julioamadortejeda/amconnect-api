@@ -4,6 +4,16 @@
 -- Resetea: uso mensual y suscripción.
 -- NO borra: el agente ni el usuario en auth.users.
 --
+-- ⚠️  ARCHIVOS EN STORAGE NO INCLUIDOS:
+--     Este script borra los registros de document_metadata pero NO elimina
+--     los archivos físicos del bucket de Supabase Storage. Los PDFs e imágenes
+--     del agente quedan huérfanos en el bucket "policies".
+--     Para borrarlos manualmente:
+--       1. Ir a Supabase Dashboard → Storage → policies
+--       2. Buscar la carpeta del agente (por su UUID) y eliminarla
+--     O usar la API de Storage con service role key:
+--       await supabase.storage.from('policies').remove([...paths])
+--
 -- Uso: reemplaza el UUID de p_agent_id y ejecuta en el SQL editor de Supabase.
 
 do $$

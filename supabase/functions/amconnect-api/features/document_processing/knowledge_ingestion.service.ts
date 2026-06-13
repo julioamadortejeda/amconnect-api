@@ -111,7 +111,6 @@ export class KnowledgeIngestionService {
         contactId: contactId ?? null,
         policyId: policyId ?? null,
         documentMetadataId: docMeta?.id ?? null,
-        metadata: { fileName, documentMetadataId: docMeta?.id },
       });
 
       await this.aiSessionService.trackIngestionUsage(
@@ -179,7 +178,6 @@ export class KnowledgeIngestionService {
           sourceType,
           contactId,
           policyId,
-          metadata: { sourceType },
         }),
       ]);
     } catch (err) {

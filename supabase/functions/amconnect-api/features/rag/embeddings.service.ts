@@ -11,7 +11,6 @@ export interface DocumentInput {
   contactId?: string | null;
   policyId?: string | null;
   documentMetadataId?: string | null;
-  metadata?: Record<string, unknown>;
 }
 
 export interface SaveDocumentResult {
@@ -35,7 +34,6 @@ export class EmbeddingsService {
       sourceType: input.sourceType,
       content: input.content,
       documentMetadataId: input.documentMetadataId ?? null,
-      metadata: input.metadata ?? null,
     });
 
     const chunks = this.textSplitter.split(input.content);
