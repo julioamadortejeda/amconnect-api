@@ -293,6 +293,7 @@ export type Database = {
       ai_ingestion_usage: {
         Row: {
           agent_id: string
+          cached_tokens: number
           completion_tokens: number
           created_at: string
           document_metadata_id: string | null
@@ -306,6 +307,7 @@ export type Database = {
         }
         Insert: {
           agent_id: string
+          cached_tokens?: number
           completion_tokens?: number
           created_at?: string
           document_metadata_id?: string | null
@@ -319,6 +321,7 @@ export type Database = {
         }
         Update: {
           agent_id?: string
+          cached_tokens?: number
           completion_tokens?: number
           created_at?: string
           document_metadata_id?: string | null
@@ -363,6 +366,7 @@ export type Database = {
       }
       ai_models: {
         Row: {
+          cache_read_cost_per_1m: number
           display_name: string | null
           input_cost_per_1m: number
           is_active: boolean
@@ -371,6 +375,7 @@ export type Database = {
           provider: string
         }
         Insert: {
+          cache_read_cost_per_1m?: number
           display_name?: string | null
           input_cost_per_1m?: number
           is_active?: boolean
@@ -379,6 +384,7 @@ export type Database = {
           provider: string
         }
         Update: {
+          cache_read_cost_per_1m?: number
           display_name?: string | null
           input_cost_per_1m?: number
           is_active?: boolean
@@ -442,11 +448,13 @@ export type Database = {
       ai_sessions: {
         Row: {
           agent_id: string
+          cached_tokens: number
           completion_tokens: number
           created_at: string
           embedding_count: number
           embedding_model_name: string | null
           embedding_total_tokens: number
+          extraction_cached_tokens: number
           extraction_completion_tokens: number
           extraction_prompt_tokens: number
           extraction_total_tokens: number
@@ -464,11 +472,13 @@ export type Database = {
         }
         Insert: {
           agent_id: string
+          cached_tokens?: number
           completion_tokens?: number
           created_at?: string
           embedding_count?: number
           embedding_model_name?: string | null
           embedding_total_tokens?: number
+          extraction_cached_tokens?: number
           extraction_completion_tokens?: number
           extraction_prompt_tokens?: number
           extraction_total_tokens?: number
@@ -486,11 +496,13 @@ export type Database = {
         }
         Update: {
           agent_id?: string
+          cached_tokens?: number
           completion_tokens?: number
           created_at?: string
           embedding_count?: number
           embedding_model_name?: string | null
           embedding_total_tokens?: number
+          extraction_cached_tokens?: number
           extraction_completion_tokens?: number
           extraction_prompt_tokens?: number
           extraction_total_tokens?: number

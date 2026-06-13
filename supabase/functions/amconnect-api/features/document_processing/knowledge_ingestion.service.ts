@@ -77,7 +77,7 @@ export class KnowledgeIngestionService {
     // From this point forward, any error must be AiInvokedError so the controller
     // marks the session as failed instead of deleting it.
     let extraction: z.infer<typeof RawExtractionSchema>;
-    let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
+    let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } | undefined;
     try {
       const result = await this.aiProvider.generateStructuredData(
         prompt,
@@ -168,7 +168,7 @@ export class KnowledgeIngestionService {
       .replace("{lengthNote}", lengthNote);
 
     // LLM (metadata) y embeddings (saveDocument) son independientes — corren en paralelo
-    let aiResult: { data: z.infer<typeof TextMetadataSchema>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } };
+    let aiResult: { data: z.infer<typeof TextMetadataSchema>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } };
     let docResult: { noteId: string; embeddingTotalTokens: number; embeddingCount: number };
     try {
       [aiResult, docResult] = await Promise.all([

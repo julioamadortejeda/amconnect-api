@@ -73,6 +73,7 @@ export class GeminiProvider implements IAiProvider {
           promptTokens: response.usageMetadata.promptTokenCount ?? 0,
           completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
           totalTokens: response.usageMetadata.totalTokenCount ?? 0,
+          cachedTokens: response.usageMetadata.cachedContentTokenCount ?? 0,
         }
         : undefined,
     };
@@ -112,6 +113,7 @@ export class GeminiProvider implements IAiProvider {
           promptTokens: response.usageMetadata.promptTokenCount ?? 0,
           completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
           totalTokens: response.usageMetadata.totalTokenCount ?? 0,
+          cachedTokens: response.usageMetadata.cachedContentTokenCount ?? 0,
         }
         : undefined,
     };
@@ -163,6 +165,7 @@ Advisor message: "{message}"`;
           promptTokens: response.usageMetadata.promptTokenCount ?? 0,
           completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
           totalTokens: response.usageMetadata.totalTokenCount ?? 0,
+          cachedTokens: response.usageMetadata.cachedContentTokenCount ?? 0,
         }
         : undefined,
     };

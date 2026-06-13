@@ -95,7 +95,7 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
     // From this point forward, any error must be AiInvokedError so the controller
     // marks the session as failed instead of deleting it.
     let extraction: PolicyExtraction;
-    let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
+    let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } | undefined;
     try {
       const result = await this.aiProvider.generateStructuredData(
         dynamicPrompt,

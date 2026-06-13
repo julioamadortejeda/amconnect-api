@@ -13,6 +13,7 @@ export interface UsageTokens {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedTokens?: number;
 }
 
 export interface ChatMessageInput {
@@ -57,6 +58,7 @@ export class AiSessionService {
         promptTokens: extractionUsage?.promptTokens ?? 0,
         completionTokens: extractionUsage?.completionTokens ?? 0,
         totalTokens: extractionUsage?.totalTokens ?? 0,
+        cachedTokens: extractionUsage?.cachedTokens ?? 0,
         itemCount: 1,
       },
       {
@@ -68,6 +70,7 @@ export class AiSessionService {
         promptTokens: 0,
         completionTokens: 0,
         totalTokens: embeddingTotalTokens,
+        cachedTokens: 0,
         itemCount: embeddingCount,
       },
     ];
@@ -78,6 +81,7 @@ export class AiSessionService {
       extractionPromptTokens: extractionUsage?.promptTokens ?? 0,
       extractionCompletionTokens: extractionUsage?.completionTokens ?? 0,
       extractionTotalTokens: extractionUsage?.totalTokens ?? 0,
+      extractionCachedTokens: extractionUsage?.cachedTokens ?? 0,
       embeddingTotalTokens,
       embeddingCount,
     });
@@ -99,12 +103,14 @@ export class AiSessionService {
       promptTokens: extractionUsage?.promptTokens ?? 0,
       completionTokens: extractionUsage?.completionTokens ?? 0,
       totalTokens: extractionUsage?.totalTokens ?? 0,
+      cachedTokens: extractionUsage?.cachedTokens ?? 0,
       itemCount: 1,
     });
     await this.repository.updateSession(sessionId, {
       extractionPromptTokens: extractionUsage?.promptTokens ?? 0,
       extractionCompletionTokens: extractionUsage?.completionTokens ?? 0,
       extractionTotalTokens: extractionUsage?.totalTokens ?? 0,
+      extractionCachedTokens: extractionUsage?.cachedTokens ?? 0,
     });
   }
 
@@ -125,6 +131,7 @@ export class AiSessionService {
       promptTokens: 0,
       completionTokens: 0,
       totalTokens: embeddingTotalTokens,
+      cachedTokens: 0,
       itemCount: embeddingCount,
     });
     await this.repository.updateSession(sessionId, {
@@ -156,6 +163,7 @@ export class AiSessionService {
       promptTokens: current.promptTokens + deltaUsage.promptTokens,
       completionTokens: current.completionTokens + deltaUsage.completionTokens,
       totalTokens: current.totalTokens + deltaUsage.totalTokens,
+      cachedTokens: current.cachedTokens + (deltaUsage.cachedTokens ?? 0),
     };
 
     await Promise.all([
@@ -232,26 +240,24 @@ export class AiSessionService {
     // deno-lint-ignore any
     const embeddingModel = data.embedding_model ? (Array.isArray(data.embedding_model) ? data.embedding_model[0] : data.embedding_model) as any : null;
 
-    let chatCostUsd = 0;
-    if (chatModel) {
-      const inputCost = (data.prompt_tokens * Number(chatModel.input_cost_per_1m)) / 1_000_000;
-      const outputCost = (data.completion_tokens * Number(chatModel.output_cost_per_1m)) / 1_000_000;
-      chatCostUsd = inputCost + outputCost;
-    }
+    const calcCosts = (promptTokens: number, cachedTokens: number, completionTokens: number, model: any) => {
+      if (!model) return { inputCostUsd: 0, cacheReadCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 };
+      const nonCached = Math.max(0, promptTokens - cachedTokens);
+      const inputCostUsd = (nonCached * Number(model.input_cost_per_1m)) / 1_000_000;
+      const cacheReadCostUsd = (cachedTokens * Number(model.cache_read_cost_per_1m ?? 0)) / 1_000_000;
+      const outputCostUsd = (completionTokens * Number(model.output_cost_per_1m)) / 1_000_000;
+      return { inputCostUsd, cacheReadCostUsd, outputCostUsd, totalCostUsd: inputCostUsd + cacheReadCostUsd + outputCostUsd };
+    };
 
-    let extractionCostUsd = 0;
-    if (chatModel) {
-      const inputCost = (data.extraction_prompt_tokens * Number(chatModel.input_cost_per_1m)) / 1_000_000;
-      const outputCost = (data.extraction_completion_tokens * Number(chatModel.output_cost_per_1m)) / 1_000_000;
-      extractionCostUsd = inputCost + outputCost;
-    }
+    const chatCosts = calcCosts(data.prompt_tokens, data.cached_tokens ?? 0, data.completion_tokens, chatModel);
+    const extractionCosts = calcCosts(data.extraction_prompt_tokens, data.extraction_cached_tokens ?? 0, data.extraction_completion_tokens, chatModel);
 
     let embeddingCostUsd = 0;
     if (embeddingModel) {
       embeddingCostUsd = (data.embedding_total_tokens * Number(embeddingModel.input_cost_per_1m)) / 1_000_000;
     }
 
-    const totalCostUsd = chatCostUsd + extractionCostUsd + embeddingCostUsd;
+    const totalCostUsd = chatCosts.totalCostUsd + extractionCosts.totalCostUsd + embeddingCostUsd;
 
     return {
       sessionId: data.id,
@@ -261,7 +267,13 @@ export class AiSessionService {
         promptTokens: data.prompt_tokens,
         completionTokens: data.completion_tokens,
         totalTokens: data.total_tokens,
-        costUsd: chatCostUsd,
+        cachedTokens: data.cached_tokens ?? 0,
+        cost: {
+          inputUsd: chatCosts.inputCostUsd,
+          cacheReadUsd: chatCosts.cacheReadCostUsd,
+          outputUsd: chatCosts.outputCostUsd,
+          totalUsd: chatCosts.totalCostUsd,
+        },
       },
       extraction: {
         model: data.model_name ?? null,
@@ -269,14 +281,23 @@ export class AiSessionService {
         promptTokens: data.extraction_prompt_tokens,
         completionTokens: data.extraction_completion_tokens,
         totalTokens: data.extraction_total_tokens,
-        costUsd: extractionCostUsd,
+        cachedTokens: data.extraction_cached_tokens ?? 0,
+        cost: {
+          inputUsd: extractionCosts.inputCostUsd,
+          cacheReadUsd: extractionCosts.cacheReadCostUsd,
+          outputUsd: extractionCosts.outputCostUsd,
+          totalUsd: extractionCosts.totalCostUsd,
+        },
       },
       embedding: {
         model: data.embedding_model_name ?? null,
         displayName: embeddingModel?.display_name ?? null,
         totalTokens: data.embedding_total_tokens,
         count: data.embedding_count,
-        costUsd: embeddingCostUsd,
+        cost: {
+          inputUsd: embeddingCostUsd,
+          totalUsd: embeddingCostUsd,
+        },
       },
       totalCostUsd,
     };

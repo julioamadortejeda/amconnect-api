@@ -13,7 +13,7 @@ const MAX_LOOPS = 6;
 export interface ChatResponse {
   text: string;
   sessionId: string;
-  usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number };
   sessionUsage?: { promptTokens: number; completionTokens: number; totalTokens: number };
   metadata?: Record<string, unknown>;
 }
@@ -56,8 +56,6 @@ export class AiChatService {
         modelName: this.aiProvider.model,
       });
     }
-
-    history.push({ role: AiRole.USER, parts: [{ text: message }] });
 
     // Cargar pending tasks activos de la sesión para darle contexto al AI
     const pendingTasks = await this.aiSessionService.getActivePendingTasks(currentSessionId!);
@@ -149,18 +147,23 @@ export class AiChatService {
       localIso = new Date(now.getTime() + (offsetMin * 60 * 1000)).toISOString().slice(0, 19) + offsetStr;
     }
 
-    // Construir system prompt con contexto de pending tasks si los hay
+    // System instruction 100% estático — sin sustituciones dinámicas.
+    // Gemini implicit caching aplica cuando el prefijo es idéntico entre requests.
     const dbPromptCode = isPolicyIngestion ? "policy_ingestion_system" : "ai_chat_system";
-    let systemPrompt = (await this.promptService.getPrompt(dbPromptCode))
-      .replace("{{current_datetime}}", localIso)
-      .replace("{{timezone_offset}}", offsetStr);
+    const systemInstruction = await this.promptService.getPrompt(dbPromptCode);
 
+    // Contexto dinámico (fecha/hora, pending tasks) va en el mensaje del usuario,
+    // no en systemInstruction, para no romper el caching del prefix estático.
+    const contextLines = [`[CONTEXT] Current date/time: ${localIso} | Timezone offset: ${offsetStr}`];
     if (pendingTasks.length > 0) {
-      const tasksContext = pendingTasks
+      const tasksText = pendingTasks
         .map((t) => `- ID: ${t.id}, tipo: ${t.taskType}, datos: ${JSON.stringify(t.payload)}`)
         .join("\n");
-      systemPrompt += `\n\nTareas pendientes en esta sesión que esperan resolución:\n${tasksContext}`;
+      contextLines.push(`Active pending tasks requiring resolution:\n${tasksText}`);
     }
+    const contextPrefix = contextLines.join("\n") + "\n\n";
+
+    history.push({ role: AiRole.USER, parts: [{ text: contextPrefix + message }] });
 
     const ctx: SkillContext = {
       agentId,
@@ -176,7 +179,7 @@ export class AiChatService {
       completionTokens: classifyUsage?.completionTokens ?? 0,
       totalTokens: classifyUsage?.totalTokens ?? 0,
     };
-    const loopUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    const loopUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0 };
 
     // Bucle de function calling
     let finalText = "";
@@ -188,12 +191,13 @@ export class AiChatService {
     while (loops < MAX_LOOPS) {
       loops++;
       const currentTools = forceNextTurnToGenerateText ? [] : tools;
-      const result = await this.aiProvider.processUserRequest(history, currentTools, systemPrompt);
+      const result = await this.aiProvider.processUserRequest(history, currentTools, systemInstruction);
 
       if (result.usage) {
         loopUsage.promptTokens += result.usage.promptTokens;
         loopUsage.completionTokens += result.usage.completionTokens;
         loopUsage.totalTokens += result.usage.totalTokens;
+        loopUsage.cachedTokens += result.usage.cachedTokens ?? 0;
       }
 
       if (result.text && !result.functionCalls?.length) {
@@ -276,6 +280,7 @@ export class AiChatService {
       promptTokens: classifyTokens.promptTokens + loopUsage.promptTokens,
       completionTokens: classifyTokens.completionTokens + loopUsage.completionTokens,
       totalTokens: classifyTokens.totalTokens + loopUsage.totalTokens,
+      cachedTokens: loopUsage.cachedTokens,
     };
 
     const sessionUsage = await this.aiSessionService.saveChatRound(
