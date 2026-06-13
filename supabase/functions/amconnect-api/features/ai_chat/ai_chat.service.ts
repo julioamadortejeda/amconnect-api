@@ -21,7 +21,7 @@ export interface ChatResponse {
 export class AiChatService {
   constructor(
     private aiProvider: IAiProvider,
-    private skillContext: Omit<SkillContext, "agentId" | "sessionId" | "aiSessionService">,
+    private skillContext: Omit<SkillContext, "agentId" | "sessionId" | "aiSessionService" | "timezone" | "timezoneOffset">,
     private aiSessionService: AiSessionService,
     private promptService: PromptService,
   ) {}
@@ -151,8 +151,9 @@ export class AiChatService {
 
     // Construir system prompt con contexto de pending tasks si los hay
     const dbPromptCode = isPolicyIngestion ? "policy_ingestion_system" : "ai_chat_system";
-    let systemPrompt = await this.promptService.getPrompt(dbPromptCode);
-    systemPrompt += `\n\nAdvisor's Current Local Date and Time (with timezone offset): ${localIso}\nIMPORTANT: When creating or updating reminders, always resolve date/time expressions (e.g. "mañana", "el martes a las 3 de la tarde") using this current local date, and format the output "due_date" as an ISO 8601 string including this exact timezone offset (e.g., "YYYY-MM-DDTHH:mm:ss${offsetStr}").`;
+    let systemPrompt = (await this.promptService.getPrompt(dbPromptCode))
+      .replace("{{current_datetime}}", localIso)
+      .replace("{{timezone_offset}}", offsetStr);
 
     if (pendingTasks.length > 0) {
       const tasksContext = pendingTasks
@@ -166,6 +167,8 @@ export class AiChatService {
       sessionId: currentSessionId!,
       aiSessionService: this.aiSessionService,
       ...this.skillContext,
+      timezone: timezone || "America/Mexico_City",
+      timezoneOffset: offsetStr || "-06:00",
     };
 
     const classifyTokens = {

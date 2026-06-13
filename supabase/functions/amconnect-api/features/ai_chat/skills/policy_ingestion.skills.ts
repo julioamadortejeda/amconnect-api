@@ -153,7 +153,7 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
   }
 
   // ─── Generar recordatorios automáticos ───────────────────────────────────
-  const reminders = await reminderGenerationService.generateForPolicy(policy, agentId);
+  const reminders = await reminderGenerationService.generateForPolicy(policy, agentId, ctx.timezoneOffset);
 
   const fieldCount = [
     carrierName, branchName, holderName, productName,

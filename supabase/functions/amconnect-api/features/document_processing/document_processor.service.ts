@@ -46,7 +46,6 @@ export class DocumentProcessorService {
       content: noteContent,
       sourceType: "pdf",
       documentMetadataId: docMeta?.id ?? null,
-      metadata: { source: "policy_document", storagePath, fileName },
     });
 
     return {
