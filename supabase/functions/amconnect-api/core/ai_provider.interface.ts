@@ -21,6 +21,7 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedTokens?: number;
 }
 
 export interface AiGenerationResult {

@@ -80,6 +80,7 @@ export function createCatalogServices(supabase: SupabaseClient, agentId: string)
     policyStatusService: makeGlobalCatalogService(supabase, "policy_statuses"),
     participantRoleService: makeGlobalCatalogService(supabase, "participant_roles"),
     reminderTypeService: makeGlobalCatalogService(supabase, "reminder_types"),
+    reminderStatusService: makeGlobalCatalogService(supabase, "reminder_statuses"),
   };
 }
 

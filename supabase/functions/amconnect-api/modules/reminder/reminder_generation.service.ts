@@ -1,4 +1,5 @@
 import type { IReminderGenerationRepository } from "./reminder_generation.repository.ts";
+import { REMINDER_TITLES } from "./reminder_generation.constants.ts";
 
 export interface GeneratedReminder {
   id: string;
@@ -23,27 +24,40 @@ interface PolicyRow {
   startDate?: string | null;
 }
 
-function nextAnniversary(startDate: string): string {
+// Returns "YYYY-MM-DDT00:00:00±HH:MM" — local midnight in the advisor's timezone.
+// Storing local midnight in a timestamptz column means Flutter's .toLocal() gives
+// back the same date with hour=0, which _formatFecha shows correctly and _formatHora shows as '—'.
+function toLocalMidnight(dateStr: string, timezoneOffset: string): string {
+  return `${dateStr.substring(0, 10)}T00:00:00${timezoneOffset}`;
+}
+
+function nextAnniversary(startDate: string, timezoneOffset: string): string {
   const base = new Date(startDate);
-  const now = new Date();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   const next = new Date(base);
-  next.setFullYear(now.getFullYear());
-  if (next <= now) next.setFullYear(now.getFullYear() + 1);
-  return next.toISOString().split("T")[0];
+  next.setFullYear(today.getFullYear());
+  next.setHours(0, 0, 0, 0);
+
+  // If the anniversary already passed this year (strictly before today), use next year.
+  // If it's today or later, keep the current-year date.
+  if (next < today) next.setFullYear(today.getFullYear() + 1);
+  return toLocalMidnight(next.toISOString().split("T")[0], timezoneOffset);
 }
 
 export class ReminderGenerationService {
   constructor(private readonly repository: IReminderGenerationRepository) {}
 
-  async generateForPolicy(policy: PolicyRow, agentId: string): Promise<ReminderGenerationResult> {
+  async generateForPolicy(policy: PolicyRow, agentId: string, timezoneOffset = "-06:00"): Promise<ReminderGenerationResult> {
     const policyLabel = policy.policyNumber ?? "póliza";
     const candidates: Array<{ typeCode: string; title: string; dueDate: string }> = [];
 
     if (policy.nextPaymentDate) {
       candidates.push({
         typeCode: "PAYMENT",
-        title: `Pago de Prima · ${policyLabel}`,
-        dueDate: policy.nextPaymentDate,
+        title: (REMINDER_TITLES["PAYMENT"]?.(policyLabel)) ?? policyLabel,
+        dueDate: toLocalMidnight(policy.nextPaymentDate, timezoneOffset),
       });
     }
 
@@ -51,20 +65,29 @@ export class ReminderGenerationService {
     if (renewalDate) {
       candidates.push({
         typeCode: "RENEWAL",
-        title: `Renovación · ${policyLabel}`,
-        dueDate: renewalDate,
+        title: (REMINDER_TITLES["RENEWAL"]?.(policyLabel)) ?? policyLabel,
+        dueDate: toLocalMidnight(renewalDate, timezoneOffset),
       });
     }
 
     if (policy.startDate) {
       candidates.push({
-        typeCode: "ANIVERSARIO",
-        title: `Aniversario · ${policyLabel}`,
-        dueDate: nextAnniversary(policy.startDate),
+        typeCode: "ANNIVERSARY",
+        title: (REMINDER_TITLES["ANNIVERSARY"]?.(policyLabel)) ?? policyLabel,
+        dueDate: nextAnniversary(policy.startDate, timezoneOffset),
       });
     }
 
     if (candidates.length === 0) return { created: [], existing: [] };
+
+    // Load all needed status IDs in a single query.
+    const statusIds = await this.repository.findStatusIdsByCodes(["DONE", "CANCELLED", "CREATED"]);
+    const createdStatusId = statusIds["CREATED"];
+    if (!createdStatusId) {
+      console.error("[ReminderGenerationService] CREATED status not found in reminder_statuses");
+      return { created: [], existing: [] };
+    }
+    const closedStatusIds = ["DONE", "CANCELLED"].flatMap((c) => (statusIds[c] ? [statusIds[c]] : []));
 
     const types = await this.repository.findReminderTypesByCodes(candidates.map((c) => c.typeCode));
     if (types.length === 0) return { created: [], existing: [] };
@@ -77,7 +100,7 @@ export class ReminderGenerationService {
       const type = typeMap.get(candidate.typeCode);
       if (!type) continue;
 
-      const existingRow = await this.repository.findExistingReminder(agentId, policy.id, type.id);
+      const existingRow = await this.repository.findExistingReminder(agentId, policy.id, type.id, closedStatusIds);
       if (existingRow) {
         existing.push({
           id: existingRow.id,
@@ -94,7 +117,7 @@ export class ReminderGenerationService {
           typeId: type.id,
           title: candidate.title,
           dueDate: candidate.dueDate,
-        });
+        }, createdStatusId);
         if (id) {
           created.push({
             id,

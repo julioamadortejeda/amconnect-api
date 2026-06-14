@@ -13,6 +13,7 @@ export const ContactRequestSchema = z.object({
   notes: z.string().optional().nullable(),
   referredById: z.string().uuid().optional().nullable(),
   externalReferrerSource: z.string().optional().nullable(),
+  isProspect: z.boolean().optional(),
 });
 
 export type ContactRequestDTO = z.infer<typeof ContactRequestSchema>;
@@ -31,6 +32,7 @@ export interface ContactResponseDTO {
   notes: string | null;
   referredById: string | null;
   externalReferrerSource: string | null;
+  isProspect: boolean;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

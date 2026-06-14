@@ -8,10 +8,10 @@ import { DocumentMetadataRepository } from "../../modules/document_metadata/docu
 import { AiInvokedError, AiProviderError, AppError, ConflictError } from "../../shared/errors.ts";
 import { PolicyService } from "../../modules/policy/policy.service.ts";
 import {
-  POLICY_EXTRACTION_PROMPT,
   PolicyExtraction,
   PolicyExtractionSchema,
 } from "./policy_extraction.schema.ts";
+import { PromptService } from "../../modules/prompt/prompt.service.ts";
 
 export interface PolicyIngestInput {
   storagePath: string;
@@ -37,6 +37,7 @@ export class PolicyIngestionService {
     private policyService: PolicyService,
     // deno-lint-ignore no-explicit-any
     private catalogServices: any,
+    private promptService: PromptService,
   ) {}
 
   async extract(agentId: string, sessionId: string, input: PolicyIngestInput): Promise<PolicyIngestResult> {
@@ -75,9 +76,9 @@ export class PolicyIngestionService {
       currency: dynamicCurrencyEnum.nullable().describe(`Moneda de la póliza. Códigos válidos: ${currencyCodes.join(", ") || "Cualquiera"}`),
     });
 
-    // Construir prompt dinámico inyectando los catálogos actuales
+    const basePrompt = await this.promptService.getPrompt("policy_extraction_system");
     const dynamicPrompt = `
-${POLICY_EXTRACTION_PROMPT}
+${basePrompt}
 
 Use the following catalog values for matching fields:
 
@@ -94,7 +95,7 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
     // From this point forward, any error must be AiInvokedError so the controller
     // marks the session as failed instead of deleting it.
     let extraction: PolicyExtraction;
-    let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
+    let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } | undefined;
     try {
       const result = await this.aiProvider.generateStructuredData(
         dynamicPrompt,
@@ -146,29 +147,14 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
       if (!docMeta) throw new AppError("No se pudo guardar los metadatos del documento.", 500);
 
       const coveragesText = buildCoveragesNote(extraction);
+      const fullContent = [extraction.summary, coveragesText].filter(Boolean).join("\n\n");
 
-      const [summaryResult, coveragesResult] = await Promise.all([
-        this.embeddingsService.saveDocument(agentId, {
-          content: extraction.summary,
-          sourceType: "pdf",
-          contactId: contactId ?? null,
-          documentMetadataId: docMeta.id,
-          metadata: { intent: "policy", fileName, documentMetadataId: docMeta.id },
-        }),
-        coveragesText
-          ? this.embeddingsService.saveDocument(agentId, {
-              content: coveragesText,
-              sourceType: "pdf",
-              contactId: contactId ?? null,
-              documentMetadataId: docMeta.id,
-              metadata: { intent: "policy_coverages", fileName, documentMetadataId: docMeta.id },
-            })
-          : null,
-      ]);
-
-      const noteId = summaryResult.noteId;
-      const embeddingTotalTokens = summaryResult.embeddingTotalTokens + (coveragesResult?.embeddingTotalTokens ?? 0);
-      const embeddingCount = summaryResult.embeddingCount + (coveragesResult?.embeddingCount ?? 0);
+      const { noteId, embeddingTotalTokens, embeddingCount } = await this.embeddingsService.saveDocument(agentId, {
+        content: fullContent,
+        sourceType: "pdf",
+        contactId: contactId ?? null,
+        documentMetadataId: docMeta.id,
+      });
 
       // Registrar detalles de ingesta en la sesión unificada
       await this.aiSessionService.trackIngestionUsage(

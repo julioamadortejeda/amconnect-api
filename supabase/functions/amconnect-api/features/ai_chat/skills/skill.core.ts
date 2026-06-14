@@ -11,6 +11,8 @@ import { CatalogServices } from "../../../modules/catalog/catalog.service.ts";
 export interface SkillContext {
   agentId: string;
   sessionId: string;
+  timezone: string;
+  timezoneOffset: string;
   contactService: ContactService;
   policyService: PolicyService;
   reminderService: ReminderService;

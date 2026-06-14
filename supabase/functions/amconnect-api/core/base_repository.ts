@@ -113,9 +113,14 @@ export class SupabaseRepository<T> implements IRepository<T> {
     filters: Partial<Record<string, unknown>> = {},
     page = 1,
     pageSize = 20,
+    orderBy?: { column: string; ascending?: boolean; nullsFirst?: boolean },
   ): Promise<PaginatedResult<T>> {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
+
+    const col = orderBy?.column ?? "created_at";
+    const asc = orderBy?.ascending ?? false;
+    const nullsFirst = orderBy?.nullsFirst ?? true;
 
     let dataQuery = this.applyActiveFilter(this.table.select(this.selectString));
     let countQuery = this.applyActiveFilter(
@@ -141,7 +146,7 @@ export class SupabaseRepository<T> implements IRepository<T> {
       { count, error: countError },
     ] = await Promise.all([
       // deno-lint-ignore no-explicit-any
-      (dataQuery as any).order("created_at", { ascending: false }).range(from, to),
+      (dataQuery as any).order(col, { ascending: asc, nullsFirst }).range(from, to),
       // deno-lint-ignore no-explicit-any
       (countQuery as any),
     ]);

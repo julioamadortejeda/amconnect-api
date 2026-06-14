@@ -120,7 +120,6 @@ export type Database = {
           document_metadata_id: string | null
           id: string
           is_active: boolean
-          metadata: Json | null
           policy_id: string | null
           source_type: string
         }
@@ -132,7 +131,6 @@ export type Database = {
           document_metadata_id?: string | null
           id?: string
           is_active?: boolean
-          metadata?: Json | null
           policy_id?: string | null
           source_type: string
         }
@@ -144,7 +142,6 @@ export type Database = {
           document_metadata_id?: string | null
           id?: string
           is_active?: boolean
-          metadata?: Json | null
           policy_id?: string | null
           source_type?: string
         }
@@ -296,6 +293,7 @@ export type Database = {
       ai_ingestion_usage: {
         Row: {
           agent_id: string
+          cached_tokens: number
           completion_tokens: number
           created_at: string
           document_metadata_id: string | null
@@ -309,6 +307,7 @@ export type Database = {
         }
         Insert: {
           agent_id: string
+          cached_tokens?: number
           completion_tokens?: number
           created_at?: string
           document_metadata_id?: string | null
@@ -322,6 +321,7 @@ export type Database = {
         }
         Update: {
           agent_id?: string
+          cached_tokens?: number
           completion_tokens?: number
           created_at?: string
           document_metadata_id?: string | null
@@ -366,6 +366,7 @@ export type Database = {
       }
       ai_models: {
         Row: {
+          cache_read_cost_per_1m: number
           display_name: string | null
           input_cost_per_1m: number
           is_active: boolean
@@ -374,6 +375,7 @@ export type Database = {
           provider: string
         }
         Insert: {
+          cache_read_cost_per_1m?: number
           display_name?: string | null
           input_cost_per_1m?: number
           is_active?: boolean
@@ -382,6 +384,7 @@ export type Database = {
           provider: string
         }
         Update: {
+          cache_read_cost_per_1m?: number
           display_name?: string | null
           input_cost_per_1m?: number
           is_active?: boolean
@@ -445,11 +448,13 @@ export type Database = {
       ai_sessions: {
         Row: {
           agent_id: string
+          cached_tokens: number
           completion_tokens: number
           created_at: string
           embedding_count: number
           embedding_model_name: string | null
           embedding_total_tokens: number
+          extraction_cached_tokens: number
           extraction_completion_tokens: number
           extraction_prompt_tokens: number
           extraction_total_tokens: number
@@ -467,11 +472,13 @@ export type Database = {
         }
         Insert: {
           agent_id: string
+          cached_tokens?: number
           completion_tokens?: number
           created_at?: string
           embedding_count?: number
           embedding_model_name?: string | null
           embedding_total_tokens?: number
+          extraction_cached_tokens?: number
           extraction_completion_tokens?: number
           extraction_prompt_tokens?: number
           extraction_total_tokens?: number
@@ -489,11 +496,13 @@ export type Database = {
         }
         Update: {
           agent_id?: string
+          cached_tokens?: number
           completion_tokens?: number
           created_at?: string
           embedding_count?: number
           embedding_model_name?: string | null
           embedding_total_tokens?: number
+          extraction_cached_tokens?: number
           extraction_completion_tokens?: number
           extraction_prompt_tokens?: number
           extraction_total_tokens?: number
@@ -666,6 +675,7 @@ export type Database = {
           full_name: string
           id: string
           is_active: boolean
+          is_prospect: boolean
           notes: string | null
           occupation: string | null
           phone: string | null
@@ -685,6 +695,7 @@ export type Database = {
           full_name: string
           id?: string
           is_active?: boolean
+          is_prospect?: boolean
           notes?: string | null
           occupation?: string | null
           phone?: string | null
@@ -704,6 +715,7 @@ export type Database = {
           full_name?: string
           id?: string
           is_active?: boolean
+          is_prospect?: boolean
           notes?: string | null
           occupation?: string | null
           phone?: string | null
@@ -1213,6 +1225,45 @@ export type Database = {
         }
         Relationships: []
       }
+      reminder_comments: {
+        Row: {
+          agent_id: string
+          content: string
+          created_at: string
+          id: string
+          reminder_id: string
+        }
+        Insert: {
+          agent_id: string
+          content: string
+          created_at?: string
+          id?: string
+          reminder_id: string
+        }
+        Update: {
+          agent_id?: string
+          content?: string
+          created_at?: string
+          id?: string
+          reminder_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reminder_comments_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminder_comments_reminder_id_fkey"
+            columns: ["reminder_id"]
+            isOneToOne: false
+            referencedRelation: "reminders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reminder_settings: {
         Row: {
           agent_id: string
@@ -1255,6 +1306,30 @@ export type Database = {
           },
         ]
       }
+      reminder_statuses: {
+        Row: {
+          code: string
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+        }
+        Relationships: []
+      }
       reminder_types: {
         Row: {
           code: string | null
@@ -1289,9 +1364,9 @@ export type Database = {
           due_date: string
           id: string
           is_active: boolean
-          is_done: boolean
           notified_at: string | null
           policy_id: string | null
+          status_id: string
           title: string
           type_id: string
           updated_at: string
@@ -1305,9 +1380,9 @@ export type Database = {
           due_date: string
           id?: string
           is_active?: boolean
-          is_done?: boolean
           notified_at?: string | null
           policy_id?: string | null
+          status_id: string
           title: string
           type_id: string
           updated_at?: string
@@ -1321,9 +1396,9 @@ export type Database = {
           due_date?: string
           id?: string
           is_active?: boolean
-          is_done?: boolean
           notified_at?: string | null
           policy_id?: string | null
+          status_id?: string
           title?: string
           type_id?: string
           updated_at?: string
@@ -1348,6 +1423,13 @@ export type Database = {
             columns: ["policy_id"]
             isOneToOne: false
             referencedRelation: "policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminders_status_id_fkey"
+            columns: ["status_id"]
+            isOneToOne: false
+            referencedRelation: "reminder_statuses"
             referencedColumns: ["id"]
           },
           {
@@ -1389,6 +1471,39 @@ export type Database = {
           price_mxn?: number
           price_usd?: number
           slug?: string
+        }
+        Relationships: []
+      }
+      system_prompts: {
+        Row: {
+          code: string
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          prompt: string
+          updated_at: string
+        }
+        Insert: {
+          code: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          prompt: string
+          updated_at?: string
+        }
+        Update: {
+          code?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          prompt?: string
+          updated_at?: string
         }
         Relationships: []
       }

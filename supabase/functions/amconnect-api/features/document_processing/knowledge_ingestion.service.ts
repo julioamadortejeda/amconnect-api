@@ -6,6 +6,7 @@ import { AiSessionService } from "../ai_chat/ai_session.service.ts";
 import { StorageService } from "../../modules/storage/storage.service.ts";
 import { DocumentMetadataRepository } from "../../modules/document_metadata/document_metadata.repository.ts";
 import { AiInvokedError, AiProviderError, AppError, ValidationError } from "../../shared/errors.ts";
+import { PromptService } from "../../modules/prompt/prompt.service.ts";
 
 // Solo para archivos binarios (pdf/imagen/audio): extraer texto fiel, sin resumir
 const RawExtractionSchema = z.object({
@@ -20,11 +21,7 @@ const TextMetadataSchema = z.object({
   responseMessage: z.string().describe("A friendly confirmation message in the same language, summarizing what was processed in max 30 words."),
 });
 
-const FILE_PROMPTS: Record<string, string> = {
-  pdf: `You are a document transcription assistant. 1. Detect the primary language of the document. 2. Write a one-line classification of the document type (e.g., Policy, Receipt, ID) IN THAT DETECTED LANGUAGE. 3. Extract ALL text verbatim and accurately, exactly as it appears. Do not translate the extracted text.`,
-  image: `You are a claims and document analyst. 1. Detect the primary language of the context or any visible text. 2. Write a detailed description of what you see (objects, visible damage, scene context) IN THAT DETECTED LANGUAGE. 3. Extract all visible text verbatim, exactly as it appears. Do not translate the extracted text.`,
-  audio: `You are a transcription assistant. 1. Detect the language spoken in the audio. 2. Write a maximum 2-line summary about the main topic or intent IN THAT DETECTED LANGUAGE. 3. Provide the complete transcription verbatim, word for word, exactly as spoken. Do not translate the transcription.`,
-};
+// FILE_PROMPTS moved to database
 
 const MIME_TO_SOURCE: Record<string, NoteSourceType> = {
   "application/pdf": "pdf",
@@ -59,6 +56,7 @@ export class KnowledgeIngestionService {
     private embeddingProvider: IEmbeddingProvider,
     private aiSessionService: AiSessionService,
     private storageService: StorageService,
+    private promptService: PromptService,
   ) {}
 
   async ingestFile(agentId: string, sessionId: string, input: KnowledgeIngestFileInput): Promise<KnowledgeIngestResult> {
@@ -70,12 +68,16 @@ export class KnowledgeIngestionService {
     const inlineData = { mimeType, data: base64 };
 
     const sourceType = this.resolveSourceType(mimeType);
-    const prompt = FILE_PROMPTS[sourceType] ?? FILE_PROMPTS.pdf;
+    let dbPromptCode = "knowledge_pdf_system";
+    if (sourceType === "image") dbPromptCode = "knowledge_image_system";
+    else if (sourceType === "audio") dbPromptCode = "knowledge_audio_system";
+
+    const prompt = await this.promptService.getPrompt(dbPromptCode);
 
     // From this point forward, any error must be AiInvokedError so the controller
     // marks the session as failed instead of deleting it.
     let extraction: z.infer<typeof RawExtractionSchema>;
-    let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number } | undefined;
+    let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } | undefined;
     try {
       const result = await this.aiProvider.generateStructuredData(
         prompt,
@@ -109,7 +111,6 @@ export class KnowledgeIngestionService {
         contactId: contactId ?? null,
         policyId: policyId ?? null,
         documentMetadataId: docMeta?.id ?? null,
-        metadata: { fileName, documentMetadataId: docMeta?.id },
       });
 
       await this.aiSessionService.trackIngestionUsage(
@@ -161,15 +162,13 @@ export class KnowledgeIngestionService {
       ? `\n\n[Note: This is an excerpt of a longer text (${content.length} total characters). Generate a label and message that reflect the overall content based on this excerpt.]`
       : "";
 
-    const prompt =
-      `You are an AI assistant helping an insurance advisor manage their knowledge base.\n` +
-      `Analyze the following text and generate:\n` +
-      `1. A descriptive label (max 5 words) that accurately classifies the content type and topic.\n` +
-      `2. A friendly confirmation message (max 30 words) for the advisor summarizing what was saved.\n\n` +
-      `Text content:\n${excerpt}${lengthNote}`;
+    const promptTemplate = await this.promptService.getPrompt("knowledge_text_metadata_system");
+    const prompt = promptTemplate
+      .replace("{excerpt}", excerpt)
+      .replace("{lengthNote}", lengthNote);
 
     // LLM (metadata) y embeddings (saveDocument) son independientes — corren en paralelo
-    let aiResult: { data: z.infer<typeof TextMetadataSchema>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } };
+    let aiResult: { data: z.infer<typeof TextMetadataSchema>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } };
     let docResult: { noteId: string; embeddingTotalTokens: number; embeddingCount: number };
     try {
       [aiResult, docResult] = await Promise.all([
@@ -179,7 +178,6 @@ export class KnowledgeIngestionService {
           sourceType,
           contactId,
           policyId,
-          metadata: { sourceType },
         }),
       ]);
     } catch (err) {

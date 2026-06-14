@@ -15,6 +15,7 @@ import {
   PolicyStatusController,
   ParticipantRoleController,
   ReminderTypeController,
+  ReminderStatusController,
 } from "../controllers/catalog.controller.ts";
 
 export const apiRouter = new Hono();
@@ -94,3 +95,5 @@ apiRouter.get("/catalog/payment-methods", PaymentMethodController.getAll);
 apiRouter.get("/catalog/policy-statuses", PolicyStatusController.getAll);
 apiRouter.get("/catalog/participant-roles", ParticipantRoleController.getAll);
 apiRouter.get("/catalog/reminder-types", ReminderTypeController.getAll);
+apiRouter.get("/catalog/reminder-statuses", ReminderStatusController.getAll);
+

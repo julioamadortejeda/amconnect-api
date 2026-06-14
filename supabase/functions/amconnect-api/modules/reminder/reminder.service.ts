@@ -2,6 +2,7 @@ import { BaseService } from "../../core/base_service.ts";
 import { ReminderRequestDTO, ReminderResponseDTO } from "./reminder.dto.ts";
 import { ReminderRepository } from "./reminder.repository.ts";
 import { objectToCamelCaseDeep, stripUndefined } from "../../shared/case_converter.ts";
+import { AppError } from "../../shared/errors.ts";
 
 export class ReminderService extends BaseService<ReminderRequestDTO, ReminderResponseDTO> {
   private reminderRepo: ReminderRepository;
@@ -15,8 +16,22 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     return objectToCamelCaseDeep(row) as ReminderResponseDTO;
   }
 
-  protected override prepareForCreate(data: Partial<ReminderRequestDTO>): Record<string, unknown> {
-    return {
+  override async create(data: Partial<ReminderRequestDTO>): Promise<ReminderResponseDTO | null> {
+    let statusId = data.statusId;
+    if (!statusId) {
+      const statusCode = (data.status || "CREATED").toUpperCase();
+      const { data: statusData } = await this.reminderRepo.client
+        .from("reminder_statuses")
+        .select("id")
+        .eq("code", statusCode)
+        .single();
+      if (!statusData) {
+        throw new AppError(`Estado '${statusCode}' no válido`, 400);
+      }
+      statusId = statusData.id;
+    }
+
+    const prepared = {
       agent_id: data.agentId,
       contact_id: data.contactId ?? null,
       policy_id: data.policyId ?? null,
@@ -24,41 +39,141 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
       title: data.title,
       description: data.description ?? null,
       due_date: data.dueDate,
-      is_done: data.isDone ?? false,
+      status_id: statusId,
     };
+
+    // deno-lint-ignore no-explicit-any
+    const row = await this.repository.create(prepared as any);
+    if (row && data.comment && data.comment.trim()) {
+      const { error: commentErr } = await this.reminderRepo.client
+        .from("reminder_comments")
+        .insert({
+          reminder_id: row.id,
+          agent_id: data.agentId,
+          content: data.comment.trim(),
+        });
+      if (commentErr) {
+        console.error("[ReminderService.create] Error saving comment:", commentErr.message);
+      }
+    }
+    return row ? this.getById(row.id) : null;
   }
 
-  protected override prepareForUpdate(_id: string, data: Partial<ReminderRequestDTO>): Record<string, unknown> {
-    return stripUndefined({
-      contact_id: data.contactId,
-      policy_id: data.policyId,
-      type_id: data.typeId,
-      title: data.title,
-      description: data.description,
-      due_date: data.dueDate,
-      is_done: data.isDone,
-    });
+  override async update(id: string, data: Partial<ReminderRequestDTO>): Promise<ReminderResponseDTO | null> {
+    const existing = await this.getById(id);
+    if (!existing) {
+      throw new AppError("Recordatorio no encontrado", 404);
+    }
+
+    const updatePayload: Record<string, unknown> = {};
+
+    let targetStatusId = data.statusId;
+    let targetStatusCode = "";
+
+    if (data.status) {
+      const code = data.status.toUpperCase();
+      const { data: statusData } = await this.reminderRepo.client
+        .from("reminder_statuses")
+        .select("id, code")
+        .eq("code", code)
+        .single();
+      if (!statusData) {
+        throw new AppError(`Estado '${code}' no válido`, 400);
+      }
+      targetStatusId = statusData.id;
+      targetStatusCode = statusData.code;
+    } else if (data.statusId) {
+      const { data: statusData } = await this.reminderRepo.client
+        .from("reminder_statuses")
+        .select("id, code")
+        .eq("id", data.statusId)
+        .single();
+      if (!statusData) {
+        throw new AppError("statusId no válido", 400);
+      }
+      targetStatusId = statusData.id;
+      targetStatusCode = statusData.code;
+    }
+
+    if (targetStatusId) {
+      updatePayload.status_id = targetStatusId;
+    }
+
+    if (!targetStatusCode && existing.status) {
+      targetStatusCode = existing.status.code;
+    }
+
+    if (targetStatusCode === "CANCELLED") {
+      if (!data.comment || !data.comment.trim()) {
+        throw new AppError("El comentario es obligatorio para cancelar un recordatorio", 400);
+      }
+    }
+
+    if (data.comment && data.comment.trim()) {
+      const { error: commentErr } = await this.reminderRepo.client
+        .from("reminder_comments")
+        .insert({
+          reminder_id: id,
+          agent_id: existing.agentId,
+          content: data.comment.trim(),
+        });
+      if (commentErr) {
+        console.error("[ReminderService.update] Error saving comment:", commentErr.message);
+      }
+    }
+
+    if (data.contactId !== undefined) updatePayload.contact_id = data.contactId;
+    if (data.policyId !== undefined) updatePayload.policy_id = data.policyId;
+    if (data.typeId !== undefined) updatePayload.type_id = data.typeId;
+    if (data.title !== undefined) updatePayload.title = data.title;
+    if (data.description !== undefined) updatePayload.description = data.description;
+    if (data.dueDate !== undefined) updatePayload.due_date = data.dueDate;
+
+    if (Object.keys(updatePayload).length > 0) {
+      // deno-lint-ignore no-explicit-any
+      await this.repository.update(id, updatePayload as any);
+    }
+    return this.getById(id);
   }
 
   async markDone(id: string): Promise<ReminderResponseDTO | null> {
-    const row = await this.repository.update(id, { is_done: true } as never);
+    const { data: statusData } = await this.reminderRepo.client
+      .from("reminder_statuses")
+      .select("id")
+      .eq("code", "DONE")
+      .single();
+    if (!statusData) {
+      throw new AppError("Estado DONE no encontrado en base de datos", 500);
+    }
+    // deno-lint-ignore no-explicit-any
+    const row = await this.repository.update(id, { status_id: statusData.id } as any);
     return row ? this.toDTO(row) : null;
   }
 
-  // TODO: mover el filtro de fecha a la DB — findByFilters solo soporta igualdad (.eq),
-  // habría que añadir soporte de rangos (.gte/.lte) al repo base o una query directa aquí.
   async getUpcoming(agentId: string, days = 7): Promise<ReminderResponseDTO[] | null> {
     const from = new Date().toISOString();
     const to = new Date(Date.now() + days * 86400000).toISOString();
-    const items = await this.repository.findByFilters({ agent_id: agentId, is_done: false });
+
+    const { data: excludedStatuses } = await this.reminderRepo.client
+      .from("reminder_statuses")
+      .select("id")
+      .in("code", ["DONE", "CANCELLED"]);
+
+    const excludedIds = excludedStatuses ? excludedStatuses.map((s) => s.id) : [];
+
+    const items = await this.repository.findByFilters({ agent_id: agentId });
     if (!items) return null;
+
     return items
       .map((r) => this.toDTO(r))
-      .filter((r) => r.dueDate >= from && r.dueDate <= to);
+      .filter((r) => {
+        const isNotExcluded = !excludedIds.includes(r.statusId);
+        return isNotExcluded && r.dueDate >= from && r.dueDate <= to;
+      });
   }
 
-  async searchReminders(agentId: string, queryText: string, isDone?: boolean): Promise<ReminderResponseDTO[] | null> {
-    const items = await this.reminderRepo.searchReminders(agentId, queryText, isDone);
+  async searchReminders(agentId: string, queryText: string, statusCode?: string): Promise<ReminderResponseDTO[] | null> {
+    const items = await this.reminderRepo.searchReminders(agentId, queryText, statusCode);
     return items ? items.map((r) => this.toDTO(r)) : null;
   }
 }

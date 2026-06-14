@@ -10,6 +10,7 @@ import {
   TokenUsage,
 } from "../core/ai_provider.interface.ts";
 import { AiError, AiProviderError } from "../shared/errors.ts";
+import { PromptService } from "../modules/prompt/prompt.service.ts";
 
 function wrapGeminiError(e: unknown, context: string): never {
   // deno-lint-ignore no-explicit-any
@@ -28,7 +29,7 @@ function wrapGeminiError(e: unknown, context: string): never {
 export class GeminiProvider implements IAiProvider {
   private ai: GoogleGenAI;
   model: string;
-  constructor(apiKey: string, model: string) {
+  constructor(apiKey: string, model: string, private promptService?: PromptService) {
     this.ai = new GoogleGenAI({ apiKey });
     this.model = model;
   }
@@ -72,6 +73,7 @@ export class GeminiProvider implements IAiProvider {
           promptTokens: response.usageMetadata.promptTokenCount ?? 0,
           completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
           totalTokens: response.usageMetadata.totalTokenCount ?? 0,
+          cachedTokens: response.usageMetadata.cachedContentTokenCount ?? 0,
         }
         : undefined,
     };
@@ -111,6 +113,7 @@ export class GeminiProvider implements IAiProvider {
           promptTokens: response.usageMetadata.promptTokenCount ?? 0,
           completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
           totalTokens: response.usageMetadata.totalTokenCount ?? 0,
+          cachedTokens: response.usageMetadata.cachedContentTokenCount ?? 0,
         }
         : undefined,
     };
@@ -120,18 +123,27 @@ export class GeminiProvider implements IAiProvider {
     message: string,
     availableDomains: string[],
   ): Promise<{ domains: string[]; usage?: TokenUsage }> {
-    const prompt = `Clasifica el siguiente mensaje de un asesor de seguros en uno o más de estos dominios:
-- contact: Información sobre clientes, prospectos o contactos personales. Búsqueda de teléfonos, correos, CURP, RFC, direcciones, cumpleaños, etc.
-- policy: Información sobre pólizas de seguros, números de póliza, coberturas, sumas aseguradas, beneficiarios, participantes.
-- reminder: Tareas, eventos, recordatorios, citas, llamadas, fechas de seguimiento, pendientes de trabajo.
-- catalog: Catálogos del sistema, como aseguradoras (carriers), ramos de seguros (branches) y productos de seguros (products). Creación de nuevas compañías o ramos.
-- knowledge: Búsqueda de información general en notas libres, transcripciones de audio, WhatsApp o archivos cargados por el asesor.
+    let promptTemplate: string;
+    if (this.promptService) {
+      promptTemplate = await this.promptService.getPrompt("message_classifier_system");
+    } else {
+      promptTemplate = `Classify the following message from an insurance advisor in Mexico into one or more of these domains:
+- contact: Information about clients, prospects, or personal contacts. Searching for phones, emails, CURP, RFC, addresses, birthdays, etc.
+- policy: Information about insurance policies, policy numbers, coverages, sum insured, beneficiaries, participants.
+- reminder: Tasks, events, reminders, appointments, calls, follow-up dates, pending work.
+- catalog: System catalogs such as insurance carriers, branches, and products. Creation of new companies or branches.
+- knowledge: Search for general information in free notes, audio transcripts, WhatsApp, or files uploaded by the advisor.
 
-Dominios disponibles para clasificar: ${availableDomains.join(", ")}
+Available domains to classify: {availableDomains}
 
-Responde SOLO con un formato JSON: { "domains": ["dominio1", "dominio2"] }
+Respond ONLY with a JSON format: { "domains": ["domain1", "domain2"] }
 
-Mensaje del asesor: "${message}"`;
+Advisor message: "{message}"`;
+    }
+
+    const prompt = promptTemplate
+      .replace("{availableDomains}", availableDomains.join(", "))
+      .replace("{message}", message);
 
     // deno-lint-ignore no-explicit-any
     let response: any;
@@ -153,6 +165,7 @@ Mensaje del asesor: "${message}"`;
           promptTokens: response.usageMetadata.promptTokenCount ?? 0,
           completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
           totalTokens: response.usageMetadata.totalTokenCount ?? 0,
+          cachedTokens: response.usageMetadata.cachedContentTokenCount ?? 0,
         }
         : undefined,
     };

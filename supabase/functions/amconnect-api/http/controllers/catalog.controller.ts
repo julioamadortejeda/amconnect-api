@@ -63,3 +63,5 @@ export const PaymentMethodController = makeReadController("paymentMethodService"
 export const PolicyStatusController = makeReadController("policyStatusService");
 export const ParticipantRoleController = makeReadController("participantRoleService");
 export const ReminderTypeController = makeReadController("reminderTypeService");
+export const ReminderStatusController = makeReadController("reminderStatusService");
+

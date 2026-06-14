@@ -35,12 +35,13 @@ import { ConfirmPolicyService } from "../../../features/document_processing/conf
 import { DocumentMetadataRepository } from "../../../modules/document_metadata/document_metadata.repository.ts";
 import { AppError } from "../../../shared/errors.ts";
 import { AI_MODEL } from "../../../shared/config.ts";
+import { PromptService } from "../../../modules/prompt/prompt.service.ts";
 
-function buildGeminiProvider(): GeminiProvider {
+function buildGeminiProvider(promptService?: PromptService): GeminiProvider {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) throw new AppError("GEMINI_API_KEY no configurada.", 500);
   const model = AI_MODEL;
-  return new GeminiProvider(apiKey, model);
+  return new GeminiProvider(apiKey, model, promptService);
 }
 
 function buildVertexProvider(): VertexAiProvider {
@@ -50,9 +51,9 @@ function buildVertexProvider(): VertexAiProvider {
   return new VertexAiProvider(projectId, location, AI_MODEL);
 }
 
-function buildDocProvider() {
+function buildDocProvider(promptService?: PromptService) {
   if (Deno.env.get("VERTEX_PROJECT_ID")) return buildVertexProvider();
-  return buildGeminiProvider();
+  return buildGeminiProvider(promptService);
 }
 
 export const injectServices = async (c: Context, next: Next) => {
@@ -73,6 +74,7 @@ export const injectServices = async (c: Context, next: Next) => {
   // Core modules
   const catalogServices = createCatalogServices(supabase, agentId);
   const agentService = new AgentService(new AgentRepository(supabase));
+  const promptService = new PromptService(supabase);
   const storageService = new StorageService(new StorageRepository(supabase));
   c.set("storage_service", storageService);
 
@@ -94,7 +96,7 @@ export const injectServices = async (c: Context, next: Next) => {
   let confirmPolicyService: ConfirmPolicyService | undefined;
 
   const getGeminiProvider = () => {
-    if (!geminiProvider) geminiProvider = buildGeminiProvider();
+    if (!geminiProvider) geminiProvider = buildGeminiProvider(promptService);
     return geminiProvider;
   };
 
@@ -139,26 +141,27 @@ export const injectServices = async (c: Context, next: Next) => {
           catalogServices,
         },
         aiSessionService,
+        promptService,
       );
     }
     return aiChatService;
   };
 
   const getDocProvider = () => {
-    if (!docProvider) docProvider = buildDocProvider();
+    if (!docProvider) docProvider = buildDocProvider(promptService);
     return docProvider;
   };
 
   const getDocumentProcessorService = () => {
     if (!documentProcessorService) {
-      documentProcessorService = new DocumentProcessorService(storageService, documentMetadataRepository, getDocProvider(), getEmbeddingsService());
+      documentProcessorService = new DocumentProcessorService(storageService, documentMetadataRepository, getDocProvider(), getEmbeddingsService(), promptService);
     }
     return documentProcessorService;
   };
 
   const getKnowledgeIngestionService = () => {
     if (!knowledgeIngestionService) {
-      knowledgeIngestionService = new KnowledgeIngestionService(documentMetadataRepository, getDocProvider(), getEmbeddingsService(), getEmbeddingProvider(), aiSessionService, storageService);
+      knowledgeIngestionService = new KnowledgeIngestionService(documentMetadataRepository, getDocProvider(), getEmbeddingsService(), getEmbeddingProvider(), aiSessionService, storageService, promptService);
     }
     return knowledgeIngestionService;
   };
@@ -174,6 +177,7 @@ export const injectServices = async (c: Context, next: Next) => {
         storageService,
         policyService,
         catalogServices,
+        promptService,
       );
     }
     return policyIngestionService;
@@ -197,6 +201,7 @@ export const injectServices = async (c: Context, next: Next) => {
     policyService,
     reminderService,
     aiSessionService,
+    promptService,
     get embeddingsService() {
       return getEmbeddingsService();
     },

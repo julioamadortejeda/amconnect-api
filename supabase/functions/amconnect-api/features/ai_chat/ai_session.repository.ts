@@ -17,10 +17,12 @@ export interface UpdateSessionData {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
+  cachedTokens?: number;
   embeddingModelName?: string;
   extractionPromptTokens?: number;
   extractionCompletionTokens?: number;
   extractionTotalTokens?: number;
+  extractionCachedTokens?: number;
   embeddingTotalTokens?: number;
   embeddingCount?: number;
   metadata?: Record<string, unknown>;
@@ -35,6 +37,7 @@ export interface IngestionUsageRow {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedTokens: number;
   itemCount: number;
 }
 
@@ -58,7 +61,7 @@ export interface IAiSessionRepository {
   createSession(data: CreateSessionData): Promise<string>;
   updateSession(sessionId: string, data: UpdateSessionData): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
-  getSessionTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number }>;
+  getSessionTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number }>;
   getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string } | null>;
   getMetadata(sessionId: string): Promise<Record<string, unknown> | null>;
   savePendingTask(sessionId: string, agentId: string, taskType: string, payload: Record<string, unknown>): Promise<string>;
@@ -99,29 +102,32 @@ export class AiSessionRepository implements IAiSessionRepository {
     if (data.isBillable !== undefined) payload.is_billable = data.isBillable;
     if (data.history !== undefined) payload.history = data.history;
     if (data.embeddingModelName !== undefined) payload.embedding_model_name = data.embeddingModelName;
-    if (data.extractionPromptTokens !== undefined) payload.extraction_prompt_tokens = data.extractionPromptTokens;
-    if (data.extractionCompletionTokens !== undefined) payload.extraction_completion_tokens = data.extractionCompletionTokens;
-    if (data.extractionTotalTokens !== undefined) payload.extraction_total_tokens = data.extractionTotalTokens;
-    if (data.embeddingTotalTokens !== undefined) payload.embedding_total_tokens = data.embeddingTotalTokens;
     if (data.promptTokens !== undefined) payload.prompt_tokens = data.promptTokens;
     if (data.completionTokens !== undefined) payload.completion_tokens = data.completionTokens;
     if (data.totalTokens !== undefined) payload.total_tokens = data.totalTokens;
+    if (data.cachedTokens !== undefined) payload.cached_tokens = data.cachedTokens;
+    if (data.extractionPromptTokens !== undefined) payload.extraction_prompt_tokens = data.extractionPromptTokens;
+    if (data.extractionCompletionTokens !== undefined) payload.extraction_completion_tokens = data.extractionCompletionTokens;
+    if (data.extractionTotalTokens !== undefined) payload.extraction_total_tokens = data.extractionTotalTokens;
+    if (data.extractionCachedTokens !== undefined) payload.extraction_cached_tokens = data.extractionCachedTokens;
+    if (data.embeddingTotalTokens !== undefined) payload.embedding_total_tokens = data.embeddingTotalTokens;
     if (data.embeddingCount !== undefined) payload.embedding_count = data.embeddingCount;
     if (data.metadata !== undefined) payload.metadata = data.metadata;
 
     await this.supabase.from("ai_sessions").update(payload).eq("id", sessionId);
   }
 
-  async getSessionTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number }> {
+  async getSessionTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number }> {
     const { data } = await this.supabase
       .from("ai_sessions")
-      .select("prompt_tokens, completion_tokens, total_tokens")
+      .select("prompt_tokens, completion_tokens, total_tokens, cached_tokens")
       .eq("id", sessionId)
       .single();
     return {
       promptTokens: data?.prompt_tokens ?? 0,
       completionTokens: data?.completion_tokens ?? 0,
       totalTokens: data?.total_tokens ?? 0,
+      cachedTokens: data?.cached_tokens ?? 0,
     };
   }
 
@@ -201,6 +207,7 @@ export class AiSessionRepository implements IAiSessionRepository {
         prompt_tokens: r.promptTokens,
         completion_tokens: r.completionTokens,
         total_tokens: r.totalTokens,
+        cached_tokens: r.cachedTokens,
         item_count: r.itemCount,
       })),
     );
@@ -233,12 +240,14 @@ export class AiSessionRepository implements IAiSessionRepository {
         prompt_tokens,
         completion_tokens,
         total_tokens,
+        cached_tokens,
         extraction_prompt_tokens,
         extraction_completion_tokens,
         extraction_total_tokens,
+        extraction_cached_tokens,
         embedding_total_tokens,
         embedding_count,
-        chat_model:model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m),
+        chat_model:model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m, cache_read_cost_per_1m),
         embedding_model:embedding_model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m)
       `)
       .eq("id", sessionId)

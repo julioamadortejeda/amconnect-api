@@ -12,7 +12,7 @@ export interface IRepository<T> {
   getByField(field: string, value: unknown, limit?: number): Promise<T[] | null>;
   findByFilters(filters: Partial<Record<string, unknown>>, limit?: number): Promise<T[] | null>;
   findByOr(orConditions: string, filters?: Partial<Record<string, unknown>>, limit?: number): Promise<T[] | null>;
-  paginate(filters?: Partial<Record<string, unknown>>, page?: number, pageSize?: number): Promise<PaginatedResult<T>>;
+  paginate(filters?: Partial<Record<string, unknown>>, page?: number, pageSize?: number, orderBy?: { column: string; ascending?: boolean; nullsFirst?: boolean }): Promise<PaginatedResult<T>>;
   create(data: Partial<T>): Promise<T | null>;
   update(id: string, data: Partial<T>): Promise<T | null>;
   upsert(data: Partial<T>): Promise<T | null>;

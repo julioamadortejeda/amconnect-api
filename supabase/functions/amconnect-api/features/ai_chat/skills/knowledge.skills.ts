@@ -6,10 +6,10 @@ export const knowledgeSkills: SkillDefinition[] = [
     domain: "knowledge",
     declaration: {
       name: "search_knowledge",
-      description: "Busca en toda la base de conocimiento del asesor: notas de reuniones, audios, documentos, conversaciones de WhatsApp, información de clientes y pólizas. Usar cuando el usuario pregunte por información que pudo haber sido ingresada previamente y no está en los datos estructurados.",
+      description: "Searches the entire advisor knowledge base: meeting notes, audios, documents, WhatsApp conversations, client info, and policies. Use when the user asks for information that might have been entered previously and is not in structured data.",
       schema: z.object({
-        query: z.string({ required_error: "Se requiere el texto o pregunta a buscar" })
-          .describe("Pregunta o tema a buscar en la base de conocimiento"),
+        query: z.string({ required_error: "The text or question to search for is required" })
+          .describe("Question or topic to search for in the knowledge base"),
       }),
     },
     async execute({ query }, ctx) {

@@ -8,7 +8,6 @@ export interface InsertNoteData {
   sourceType: string;
   content: string;
   documentMetadataId: string | null;
-  metadata: Record<string, unknown> | null;
 }
 
 export interface InsertChunkRow {
@@ -38,7 +37,6 @@ export class EmbeddingsRepository implements IEmbeddingsRepository {
         source_type: data.sourceType,
         content: data.content,
         document_metadata_id: data.documentMetadataId,
-        metadata: data.metadata,
       })
       .select("id")
       .single();

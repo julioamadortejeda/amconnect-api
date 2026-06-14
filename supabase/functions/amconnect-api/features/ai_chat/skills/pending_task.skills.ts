@@ -6,14 +6,14 @@ export const pendingTaskSkills: SkillDefinition[] = [
     domain: "pending_task",
     declaration: {
       name: "save_pending_task",
-      description: "Guarda una tarea pendiente cuando falta información para completar una acción (ej: ambigüedad en el contacto, datos faltantes). Llamar antes de preguntarle al usuario.",
+      description: "Saves a pending task when information is missing to complete an action (e.g., ambiguity in contact, missing data). Call before asking the user for clarification.",
       schema: z.object({
-        task_type: z.string({ required_error: "Se requiere el tipo de acción pendiente (ej: update_contact, create_reminder)" })
-          .describe("Tipo de acción pendiente (ej: update_contact, create_reminder, update_reminder)"),
+        task_type: z.string({ required_error: "The type of the pending action is required (e.g., update_contact, create_reminder)" })
+          .describe("Type of pending action (e.g., update_contact, create_reminder, update_reminder)"),
         payload: z.record(z.string(), z.unknown())
-          .describe("Datos ya recopilados para la acción (lo que se sabe hasta ahora)"),
+          .describe("Data already gathered for the action (what is known so far)"),
         missing: z.array(z.string())
-          .describe("Lista de campos o información que falta para completar la acción"),
+          .describe("List of fields or information missing to complete the action"),
       }),
     },
     async execute(args, ctx) {
@@ -30,10 +30,10 @@ export const pendingTaskSkills: SkillDefinition[] = [
     domain: "pending_task",
     declaration: {
       name: "resolve_pending_task",
-      description: "Marca una tarea pendiente como completada después de obtener la información faltante y ejecutar la acción.",
+      description: "Marks a pending task as resolved/completed after obtaining the missing information and executing the action.",
       schema: z.object({
-        pending_task_id: z.string({ required_error: "Se requiere el UUID de la tarea pendiente a resolver" })
-          .describe("UUID de la tarea pendiente a resolver"),
+        pending_task_id: z.string({ required_error: "The UUID of the pending task to resolve is required" })
+          .describe("UUID of the pending task to resolve"),
       }),
     },
     async execute(args, ctx) {
