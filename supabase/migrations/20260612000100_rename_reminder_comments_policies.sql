@@ -1,5 +1,2 @@
-alter policy "Agentes pueden ver comentarios de sus recordatorios"
-  on reminder_comments rename to "reminder_comments: view own";
+-- Redundant policy rename because 20260611183000 was directly updated with English policy names.
 
-alter policy "Agentes pueden crear comentarios en sus recordatorios"
-  on reminder_comments rename to "reminder_comments: insert own";
