@@ -36,6 +36,7 @@ export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseD
       renewal_date: data.renewalDate ?? null,
       next_payment_date: data.nextPaymentDate ?? null,
       notes: data.notes ?? null,
+      deductible: data.deductible ?? null,
     };
   }
 
@@ -55,6 +56,7 @@ export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseD
       renewal_date: data.renewalDate,
       next_payment_date: data.nextPaymentDate,
       notes: data.notes,
+      deductible: data.deductible,
     });
   }
 

@@ -18,6 +18,7 @@ export const PolicyRequestSchema = z.object({
   renewalDate: z.string().optional().nullable(),
   nextPaymentDate: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  deductible: z.string().optional().nullable(),
 });
 
 export type PolicyRequestDTO = z.infer<typeof PolicyRequestSchema>;
@@ -39,6 +40,7 @@ export interface PolicyResponseDTO {
   renewalDate: string | null;
   nextPaymentDate: string | null;
   notes: string | null;
+  deductible: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;

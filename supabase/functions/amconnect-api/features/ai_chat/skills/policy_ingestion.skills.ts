@@ -31,6 +31,7 @@ export const policyIngestionSkills: SkillDefinition[] = [
         next_payment_date: z.string().optional().nullable(), nextPaymentDate: z.string().optional().nullable(),
         payment_frequency: z.string().optional().nullable(), paymentFrequency: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
+        deductible: z.string().optional().nullable(), global_deductible: z.string().optional().nullable(), globalDeductible: z.string().optional().nullable(),
         beneficiaries: z.array(BeneficiarySchema).optional().default([]),
       }),
     },
@@ -129,6 +130,7 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
     renewalDate: renewalDate ?? null,
     nextPaymentDate: nextPaymentDate ?? null,
     notes: args.notes ?? null,
+    deductible: args.deductible ?? args.global_deductible ?? args.globalDeductible ?? null,
   });
 
   if (!policy) throw new Error("Could not create policy.");

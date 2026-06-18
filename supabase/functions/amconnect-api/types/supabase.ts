@@ -945,6 +945,7 @@ export type Database = {
           contact_id: string
           created_at: string
           currency_id: string
+          deductible: string | null
           deleted_at: string | null
           end_date: string | null
           id: string
@@ -967,6 +968,7 @@ export type Database = {
           contact_id: string
           created_at?: string
           currency_id: string
+          deductible?: string | null
           deleted_at?: string | null
           end_date?: string | null
           id?: string
@@ -989,6 +991,7 @@ export type Database = {
           contact_id?: string
           created_at?: string
           currency_id?: string
+          deductible?: string | null
           deleted_at?: string | null
           end_date?: string | null
           id?: string
