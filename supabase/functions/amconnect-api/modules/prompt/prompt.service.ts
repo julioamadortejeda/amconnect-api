@@ -1,5 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { handleSupabaseError } from "../../shared/errors.ts";
+import { DEV_PROMPTS } from "../../prompts/dev_prompts.ts";
 
 interface CacheEntry {
   prompt: string;
@@ -12,6 +13,12 @@ export class PromptService {
   constructor(private supabase: SupabaseClient) {}
 
   async getPrompt(code: string): Promise<string> {
+    if (Deno.env.get("USE_FILE_PROMPTS") === "true") {
+      const prompt = DEV_PROMPTS[code];
+      if (!prompt) throw new Error(`[PromptService] '${code}' not found in dev_prompts.ts`);
+      return prompt;
+    }
+
     const now = Date.now();
     const cached = this.cache.get(code);
 
