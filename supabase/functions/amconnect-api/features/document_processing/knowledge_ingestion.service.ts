@@ -10,15 +10,15 @@ import { PromptService } from "../../modules/prompt/prompt.service.ts";
 
 // Solo para archivos binarios (pdf/imagen/audio): extraer texto fiel, sin resumir
 const RawExtractionSchema = z.object({
-  label: z.string().describe("Topic of this document in the same language as the source, max 5 words. Examples: 'reunión con cliente', 'policy renewal notice', 'audio seguimiento póliza GNP'"),
+  summary: z.string().describe("1-2 sentence human-readable description of the document content in the advisor's language (as instructed in the system prompt). Describe what was found in a way useful for an insurance advisor to quickly understand the note without reading the full content."),
   content: z.string().describe("Full verbatim text extracted from the document, in the same language as the source. Do NOT summarize — transcribe everything faithfully."),
-  responseMessage: z.string().describe("A natural confirmation message in the same language as the source, indicating to the advisor that the document has been successfully processed and summarizing what was found. Max 30 words."),
+  responseMessage: z.string().describe("A friendly confirmation message in the advisor's language (as instructed in the system prompt), indicating the document was successfully processed. Max 30 words."),
 });
 
 // Para texto plano: generar título descriptivo y confirmación amable
 const TextMetadataSchema = z.object({
-  label: z.string().describe("Descriptive topic of the text content in the same language, max 5 words. Examples: 'Conversación WhatsApp con Julio', 'Minuta de junta del 5 de junio'"),
-  responseMessage: z.string().describe("A friendly confirmation message in the same language, summarizing what was processed in max 30 words."),
+  summary: z.string().describe("1-2 sentence human-readable description of the text content in the advisor's language (as instructed in the system prompt). Describe what it's about in a way useful for an insurance advisor."),
+  responseMessage: z.string().describe("A friendly confirmation message in the advisor's language (as instructed in the system prompt), summarizing what was processed in max 30 words."),
 });
 
 // FILE_PROMPTS moved to database
@@ -33,6 +33,7 @@ export interface KnowledgeIngestFileInput {
   mimeType: string;
   contactId?: string | null;
   policyId?: string | null;
+  advisorLocale?: string;
 }
 
 export interface KnowledgeIngestTextInput {
@@ -40,11 +41,11 @@ export interface KnowledgeIngestTextInput {
   sourceType: "whatsapp" | "text";
   contactId?: string | null;
   policyId?: string | null;
+  advisorLocale?: string;
 }
 
 export interface KnowledgeIngestResult {
   noteId: string;
-  label: string;
   responseMessage: string;
 }
 
@@ -61,7 +62,7 @@ export class KnowledgeIngestionService {
 
   async ingestFile(agentId: string, sessionId: string, input: KnowledgeIngestFileInput): Promise<KnowledgeIngestResult> {
     debugger;
-    const { storagePath, fileName, mimeType, contactId, policyId } = input;
+    const { storagePath, fileName, mimeType, contactId, policyId, advisorLocale = 'es' } = input;
 
     // Download throws AppError (pre-AI) — controller will deleteSession on catch
     const base64 = await this.storageService.downloadAsBase64("policies", storagePath);
@@ -72,7 +73,8 @@ export class KnowledgeIngestionService {
     if (sourceType === "image") dbPromptCode = "knowledge_image_system";
     else if (sourceType === "audio") dbPromptCode = "knowledge_audio_system";
 
-    const prompt = await this.promptService.getPrompt(dbPromptCode);
+    const prompt = (await this.promptService.getPrompt(dbPromptCode))
+      .replace('{{advisor_language}}', advisorLocale);
 
     // From this point forward, any error must be AiInvokedError so the controller
     // marks the session as failed instead of deleting it.
@@ -111,6 +113,8 @@ export class KnowledgeIngestionService {
         contactId: contactId ?? null,
         policyId: policyId ?? null,
         documentMetadataId: docMeta?.id ?? null,
+        noteOrigin: 'knowledge',
+        summary: extraction.summary,
       });
 
       await this.aiSessionService.trackIngestionUsage(
@@ -127,10 +131,9 @@ export class KnowledgeIngestionService {
       await this.aiSessionService.updateMetadata(sessionId, {
         noteId,
         fileName,
-        label: extraction.label,
       });
 
-      return { noteId, label: extraction.label, responseMessage: extraction.responseMessage };
+      return { noteId, responseMessage: extraction.responseMessage };
     } catch (err) {
       if (err instanceof AppError) {
         throw new AiInvokedError(err.message, err);
@@ -143,8 +146,8 @@ export class KnowledgeIngestionService {
   }
 
   async ingestText(agentId: string, sessionId: string, input: KnowledgeIngestTextInput): Promise<KnowledgeIngestResult> {
-    const { content, sourceType, contactId, policyId } = input;
-    return await this.ingestRawContent(agentId, sessionId, content, sourceType, contactId ?? null, policyId ?? null);
+    const { content, sourceType, contactId, policyId, advisorLocale = 'es' } = input;
+    return await this.ingestRawContent(agentId, sessionId, content, sourceType, contactId ?? null, policyId ?? null, advisorLocale);
   }
 
   private async ingestRawContent(
@@ -154,6 +157,7 @@ export class KnowledgeIngestionService {
     sourceType: NoteSourceType,
     contactId: string | null,
     policyId: string | null,
+    advisorLocale: string = 'es',
   ): Promise<KnowledgeIngestResult> {
     debugger;
     const isLong = content.length > 4000;
@@ -165,21 +169,21 @@ export class KnowledgeIngestionService {
     const promptTemplate = await this.promptService.getPrompt("knowledge_text_metadata_system");
     const prompt = promptTemplate
       .replace("{excerpt}", excerpt)
-      .replace("{lengthNote}", lengthNote);
+      .replace("{lengthNote}", lengthNote)
+      .replace('{{advisor_language}}', advisorLocale);
 
-    // LLM (metadata) y embeddings (saveDocument) son independientes — corren en paralelo
     let aiResult: { data: z.infer<typeof TextMetadataSchema>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } };
     let docResult: { noteId: string; embeddingTotalTokens: number; embeddingCount: number };
     try {
-      [aiResult, docResult] = await Promise.all([
-        this.aiProvider.generateStructuredData(prompt, TextMetadataSchema),
-        this.embeddingsService.saveDocument(agentId, {
-          content,
-          sourceType,
-          contactId,
-          policyId,
-        }),
-      ]);
+      aiResult = await this.aiProvider.generateStructuredData(prompt, TextMetadataSchema);
+      docResult = await this.embeddingsService.saveDocument(agentId, {
+        content,
+        sourceType,
+        contactId,
+        policyId,
+        noteOrigin: 'knowledge',
+        summary: aiResult.data.summary,
+      });
     } catch (err) {
       if (err instanceof AiProviderError) throw err;
       throw new AiInvokedError(
@@ -189,26 +193,25 @@ export class KnowledgeIngestionService {
     }
 
     try {
-      await this.aiSessionService.trackIngestionUsage(
-        agentId,
-        sessionId,
-        null,
-        this.aiProvider.model,
-        aiResult.usage,
-        this.embeddingProvider.model,
-        docResult.embeddingTotalTokens,
-        docResult.embeddingCount,
-      );
-
-      await this.aiSessionService.updateMetadata(sessionId, {
-        noteId: docResult.noteId,
-        sourceType,
-        label: aiResult.data.label,
-      });
+      await Promise.all([
+        this.aiSessionService.trackIngestionUsage(
+          agentId,
+          sessionId,
+          null,
+          this.aiProvider.model,
+          aiResult.usage,
+          this.embeddingProvider.model,
+          docResult.embeddingTotalTokens,
+          docResult.embeddingCount,
+        ),
+        this.aiSessionService.updateMetadata(sessionId, {
+          noteId: docResult.noteId,
+          sourceType,
+        }),
+      ]);
 
       return {
         noteId: docResult.noteId,
-        label: aiResult.data.label,
         responseMessage: aiResult.data.responseMessage,
       };
     } catch (err) {

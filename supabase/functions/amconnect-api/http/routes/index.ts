@@ -39,6 +39,7 @@ apiRouter.get("/ai/upload-url", AiController.getUploadUrl);
 apiRouter.post("/ai/ingest", AiController.ingest);
 apiRouter.post("/ai/ingest-text", AiController.ingestText);
 apiRouter.post("/ai/confirm-policy", AiController.confirmPolicy);
+apiRouter.post("/ai/rag-search", AiController.ragSearch);
 // Deprecado — mantener por compatibilidad, redirige internamente a ingest
 apiRouter.post("/ai/process-document", AiController.processDocument);
 
@@ -46,6 +47,7 @@ apiRouter.post("/ai/process-document", AiController.processDocument);
 apiRouter.get("/contacts", ContactController.getAll);
 apiRouter.get("/contacts/search", ContactController.search);
 apiRouter.get("/contacts/:id", ContactController.getById);
+apiRouter.get("/contacts/:id/notes", ContactController.getNotes);
 apiRouter.post("/contacts", ContactController.create);
 apiRouter.patch("/contacts/:id", ContactController.update);
 apiRouter.delete("/contacts/:id", ContactController.remove);

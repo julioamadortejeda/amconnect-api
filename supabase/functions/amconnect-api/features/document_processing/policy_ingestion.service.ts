@@ -154,6 +154,7 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
         sourceType: "pdf",
         contactId: contactId ?? null,
         documentMetadataId: docMeta.id,
+        noteOrigin: 'policy',
       });
 
       // Registrar detalles de ingesta en la sesión unificada

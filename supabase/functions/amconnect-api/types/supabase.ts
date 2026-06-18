@@ -120,8 +120,10 @@ export type Database = {
           document_metadata_id: string | null
           id: string
           is_active: boolean
+          note_origin: string
           policy_id: string | null
           source_type: string
+          summary: string | null
         }
         Insert: {
           agent_id: string
@@ -131,8 +133,10 @@ export type Database = {
           document_metadata_id?: string | null
           id?: string
           is_active?: boolean
+          note_origin?: string
           policy_id?: string | null
           source_type: string
+          summary?: string | null
         }
         Update: {
           agent_id?: string
@@ -142,8 +146,10 @@ export type Database = {
           document_metadata_id?: string | null
           id?: string
           is_active?: boolean
+          note_origin?: string
           policy_id?: string | null
           source_type?: string
+          summary?: string | null
         }
         Relationships: [
           {
@@ -1535,7 +1541,7 @@ export type Database = {
           chunk_id: string
           contact_id: string
           content: string
-          metadata: Json
+          created_at: string
           note_id: string
           policy_id: string
           similarity: number

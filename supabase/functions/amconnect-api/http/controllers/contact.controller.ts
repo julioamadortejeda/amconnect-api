@@ -2,6 +2,7 @@ import { Context } from "hono";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { ContactService } from "../../modules/contact/contact.service.ts";
 import { ContactRequestSchema } from "../../modules/contact/contact.dto.ts";
+import { NoteRepository } from "../../modules/note/note.repository.ts";
 import { AppError } from "../../shared/errors.ts";
 import { parsePagination } from "../../shared/pagination.ts";
 
@@ -48,5 +49,11 @@ export class ContactController {
     const service: ContactService = c.get("services").contactService;
     const data = await service.delete(c.req.param("id") as string);
     return sendSuccess(c, data);
+  }
+
+  static async getNotes(c: Context) {
+    const repo: NoteRepository = c.get("services").noteRepository;
+    const notes = await repo.getByContactId(c.req.param("id") as string);
+    return sendSuccess(c, { data: notes });
   }
 }

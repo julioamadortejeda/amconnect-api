@@ -11,6 +11,8 @@ export interface DocumentInput {
   contactId?: string | null;
   policyId?: string | null;
   documentMetadataId?: string | null;
+  noteOrigin?: 'knowledge' | 'policy';
+  summary?: string | null;
 }
 
 export interface SaveDocumentResult {
@@ -34,14 +36,20 @@ export class EmbeddingsService {
       sourceType: input.sourceType,
       content: input.content,
       documentMetadataId: input.documentMetadataId ?? null,
+      noteOrigin: input.noteOrigin ?? 'knowledge',
+      summary: input.summary ?? null,
     });
 
     const chunks = this.textSplitter.split(input.content);
-    const { embeddings, totalTokens: embeddingTotalTokens } = await this.embeddingProvider.generateEmbeddings(chunks);
+    const textsToEmbed = input.summary
+      ? [...chunks, input.summary]
+      : chunks;
 
-    if (embeddings.length !== chunks.length) {
+    const { embeddings, totalTokens: embeddingTotalTokens } = await this.embeddingProvider.generateEmbeddings(textsToEmbed);
+
+    if (embeddings.length !== textsToEmbed.length) {
       throw new AppError(
-        `El proveedor devolvió ${embeddings.length} embeddings para ${chunks.length} chunks.`,
+        `El proveedor devolvió ${embeddings.length} embeddings para ${textsToEmbed.length} chunks.`,
         500,
       );
     }
@@ -54,8 +62,18 @@ export class EmbeddingsService {
       embedding: JSON.stringify(embeddings[i]),
     }));
 
+    if (input.summary) {
+      chunkRows.push({
+        noteId,
+        agentId,
+        chunkIndex: chunks.length,
+        content: input.summary,
+        embedding: JSON.stringify(embeddings[chunks.length]),
+      });
+    }
+
     await this.repository.insertChunks(chunkRows);
-    return { noteId, embeddingTotalTokens, embeddingCount: chunks.length };
+    return { noteId, embeddingTotalTokens, embeddingCount: textsToEmbed.length };
   }
 
   async updateNoteLinks(

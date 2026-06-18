@@ -1,0 +1,25 @@
+meta {
+  name: RAG Search
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{base_url}}/ai/rag-search
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "query": "cambio plan GNP a Allianz",
+    "contactId": "ae5e8e0d-c995-4f88-89ab-a8638548563a",
+    "threshold": 0.5,
+    "limit": 10
+  }
+}

@@ -152,6 +152,8 @@ export class AiController {
     const storageService = c.get("storage_service") as StorageService;
     storageService.validateMimeType(mimeType);
 
+    const advisorLocale = c.req.header('Accept-Language')?.split(',')[0]?.split(';')[0]?.trim() ?? 'es';
+
     const { aiSessionService, knowledgeIngestionService } = c.get("services");
     const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
       triggerMessage: "file_ingestion",
@@ -159,7 +161,7 @@ export class AiController {
     });
     try {
       const { noteId, responseMessage } = await knowledgeIngestionService.ingestFile(agentId, sessionId, {
-        storagePath, fileName, mimeType, contactId, policyId,
+        storagePath, fileName, mimeType, contactId, policyId, advisorLocale,
       });
       return sendSuccess(c, {
         noteId,
@@ -198,6 +200,8 @@ export class AiController {
     }
     const { content, sourceType, contactId, policyId } = parsed.data;
 
+    const advisorLocale = c.req.header('Accept-Language')?.split(',')[0]?.split(';')[0]?.trim() ?? 'es';
+
     const { aiSessionService, knowledgeIngestionService } = c.get("services");
     const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
       triggerMessage: "text_ingestion",
@@ -205,7 +209,7 @@ export class AiController {
     });
     try {
       const { noteId, responseMessage } = await knowledgeIngestionService.ingestText(agentId, sessionId, {
-        content, sourceType, contactId, policyId,
+        content, sourceType, contactId, policyId, advisorLocale,
       });
       return sendSuccess(c, {
         noteId,
@@ -251,5 +255,21 @@ export class AiController {
     const aiSessionService = c.get("services").aiSessionService as AiSessionService;
     const result = await aiSessionService.getSessionCost(sessionId);
     return sendSuccess(c, result);
+  }
+
+  static async ragSearch(c: Context) {
+    const agentId: string = c.get("agent_id");
+    const body = await c.req.json();
+    const { query, contactId, policyId, threshold, limit } = body;
+    if (!query || typeof query !== "string") throw new AppError("El campo 'query' es requerido.", 400);
+
+    const ragService = c.get("services").ragService;
+    const results = await ragService.searchNotes(agentId, query, {
+      contactId: contactId ?? undefined,
+      policyId: policyId ?? undefined,
+      threshold: typeof threshold === "number" ? threshold : 0.5,
+      limit: typeof limit === "number" ? limit : 10,
+    });
+    return sendSuccess(c, results);
   }
 }
