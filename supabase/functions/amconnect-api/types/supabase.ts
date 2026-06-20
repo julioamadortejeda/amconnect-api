@@ -117,6 +117,7 @@ export type Database = {
           contact_id: string | null
           content: string | null
           created_at: string
+          discard_reason: string | null
           document_metadata_id: string | null
           id: string
           is_active: boolean
@@ -130,6 +131,7 @@ export type Database = {
           contact_id?: string | null
           content?: string | null
           created_at?: string
+          discard_reason?: string | null
           document_metadata_id?: string | null
           id?: string
           is_active?: boolean
@@ -143,6 +145,7 @@ export type Database = {
           contact_id?: string | null
           content?: string | null
           created_at?: string
+          discard_reason?: string | null
           document_metadata_id?: string | null
           id?: string
           is_active?: boolean

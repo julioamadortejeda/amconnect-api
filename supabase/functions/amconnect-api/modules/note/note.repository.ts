@@ -18,9 +18,13 @@ export interface NoteRow {
   document_metadata: DocumentMetadataRow | null;
 }
 
-type RawNoteRow = Omit<NoteRow, "document_metadata"> & {
-  document_metadata: DocumentMetadataRow[];
-};
+export interface PolicyNoteRow {
+  id: string;
+  source_type: string;
+  created_at: string;
+  isObsolete: boolean;
+  document_metadata: DocumentMetadataRow | null;
+}
 
 export class NoteRepository {
   constructor(private supabase: SupabaseClient) {}
@@ -37,9 +41,45 @@ export class NoteRepository {
       .order("created_at", { ascending: false });
 
     if (error) handleSupabaseError(error, "Error al obtener notas del contacto");
-    return ((data ?? []) as RawNoteRow[]).map((row) => ({
-      ...row,
-      document_metadata: row.document_metadata?.[0] ?? null,
-    }));
+    return (data ?? []) as unknown as NoteRow[];
+  }
+
+  async getByPolicyId(policyId: string): Promise<PolicyNoteRow[]> {
+    const select = "id, source_type, created_at, document_metadata(storage_path, file_name)";
+
+    const [{ data: active }, { data: obsolete }] = await Promise.all([
+      this.supabase.from("agent_notes").select(select)
+        .eq("policy_id", policyId).eq("note_origin", "policy").eq("is_active", true)
+        .order("created_at", { ascending: false }),
+      this.supabase.from("agent_notes").select(select)
+        .eq("policy_id", policyId).eq("note_origin", "policy").eq("is_active", false)
+        .eq("discard_reason", "policy_updated")
+        .order("created_at", { ascending: false }),
+    ]);
+
+    // deno-lint-ignore no-explicit-any
+    const toRow = (r: any, isObsolete: boolean): PolicyNoteRow => ({
+      id: r.id as string,
+      source_type: r.source_type as string,
+      created_at: r.created_at as string,
+      isObsolete,
+      document_metadata: r.document_metadata as DocumentMetadataRow | null,
+    });
+
+    return [
+      ...(active ?? []).map((r) => toRow(r, false)),
+      ...(obsolete ?? []).map((r) => toRow(r, true)),
+    ];
+  }
+
+  async deleteNote(agentId: string, noteId: string): Promise<void> {
+    await this.supabase
+      .from("agent_notes")
+      .update({ discard_reason: "user_deleted" })
+      .eq("id", noteId)
+      .eq("agent_id", agentId)
+      .eq("is_active", false)
+      .eq("note_origin", "policy")
+      .eq("discard_reason", "policy_updated");
   }
 }

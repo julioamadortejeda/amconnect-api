@@ -11,7 +11,7 @@ export interface DocumentInput {
   contactId?: string | null;
   policyId?: string | null;
   documentMetadataId?: string | null;
-  noteOrigin?: 'knowledge' | 'policy';
+  noteOrigin?: 'knowledge' | 'policy' | 'policy_changelog';
   summary?: string | null;
 }
 
@@ -83,5 +83,17 @@ export class EmbeddingsService {
     policyId: string | null,
   ): Promise<void> {
     await this.repository.updateNoteLinks(agentId, documentMetadataId, contactId, policyId);
+  }
+
+  async softDeleteNotesByPolicy(agentId: string, policyId: string, origin: string): Promise<void> {
+    await this.repository.softDeleteNotesByPolicy(agentId, policyId, origin);
+  }
+
+  async softDeleteNoteById(agentId: string, noteId: string, discardReason: string): Promise<void> {
+    await this.repository.softDeleteNoteById(agentId, noteId, discardReason);
+  }
+
+  get embeddingModelName(): string {
+    return this.embeddingProvider.model;
   }
 }

@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { SkillDefinition, SkillContext } from "./skill.core.ts";
 import { resolveCatalogId } from "../../../shared/utils.ts";
+import { buildChangelogContent, buildCoveragesNote, diffPolicy, PolicyChange } from "../../document_processing/policy_diff.ts";
+import type { PolicyExtraction } from "../../document_processing/policy_extraction.schema.ts";
 
 const BeneficiarySchema = z.object({
   full_name: z.string(),
@@ -9,6 +11,32 @@ const BeneficiarySchema = z.object({
 });
 
 export const policyIngestionSkills: SkillDefinition[] = [
+  {
+    domain: "policy_ingestion",
+    declaration: {
+      name: "update_policy_ingestion",
+      description: "Updates an existing policy with the newly extracted document data. Call ONLY when the advisor explicitly confirms they want to update. Replaces the old RAG note and creates a changelog entry.",
+      schema: z.object({
+        confirmed: z.boolean().describe("Must be true — the advisor confirmed they want to update the existing policy"),
+      }),
+    },
+    async execute(args, ctx) {
+      if (!args.confirmed) {
+        const { agentId, sessionId, aiSessionService, embeddingsService } = ctx;
+        const meta = await aiSessionService.getSessionMetadata(sessionId);
+        const newNoteId = meta?.newNoteId as string | null ?? null;
+        if (newNoteId) {
+          await embeddingsService.softDeleteNoteById(agentId, newNoteId, 'user_rejected');
+        }
+        return { cancelled: true, message: "Update discarded by advisor. Existing policy remains unchanged." };
+      }
+      try {
+        return await resolveAndUpdatePolicy(ctx);
+      } catch (e) {
+        return { error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+  },
   {
     domain: "policy_ingestion",
     declaration: {
@@ -206,4 +234,114 @@ async function findOrCreateContact(ctx: SkillContext, fullName: string, rfc: str
   const created = await contactService.create({ agentId, fullName, rfc });
   if (!created?.id) throw new Error(`Could not create contact: ${fullName}`);
   return created.id;
+}
+
+async function resolveAndUpdatePolicy(ctx: SkillContext) {
+  const { agentId, sessionId, policyService, embeddingsService, aiSessionService, catalogServices } = ctx;
+
+  const meta = await aiSessionService.getSessionMetadata(sessionId);
+  if (!meta?.existingPolicyId || !meta?.extraction) {
+    return { error: "No update data found in session. Please start a new ingestion." };
+  }
+
+  const existingPolicyId = meta.existingPolicyId as string;
+  const newDocumentMetadataId = meta.newDocumentMetadataId as string | null ?? null;
+  const diff = (meta.diff ?? []) as PolicyChange[];
+  const extraction = meta.extraction as PolicyExtraction;
+
+  const carrierName = extraction.carrierName;
+  const branchName = extraction.branchName;
+  const productName = extraction.productName;
+  const currency = extraction.currency ?? "MXN";
+  const paymentFreq = extraction.paymentFrequency;
+
+  if (!carrierName || !branchName) {
+    return { error: "Missing carrier or branch in extraction data." };
+  }
+
+  const carrierId = await findOrCreateCatalogItem(catalogServices.carrierService, carrierName);
+  const branchId = await findOrCreateCatalogItem(catalogServices.branchService, branchName, {
+    code: branchName.toUpperCase().replace(/\s+/g, "_").slice(0, 20),
+  });
+  const productId = await findOrCreateCatalogItem(
+    catalogServices.productService,
+    productName ?? `${carrierName} ${branchName}`,
+    { carrierId, branchId },
+  );
+
+  const [statusRow, currencyRow, paymentFrequencyId] = await Promise.all([
+    catalogServices.policyStatusService.getByCode("ACTIVE"),
+    catalogServices.currencyService.getByCode(currency === "USD" ? "USD" : "MXN"),
+    paymentFreq ? resolveCatalogId(catalogServices.paymentFrequencyService, paymentFreq, { key: "name", value: "Anual" }) : Promise.resolve(null),
+  ]) as [{ id: string } | null, { id: string } | null, string | null];
+
+  if (!statusRow?.id) throw new Error("Status ACTIVE not found in catalog.");
+  if (!currencyRow?.id) throw new Error(`Currency ${currency} not found in catalog.`);
+
+  const updated = await policyService.update(existingPolicyId, {
+    productId,
+    statusId: statusRow.id,
+    currencyId: currencyRow.id,
+    paymentFrequencyId: paymentFrequencyId ?? null,
+    policyNumber: extraction.policyNumber ?? undefined,
+    premium: extraction.premium ?? undefined,
+    sumInsured: extraction.sumInsured ?? undefined,
+    startDate: extraction.startDate ?? undefined,
+    endDate: extraction.endDate ?? undefined,
+    renewalDate: extraction.renewalDate ?? undefined,
+    nextPaymentDate: extraction.nextPaymentDate ?? undefined,
+    notes: extraction.notes ?? undefined,
+    deductible: extraction.globalDeductible ?? undefined,
+  });
+
+  if (!updated) throw new Error("Could not update policy.");
+
+  // Soft-delete old policy note, then link the new one (already created during extract)
+  await embeddingsService.softDeleteNotesByPolicy(agentId, existingPolicyId, 'policy');
+  if (newDocumentMetadataId) {
+    await embeddingsService.updateNoteLinks(agentId, newDocumentMetadataId, updated.contactId, existingPolicyId);
+  }
+
+  // Create changelog note
+  const changelogContent = buildChangelogContent(
+    extraction.policyNumber ?? 'N/A',
+    diff,
+    extraction.summary ?? '',
+  );
+
+  const { embeddingTotalTokens: changelogEmbTokens, embeddingCount: changelogEmbCount } =
+    await embeddingsService.saveDocument(agentId, {
+      content: changelogContent,
+      sourceType: 'text',
+      contactId: updated.contactId ?? null,
+      policyId: existingPolicyId,
+      noteOrigin: 'policy_changelog',
+      summary: `Policy ${extraction.policyNumber ?? 'N/A'} updated — ${diff.length} field(s) changed.`,
+    });
+
+  await aiSessionService.trackEmbeddingUsageOnly(
+    agentId, sessionId, null,
+    embeddingsService.embeddingModelName,
+    changelogEmbTokens,
+    changelogEmbCount,
+  );
+
+  // Re-run diff against the now-updated policy to confirm changes saved
+  const existingForDiff = await policyService.getById(existingPolicyId);
+  const finalDiff = existingForDiff ? diffPolicy(existingForDiff, extraction) : diff;
+
+  return {
+    success: true,
+    policyId: existingPolicyId,
+    policyNumber: updated.policyNumber,
+    message: "Policy updated successfully.",
+    changesApplied: diff.length,
+    __skillMetadata: {
+      type: "policy_updated",
+      policyId: existingPolicyId,
+      policyNumber: updated.policyNumber,
+      changesApplied: diff.length,
+      remainingDifferences: finalDiff.length,
+    },
+  };
 }

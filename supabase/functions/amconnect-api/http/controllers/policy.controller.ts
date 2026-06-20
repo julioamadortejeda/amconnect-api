@@ -3,6 +3,8 @@ import { sendSuccess } from "../../shared/api_response.ts";
 import { PolicyService } from "../../modules/policy/policy.service.ts";
 import { PolicyRequestSchema, PolicyParticipantSchema, BeneficiarySchema } from "../../modules/policy/policy.dto.ts";
 import { parsePagination } from "../../shared/pagination.ts";
+import { NoteRepository } from "../../modules/note/note.repository.ts";
+import { AppError } from "../../shared/errors.ts";
 
 export class PolicyController {
   static async getAll(c: Context) {
@@ -62,5 +64,21 @@ export class PolicyController {
     const service: PolicyService = c.get("services").policyService;
     const data = await service.addBeneficiary(body as never);
     return sendSuccess(c, data, 201);
+  }
+
+  static async getNotes(c: Context) {
+    const policyId = c.req.param("id") as string;
+    const repo = new NoteRepository(c.get("supabase"));
+    const notes = await repo.getByPolicyId(policyId);
+    return sendSuccess(c, { data: notes });
+  }
+
+  static async deleteNote(c: Context) {
+    const agentId: string = c.get("agent_id");
+    const noteId = c.req.param("id") as string;
+    if (!noteId) throw new AppError("El parámetro 'id' es requerido.", 400);
+    const repo = new NoteRepository(c.get("supabase"));
+    await repo.deleteNote(agentId, noteId);
+    return sendSuccess(c, { deleted: true });
   }
 }

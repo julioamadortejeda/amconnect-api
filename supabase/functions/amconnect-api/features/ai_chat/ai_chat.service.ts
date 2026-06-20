@@ -5,6 +5,7 @@ import { AiError, AiProviderError } from "../../shared/errors.ts";
 import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
 import { SkillContext } from "./skills/skill.core.ts";
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
+import type { PolicyChange } from "../document_processing/policy_diff.ts";
 
 const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog", "knowledge"];
 const POLICY_INGESTION_DOMAINS = ["policy_ingestion"];
@@ -318,6 +319,30 @@ export class AiChatService {
   ): Promise<ChatResponse> {
     const extractionSummary = JSON.stringify(extraction, null, 2);
     const initialMessage = `[SYSTEM_INGESTION] El sistema extrajo la siguiente información de la póliza:\n\`\`\`json\n${extractionSummary}\n\`\`\`\nPor favor presenta un resumen al asesor y solicita confirmación para crear la póliza.`;
+
+    return await this.processMessage(initialMessage, agentId, sessionId);
+  }
+
+  async startPolicyUpdateSession(
+    sessionId: string,
+    agentId: string,
+    extraction: unknown,
+    existingPolicyId: string,
+    diff: PolicyChange[],
+  ): Promise<ChatResponse> {
+    const policyNumber = (extraction as { policyNumber?: string }).policyNumber ?? 'N/A';
+    const diffLines = diff.length > 0
+      ? diff.map(c => `- ${c.label}: "${c.oldValue ?? '—'}" → "${c.newValue}"`).join('\n')
+      : '(no field differences detected)';
+
+    const initialMessage = [
+      `[SYSTEM_INGESTION] Policy number "${policyNumber}" already exists in the advisor's portfolio (ID: ${existingPolicyId}).`,
+      '',
+      'Differences detected vs. existing data:',
+      diffLines,
+      '',
+      'Inform the advisor about the duplicate and ask whether they want to UPDATE the existing policy with the new data, or DISCARD the new document.',
+    ].join('\n');
 
     return await this.processMessage(initialMessage, agentId, sessionId);
   }

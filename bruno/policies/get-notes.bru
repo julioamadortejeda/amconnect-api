@@ -1,0 +1,19 @@
+meta {
+  name: Get Policy Notes
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{base_url}}/policies/:id/notes
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 7884acdb-db09-42ee-8cbc-fb79f9ca26c3
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}

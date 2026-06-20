@@ -1,7 +1,7 @@
 import { Context } from "hono";
 import type { ZodIssue } from "zod";
 import { sendSuccess } from "../../shared/api_response.ts";
-import { AiInvokedError, AiProviderError, AppError, ConflictError } from "../../shared/errors.ts";
+import { AiInvokedError, AiProviderError, AppError } from "../../shared/errors.ts";
 import { AiChatService } from "../../features/ai_chat/ai_chat.service.ts";
 import { AiSessionService } from "../../features/ai_chat/ai_session.service.ts";
 import { ConfirmPolicySchema } from "../../features/document_processing/confirm_policy.service.ts";
@@ -45,8 +45,17 @@ export class AiController {
   static async cancelSession(c: Context) {
     const sessionId = c.req.param("sessionId");
     if (!sessionId) throw new AppError("El parámetro 'sessionId' es requerido.", 400);
-    const service: AiChatService = c.get("services").aiChatService;
-    const result = await service.cancelSession(sessionId);
+
+    const { aiChatService, aiSessionService, embeddingsService } = c.get("services");
+    const agentId: string = c.get("agent_id");
+
+    // Si era una sesión de ingesta con duplicado pendiente, soft-delete la nota huérfana
+    const meta = await (aiSessionService as AiSessionService).getSessionMetadata(sessionId);
+    if (meta?.status === 'duplicate_detected' && meta?.newNoteId) {
+      await embeddingsService.softDeleteNoteById(agentId, meta.newNoteId as string, 'session_cancelled');
+    }
+
+    const result = await (aiChatService as AiChatService).cancelSession(sessionId);
     return sendSuccess(c, { cancelled: true, ...result });
   }
 
@@ -106,25 +115,44 @@ export class AiController {
       sessionType: "policy_ingestion",
     });
     try {
-      const { extraction, documentMetadataId } = await policyIngestionService.extract(agentId, sessionId, {
+      const ingestResult = await policyIngestionService.extract(agentId, sessionId, {
         storagePath, fileName, mimeType, contactId,
       });
 
-      const { text } = await aiChatService.startPolicySession(
-        sessionId,
-        agentId,
-        extraction,
-        documentMetadataId,
-      );
+      let text: string;
+      if (ingestResult.status === 'duplicate_detected') {
+        const response = await aiChatService.startPolicyUpdateSession(
+          sessionId,
+          agentId,
+          ingestResult.extraction,
+          ingestResult.existingPolicyId!,
+          ingestResult.diff!,
+        );
+        text = response.text;
+      } else {
+        const response = await aiChatService.startPolicySession(
+          sessionId,
+          agentId,
+          ingestResult.extraction,
+          ingestResult.documentMetadataId,
+        );
+        text = response.text;
+      }
 
-      return sendSuccess(c, { sessionId, message: text, documentMetadataId, extraction }, 201);
+      return sendSuccess(c, {
+        sessionId,
+        message: text,
+        documentMetadataId: ingestResult.documentMetadataId || null,
+        extraction: ingestResult.extraction,
+        isDuplicate: ingestResult.status === 'duplicate_detected',
+      }, 201);
     } catch (err) {
       if (err instanceof AiProviderError) {
         await Promise.all([
           (aiSessionService as AiSessionService).markSessionProviderError(sessionId, err.message),
           usageService.decrementIngestion(agentId),
         ]);
-      } else if (err instanceof AiInvokedError || err instanceof ConflictError) {
+      } else if (err instanceof AiInvokedError) {
         await (aiSessionService as AiSessionService).markSessionFailed(sessionId, err.message);
       } else {
         await Promise.all([

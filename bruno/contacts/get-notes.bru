@@ -1,0 +1,19 @@
+meta {
+  name: Get Contact Notes
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{base_url}}/contacts/:id/notes
+  body: none
+  auth: none
+}
+
+params:path {
+  id: 57de1fa1-694e-4d6d-9e4f-6bf76b2a7da7
+}
+
+headers {
+  Authorization: Bearer {{access_token}}
+}

@@ -8,7 +8,7 @@ export interface InsertNoteData {
   sourceType: string;
   content: string;
   documentMetadataId: string | null;
-  noteOrigin?: 'knowledge' | 'policy';
+  noteOrigin?: 'knowledge' | 'policy' | 'policy_changelog';
   summary?: string | null;
 }
 
@@ -24,6 +24,8 @@ export interface IEmbeddingsRepository {
   insertNote(data: InsertNoteData): Promise<string>;
   insertChunks(rows: InsertChunkRow[]): Promise<void>;
   updateNoteLinks(agentId: string, documentMetadataId: string, contactId: string | null, policyId: string | null): Promise<void>;
+  softDeleteNotesByPolicy(agentId: string, policyId: string, origin: string): Promise<void>;
+  softDeleteNoteById(agentId: string, noteId: string, discardReason: string): Promise<void>;
 }
 
 export class EmbeddingsRepository implements IEmbeddingsRepository {
@@ -72,5 +74,24 @@ export class EmbeddingsRepository implements IEmbeddingsRepository {
       .update({ contact_id: contactId, policy_id: policyId })
       .eq("agent_id", agentId)
       .eq("document_metadata_id", documentMetadataId);
+  }
+
+  async softDeleteNotesByPolicy(agentId: string, policyId: string, origin: string): Promise<void> {
+    await this.supabase
+      .from("agent_notes")
+      .update({ is_active: false, discard_reason: "policy_updated" })
+      .eq("agent_id", agentId)
+      .eq("policy_id", policyId)
+      .eq("note_origin", origin)
+      .eq("is_active", true);
+  }
+
+  async softDeleteNoteById(agentId: string, noteId: string, discardReason: string): Promise<void> {
+    await this.supabase
+      .from("agent_notes")
+      .update({ is_active: false, discard_reason: discardReason })
+      .eq("agent_id", agentId)
+      .eq("id", noteId)
+      .eq("is_active", true);
   }
 }

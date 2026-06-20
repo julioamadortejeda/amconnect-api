@@ -5,13 +5,14 @@ import { EmbeddingsService } from "../rag/embeddings.service.ts";
 import { AiSessionService } from "../ai_chat/ai_session.service.ts";
 import { StorageService } from "../../modules/storage/storage.service.ts";
 import { DocumentMetadataRepository } from "../../modules/document_metadata/document_metadata.repository.ts";
-import { AiInvokedError, AiProviderError, AppError, ConflictError } from "../../shared/errors.ts";
+import { AiInvokedError, AiProviderError, AppError } from "../../shared/errors.ts";
 import { PolicyService } from "../../modules/policy/policy.service.ts";
 import {
   PolicyExtraction,
   PolicyExtractionSchema,
 } from "./policy_extraction.schema.ts";
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
+import { diffPolicy, buildCoveragesNote, PolicyChange } from "./policy_diff.ts";
 
 export interface PolicyIngestInput {
   storagePath: string;
@@ -24,6 +25,9 @@ export interface PolicyIngestResult {
   documentMetadataId: string;
   noteId: string;
   extraction: PolicyExtraction;
+  status: 'new' | 'duplicate_detected';
+  existingPolicyId?: string;
+  diff?: PolicyChange[];
 }
 
 export class PolicyIngestionService {
@@ -112,24 +116,19 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
       );
     }
 
-    // Guard against duplicate before any DB writes. AI was already invoked so we track
-    // extraction tokens and mark the session failed (not deleted) before throwing.
+    // Detect duplicate before DB writes — but still create doc_metadata + note so the
+    // new PDF is tracked. The skill will soft-delete the old note and call updateNoteLinks.
+    let duplicateInfo: { existingPolicyId: string; diff: ReturnType<typeof diffPolicy> } | null = null;
     if (extraction.policyNumber) {
       const existing = await this.policyService.findByFilters({
         agent_id: agentId,
         policy_number: extraction.policyNumber,
       }, 1);
       if (existing && existing.length > 0) {
-        await this.aiSessionService.trackExtractionUsageOnly(
-          agentId,
-          sessionId,
-          null,
-          this.aiProvider.model,
-          extractionUsage,
-        );
-        throw new ConflictError(
-          `Ya existe una póliza con el número "${extraction.policyNumber}" en tu cartera.`,
-        );
+        duplicateInfo = {
+          existingPolicyId: existing[0].id,
+          diff: diffPolicy(existing[0], extraction),
+        };
       }
     }
 
@@ -157,7 +156,6 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
         noteOrigin: 'policy',
       });
 
-      // Registrar detalles de ingesta en la sesión unificada
       await this.aiSessionService.trackIngestionUsage(
         agentId,
         sessionId,
@@ -169,7 +167,25 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
         embeddingCount,
       );
 
-      // Actualizar metadatos de la sesión
+      if (duplicateInfo) {
+        await this.aiSessionService.updateMetadata(sessionId, {
+          status: 'duplicate_detected',
+          existingPolicyId: duplicateInfo.existingPolicyId,
+          newDocumentMetadataId: docMeta.id,
+          newNoteId: noteId,
+          extraction,
+          diff: duplicateInfo.diff,
+        });
+        return {
+          documentMetadataId: docMeta.id,
+          noteId,
+          extraction,
+          status: 'duplicate_detected' as const,
+          existingPolicyId: duplicateInfo.existingPolicyId,
+          diff: duplicateInfo.diff,
+        };
+      }
+
       await this.aiSessionService.updateMetadata(sessionId, {
         extraction,
         documentMetadataId: docMeta.id,
@@ -180,6 +196,7 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
         documentMetadataId: docMeta.id,
         noteId,
         extraction,
+        status: 'new' as const,
       };
     } catch (err) {
       if (err instanceof AppError) {
@@ -193,19 +210,3 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
   }
 }
 
-function buildCoveragesNote(extraction: PolicyExtraction): string | null {
-  if (extraction.coverages.length === 0) return null;
-
-  const header = [extraction.policyNumber, extraction.productName, extraction.carrierName]
-    .filter(Boolean)
-    .join(" – ");
-
-  const lines = extraction.coverages.map((c: { name: string; amount: number | null; description: string | null }) => {
-    let line = `- ${c.name}`;
-    if (c.description) line += `: ${c.description}`;
-    if (c.amount != null) line += ` (${c.amount} ${extraction.currency ?? "MXN"})`;
-    return line;
-  });
-
-  return `Coberturas de póliza ${header}:\n${lines.join("\n")}`;
-}
