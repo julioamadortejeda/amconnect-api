@@ -23,7 +23,7 @@ export class AiController {
       const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
       throw new AppError(`Datos inválidos: ${issues}`, 400);
     }
-    const { message, sessionId: session_id } = parsed.data;
+    const { message, sessionId: session_id, context } = parsed.data;
 
     const usageService = c.get("usage_service") as UsageService;
     await usageService.checkAndIncrementChat(agentId);
@@ -31,7 +31,7 @@ export class AiController {
     try {
       const timezone = c.req.header("x-timezone") || "America/Mexico_City";
       const service: AiChatService = c.get("services").aiChatService;
-      const response = await service.processMessage(message, agentId, session_id, timezone);
+      const response = await service.processMessage(message, agentId, session_id, timezone, context);
       return sendSuccess(c, response);
     } catch (err) {
       if (err instanceof AiProviderError) {

@@ -1,8 +1,21 @@
 import { z } from "zod";
 
+export const VALID_CONTEXT_TYPES = ["contact", "policy", "reminder"] as const;
+
+export const AiChatContextSchema = z.object({
+  type: z.enum(VALID_CONTEXT_TYPES, {
+    errorMap: () => ({ message: "Field 'type' must be one of: contact | policy | reminder" }),
+  }),
+  id: z.string().uuid().optional().nullable(),
+  data: z.record(z.unknown()),
+});
+
+export type AiChatContext = z.infer<typeof AiChatContextSchema>;
+
 export const AiChatSchema = z.object({
-  message: z.string().min(1, "El campo 'message' es requerido."),
+  message: z.string().min(1, "Field 'message' is required."),
   sessionId: z.string().uuid().optional().nullable(),
+  context: AiChatContextSchema.optional().nullable(),
 });
 
 export type AiChatDTO = z.infer<typeof AiChatSchema>;

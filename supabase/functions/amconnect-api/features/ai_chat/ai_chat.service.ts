@@ -6,6 +6,7 @@ import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
 import { SkillContext } from "./skills/skill.core.ts";
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
 import type { PolicyChange } from "../document_processing/policy_diff.ts";
+import { AiChatContext } from "./ai.dto.ts";
 
 const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog", "knowledge"];
 const POLICY_INGESTION_DOMAINS = ["policy_ingestion"];
@@ -36,6 +37,7 @@ export class AiChatService {
     agentId: string,
     sessionId?: string | null,
     timezone?: string,
+    context?: AiChatContext | null,
   ): Promise<ChatResponse> {
     const history: AiMessage[] = [];
     debugger;
@@ -76,6 +78,11 @@ export class AiChatService {
       
       const parsedDomains = domains.length > 0 ? domains : AVAILABLE_DOMAINS;
       
+      // If a screen context domain is supplied, ensure the domain is active
+      if (context && !parsedDomains.includes(context.type)) {
+        parsedDomains.push(context.type);
+      }
+
       // If policy is active, we also activate catalog since policy tasks depend on catalog lookup
       if (parsedDomains.includes("policy") && !parsedDomains.includes("catalog")) {
         parsedDomains.push("catalog");
@@ -161,6 +168,11 @@ export class AiChatService {
         .map((t) => `- ID: ${t.id}, tipo: ${t.taskType}, datos: ${JSON.stringify(t.payload)}`)
         .join("\n");
       contextLines.push(`Active pending tasks requiring resolution:\n${tasksText}`);
+    }
+    if (context) {
+      contextLines.push(
+        `Active screen context (${context.type}${context.id ? ` ID: ${context.id}` : ""}):\n${JSON.stringify(context.data, null, 2)}`
+      );
     }
     const contextPrefix = contextLines.join("\n") + "\n\n";
 
