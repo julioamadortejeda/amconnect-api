@@ -56,4 +56,11 @@ export class ContactController {
     const notes = await repo.getByContactId(c.req.param("id") as string);
     return sendSuccess(c, { data: notes });
   }
+
+  static async getRecentNotes(c: Context) {
+    const repo: NoteRepository = c.get("services").noteRepository;
+    const limit = Math.min(parseInt(c.req.query("limit") ?? "20", 10), 50);
+    const notes = await repo.getRecent(limit);
+    return sendSuccess(c, { data: notes });
+  }
 }

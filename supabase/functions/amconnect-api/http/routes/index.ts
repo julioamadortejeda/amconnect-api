@@ -48,6 +48,7 @@ apiRouter.get("/contacts", ContactController.getAll);
 apiRouter.get("/contacts/search", ContactController.search);
 apiRouter.get("/contacts/:id", ContactController.getById);
 apiRouter.get("/contacts/:id/notes", ContactController.getNotes);
+apiRouter.get("/notes/recent", ContactController.getRecentNotes);
 apiRouter.post("/contacts", ContactController.create);
 apiRouter.patch("/contacts/:id", ContactController.update);
 apiRouter.delete("/contacts/:id", ContactController.remove);
