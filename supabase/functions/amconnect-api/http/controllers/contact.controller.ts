@@ -63,4 +63,18 @@ export class ContactController {
     const notes = await repo.getRecent(limit);
     return sendSuccess(c, { data: notes });
   }
+
+  static async getNotesSummary(c: Context) {
+    const repo: NoteRepository = c.get("services").noteRepository;
+    const summary = await repo.getNotesSummary();
+    return sendSuccess(c, summary);
+  }
+
+  static async searchNotes(c: Context) {
+    const repo: NoteRepository = c.get("services").noteRepository;
+    const limit = Math.min(parseInt(c.req.query("limit") ?? "20", 10), 50);
+    const search = c.req.query("search");
+    const notes = await repo.searchNotes(limit, search);
+    return sendSuccess(c, { data: notes });
+  }
 }

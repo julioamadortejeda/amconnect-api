@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const VALID_CONTEXT_TYPES = ["contact", "policy", "reminder"] as const;
+export const VALID_CONTEXT_TYPES = ["contact", "policy", "reminder", "knowledge"] as const;
 
 export const AiChatContextSchema = z.object({
   type: z.enum(VALID_CONTEXT_TYPES, {

@@ -80,4 +80,51 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
       .eq("note_origin", "policy")
       .eq("discard_reason", "policy_updated");
   }
+
+  async getNotesSummary(): Promise<Record<string, number>> {
+    const [
+      pdfRes,
+      docRes,
+      imgRes,
+      audioRes,
+      textRes,
+      waRes,
+      chatRes,
+    ] = await Promise.all([
+      this.supabase.from("agent_notes").select("*", { count: "exact", head: true }).eq("is_active", true).eq("source_type", "pdf"),
+      this.supabase.from("agent_notes").select("*", { count: "exact", head: true }).eq("is_active", true).eq("source_type", "document"),
+      this.supabase.from("agent_notes").select("*", { count: "exact", head: true }).eq("is_active", true).eq("source_type", "image"),
+      this.supabase.from("agent_notes").select("*", { count: "exact", head: true }).eq("is_active", true).eq("source_type", "audio"),
+      this.supabase.from("agent_notes").select("*", { count: "exact", head: true }).eq("is_active", true).eq("source_type", "text"),
+      this.supabase.from("agent_notes").select("*", { count: "exact", head: true }).eq("is_active", true).eq("source_type", "whatsapp"),
+      this.supabase.from("ai_sessions").select("*", { count: "exact", head: true }).eq("type", "chat"),
+    ]);
+
+    return {
+      pdf: (pdfRes.count ?? 0) + (docRes.count ?? 0),
+      image: imgRes.count ?? 0,
+      audio: audioRes.count ?? 0,
+      text: (textRes.count ?? 0) + (waRes.count ?? 0),
+      chat: chatRes.count ?? 0,
+    };
+  }
+
+  async searchNotes(limit = 20, search?: string): Promise<RecentNoteRow[]> {
+    const selectQuery = "id, contact_id, policy_id, source_type, created_at, content, summary, document_metadata(file_name, storage_path), contacts(full_name)";
+    let query = this.supabase
+      .from("agent_notes")
+      .select(selectQuery)
+      .eq("is_active", true);
+
+    if (search && search.trim().length > 0) {
+      query = query.or(`content.ilike.*${search}*,summary.ilike.*${search}*`);
+    }
+
+    const { data, error } = await query
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error) handleSupabaseError(error, "Error al buscar notas");
+    return (data ?? []) as unknown as RecentNoteRow[];
+  }
 }

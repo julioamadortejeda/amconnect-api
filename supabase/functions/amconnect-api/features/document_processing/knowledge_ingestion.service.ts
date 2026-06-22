@@ -10,15 +10,15 @@ import { PromptService } from "../../modules/prompt/prompt.service.ts";
 
 // Solo para archivos binarios (pdf/imagen/audio): extraer texto fiel, sin resumir
 const RawExtractionSchema = z.object({
-  summary: z.string().describe("1-2 sentence human-readable description of the document content in the advisor's language (as instructed in the system prompt). Describe what was found in a way useful for an insurance advisor to quickly understand the note without reading the full content."),
+  summary: z.string().describe("1-2 sentence human-readable description of the document content in the SAME LANGUAGE as the source document. Describe what was found in a way useful for an insurance advisor to quickly understand the note without reading the full content."),
   content: z.string().describe("Full verbatim text extracted from the document, in the same language as the source. Do NOT summarize — transcribe everything faithfully."),
-  responseMessage: z.string().describe("A friendly confirmation message in the advisor's language (as instructed in the system prompt), indicating the document was successfully processed. Max 30 words."),
+  responseMessage: z.string().describe("A friendly confirmation message in the advisor's preferred language (as instructed in the system prompt), indicating the document was successfully processed. Max 30 words."),
 });
 
 // Para texto plano: generar título descriptivo y confirmación amable
 const TextMetadataSchema = z.object({
-  summary: z.string().describe("1-2 sentence human-readable description of the text content in the advisor's language (as instructed in the system prompt). Describe what it's about in a way useful for an insurance advisor."),
-  responseMessage: z.string().describe("A friendly confirmation message in the advisor's language (as instructed in the system prompt), summarizing what was processed in max 30 words."),
+  summary: z.string().describe("1-2 sentence human-readable description of the text content in the SAME LANGUAGE as the source text. Describe what it's about in a way useful for an insurance advisor."),
+  responseMessage: z.string().describe("A friendly confirmation message in the advisor's preferred language (as instructed in the system prompt), summarizing what was processed in max 30 words."),
 });
 
 // FILE_PROMPTS moved to database

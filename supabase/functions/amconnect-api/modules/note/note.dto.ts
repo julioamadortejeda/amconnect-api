@@ -26,4 +26,6 @@ export interface RecentNoteRow {
   created_at: string;
   document_metadata: { file_name: string; storage_path: string } | null;
   contacts: { full_name: string } | null;
+  content?: string;
+  summary?: string | null;
 }
