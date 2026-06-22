@@ -217,7 +217,6 @@ export class AiController {
   static async ingestText(c: Context) {
     const agentId: string = c.get("agent_id");
     const usageService = c.get("usage_service") as UsageService;
-    debugger;
     await usageService.checkAndIncrementIngestion(agentId);
 
     const body = await c.req.json();

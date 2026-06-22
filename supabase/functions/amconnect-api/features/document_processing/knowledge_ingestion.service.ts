@@ -61,7 +61,6 @@ export class KnowledgeIngestionService {
   ) {}
 
   async ingestFile(agentId: string, sessionId: string, input: KnowledgeIngestFileInput): Promise<KnowledgeIngestResult> {
-    debugger;
     const { storagePath, fileName, mimeType, contactId, policyId, advisorLocale = 'es' } = input;
 
     // Download throws AppError (pre-AI) — controller will deleteSession on catch
@@ -73,8 +72,11 @@ export class KnowledgeIngestionService {
     if (sourceType === "image") dbPromptCode = "knowledge_image_system";
     else if (sourceType === "audio") dbPromptCode = "knowledge_audio_system";
 
+    const rawLocale = advisorLocale.split(/[-_]/)[0].toLowerCase();
+    const cleanLangName = rawLocale === 'en' ? 'English' : 'Spanish';
+
     const prompt = (await this.promptService.getPrompt(dbPromptCode))
-      .replace('{{advisor_language}}', advisorLocale);
+      .replaceAll('{{advisor_language}}', cleanLangName);
 
     // From this point forward, any error must be AiInvokedError so the controller
     // marks the session as failed instead of deleting it.
@@ -159,18 +161,20 @@ export class KnowledgeIngestionService {
     policyId: string | null,
     advisorLocale: string = 'es',
   ): Promise<KnowledgeIngestResult> {
-    debugger;
     const isLong = content.length > 4000;
     const excerpt = isLong ? content.slice(0, 4000) : content;
     const lengthNote = isLong
       ? `\n\n[Note: This is an excerpt of a longer text (${content.length} total characters). Generate a label and message that reflect the overall content based on this excerpt.]`
       : "";
 
+    const rawLocale = advisorLocale.split(/[-_]/)[0].toLowerCase();
+    const cleanLangName = rawLocale === 'en' ? 'English' : 'Spanish';
+
     const promptTemplate = await this.promptService.getPrompt("knowledge_text_metadata_system");
     const prompt = promptTemplate
       .replace("{excerpt}", excerpt)
       .replace("{lengthNote}", lengthNote)
-      .replace('{{advisor_language}}', advisorLocale);
+      .replaceAll('{{advisor_language}}', cleanLangName);
 
     let aiResult: { data: z.infer<typeof TextMetadataSchema>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } };
     let docResult: { noteId: string; embeddingTotalTokens: number; embeddingCount: number };

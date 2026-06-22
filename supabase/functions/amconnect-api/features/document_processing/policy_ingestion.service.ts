@@ -133,12 +133,13 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
     }
 
     try {
+      const ingestionType = mimeType.startsWith("image/") ? "image" : "pdf";
       const docMeta = await this.documentMetadataRepository.create({
         agent_id: agentId,
         file_name: fileName,
         storage_path: storagePath,
         mime_type: mimeType,
-        ingestion_type: "pdf",
+        ingestion_type: ingestionType,
         raw_extraction: extraction,
         extracted_at: new Date().toISOString(),
       });

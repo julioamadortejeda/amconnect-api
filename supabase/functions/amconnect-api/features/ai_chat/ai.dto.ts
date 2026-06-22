@@ -23,9 +23,10 @@ export type AiChatDTO = z.infer<typeof AiChatSchema>;
 export const AiIngestPolicySchema = z.object({
   storagePath: z.string().min(1, "El campo 'storagePath' es requerido."),
   fileName: z.string().min(1, "El campo 'fileName' es requerido."),
-  mimeType: z.literal("application/pdf", {
-    invalid_type_error: "ingest-policy solo acepta application/pdf.",
-  }),
+  mimeType: z.string().refine(
+    (m) => m === "application/pdf" || m.startsWith("image/"),
+    { message: "ingest-policy solo acepta PDF o imágenes (image/*)." },
+  ),
   contactId: z.string().uuid().optional().nullable(),
 });
 
