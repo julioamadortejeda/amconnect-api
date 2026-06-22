@@ -109,7 +109,7 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
     };
   }
 
-  async searchNotes(limit = 20, search?: string): Promise<RecentNoteRow[]> {
+  async searchNotes(limit = 20, offset = 0, search?: string): Promise<RecentNoteRow[]> {
     const selectQuery = "id, contact_id, policy_id, source_type, created_at, content, summary, document_metadata(file_name, storage_path), contacts(full_name)";
     let query = this.supabase
       .from("agent_notes")
@@ -122,7 +122,7 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
 
     const { data, error } = await query
       .order("created_at", { ascending: false })
-      .limit(limit);
+      .range(offset, offset + limit - 1);
 
     if (error) handleSupabaseError(error, "Error al buscar notas");
     return (data ?? []) as unknown as RecentNoteRow[];

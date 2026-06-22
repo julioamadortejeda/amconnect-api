@@ -73,8 +73,9 @@ export class ContactController {
   static async searchNotes(c: Context) {
     const repo: NoteRepository = c.get("services").noteRepository;
     const limit = Math.min(parseInt(c.req.query("limit") ?? "20", 10), 50);
+    const offset = Math.max(parseInt(c.req.query("offset") ?? "0", 10), 0);
     const search = c.req.query("search");
-    const notes = await repo.searchNotes(limit, search);
+    const notes = await repo.searchNotes(limit, offset, search);
     return sendSuccess(c, { data: notes });
   }
 }
