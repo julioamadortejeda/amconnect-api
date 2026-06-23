@@ -4,6 +4,7 @@ import { ContactController } from "../controllers/contact.controller.ts";
 import { PolicyController } from "../controllers/policy.controller.ts";
 import { ReminderController } from "../controllers/reminder.controller.ts";
 import { AiController } from "../controllers/ai.controller.ts";
+import { VoiceChatController } from "../controllers/voice_chat.controller.ts";
 import { SubscriptionController } from "../controllers/subscription.controller.ts";
 import {
   CarrierController,
@@ -40,6 +41,7 @@ apiRouter.post("/ai/ingest", AiController.ingest);
 apiRouter.post("/ai/ingest-text", AiController.ingestText);
 apiRouter.post("/ai/confirm-policy", AiController.confirmPolicy);
 apiRouter.post("/ai/rag-search", AiController.ragSearch);
+apiRouter.get("/ai/voice", VoiceChatController.connect);
 // Deprecado — mantener por compatibilidad, redirige internamente a ingest
 apiRouter.post("/ai/process-document", AiController.processDocument);
 

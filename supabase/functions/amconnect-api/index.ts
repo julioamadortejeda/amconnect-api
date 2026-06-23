@@ -10,7 +10,14 @@ const app = new Hono();
 app.onError(globalErrorHandler);
 
 const allowedOrigin = Deno.env.get("ALLOWED_ORIGIN");
-app.use("*", cors(allowedOrigin ? { origin: allowedOrigin } : {}));
+app.use("*", async (c, next) => {
+  if (c.req.header("Upgrade")?.toLowerCase() === "websocket") {
+    console.log(`[HTTP] WebSocket request detected on ${c.req.path} — bypassing CORS middleware`);
+    await next();
+    return;
+  }
+  await cors(allowedOrigin ? { origin: allowedOrigin } : {})(c, next);
+});
 
 app.get("/amconnect-api/health", (c: Context) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
 

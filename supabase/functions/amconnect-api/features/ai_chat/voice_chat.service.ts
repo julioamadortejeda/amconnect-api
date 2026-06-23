@@ -1,0 +1,295 @@
+import { zodToJsonSchema } from "zod-to-json-schema";
+import { GeminiLiveProvider } from "../../providers/gemini_live.provider.ts";
+import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
+import { SkillContext } from "./skills/skill.core.ts";
+import { AiSessionService } from "./ai_session.service.ts";
+import { PromptService } from "../../modules/prompt/prompt.service.ts";
+import { UsageService } from "../../modules/subscription/usage.service.ts";
+
+const ALL_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog", "knowledge"];
+
+function calcTimezoneOffset(timezone: string): string {
+  try {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeZoneName: "longOffset" });
+    const tzName = formatter.formatToParts(now).find((p) => p.type === "timeZoneName")?.value ?? "";
+    if (tzName === "GMT" || tzName === "UTC") return "+00:00";
+    const match = tzName.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
+    if (match) return `${match[1]}${match[2].padStart(2, "0")}:${(match[3] ?? "00").padStart(2, "0")}`;
+  } catch (_) { /* fallback */ }
+  return "-06:00";
+}
+
+// deno-lint-ignore no-explicit-any
+function cleanSchema(obj: any): any {
+  if (obj === null || typeof obj !== "object") return obj;
+  if (Array.isArray(obj)) return obj.map(cleanSchema);
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (key === "additionalProperties") continue;
+    cleaned[key] = cleanSchema(value);
+  }
+  return cleaned;
+}
+
+export class VoiceChatService {
+  constructor(
+    private apiKey: string,
+    private model: string,
+    private skillContext: Omit<SkillContext, "agentId" | "sessionId" | "aiSessionService" | "timezone" | "timezoneOffset">,
+    private aiSessionService: AiSessionService,
+    private promptService: PromptService,
+    private usageService: UsageService,
+  ) {}
+
+  async startSession(agentId: string, timezone: string, clientSocket: WebSocket): Promise<void> {
+    console.log(`[VOICE] Starting session — agent=${agentId} timezone=${timezone}`);
+
+    // ── Late-bound state (filled after async init, referenced via closure) ──
+    let geminiLive: GeminiLiveProvider | null = null;
+    let sessionId = "";
+    let pendingUserTranscript = "";
+    let pendingModelTranscript = "";
+    const turns: Array<{ role: string; text: string }> = [];
+    const accTokens = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    let flushed = false;
+
+    const flushSession = async () => {
+      if (flushed || !sessionId) return;
+      flushed = true;
+      if (pendingUserTranscript) turns.push({ role: "user", text: pendingUserTranscript });
+      if (pendingModelTranscript) turns.push({ role: "model", text: pendingModelTranscript });
+      console.log(`[VOICE] Flushing session ${sessionId} — turns=${turns.length} tokens=${JSON.stringify(accTokens)}`);
+      try {
+        const messages = turns.map((t) => ({
+          role: t.role,
+          content: t.text,
+          promptTokens: 0,
+          completionTokens: 0,
+          totalTokens: 0,
+        }));
+        const historyDb = turns.map((t) => ({
+          role: t.role === "user" ? "user" : "model",
+          parts: [{ text: t.text }],
+        }));
+        await this.aiSessionService.saveChatRound(agentId, sessionId, historyDb, messages, accTokens);
+        console.log(`[VOICE] Session ${sessionId} saved to DB`);
+      } catch (e) {
+        console.error("[VOICE] Error saving session to DB:", e);
+      }
+    };
+
+    // ── Register WebSocket handlers SYNCHRONOUSLY before any await ───────────
+    // The Edge Runtime closes the socket if no handlers are registered
+    // when the function returns its HTTP response. Closures reference
+    // geminiLive / sessionId which are assigned after the async init below.
+
+    clientSocket.onmessage = (event: MessageEvent) => {
+      try {
+        const msg = JSON.parse(event.data as string) as Record<string, unknown>;
+        if (msg.type === "audio" && typeof msg.data === "string") {
+          geminiLive?.sendAudio(msg.data);
+        } else if (msg.type === "end") {
+          console.log(`[VOICE] Flutter requested session end for ${sessionId}`);
+          geminiLive?.close();
+        } else {
+          console.log(`[VOICE] << Unknown Flutter message type: ${msg.type}`);
+        }
+      } catch (e) {
+        console.error("[VOICE] Failed to parse Flutter message:", e);
+      }
+    };
+
+    clientSocket.onclose = async () => {
+      console.log(`[VOICE] Flutter disconnected — session ${sessionId}`);
+      geminiLive?.close();
+      await flushSession();
+    };
+
+    clientSocket.onerror = (err: Event) => {
+      console.error("[VOICE] Flutter socket error:", err);
+      geminiLive?.close();
+    };
+
+    // ── Async initialization ──────────────────────────────────────────────────
+
+    try {
+      sessionId = await this.aiSessionService.createSession(agentId, {
+        triggerMessage: "[voice_session]",
+        sessionType: "voice",
+        modelName: this.model,
+      });
+      console.log(`[VOICE] Session created: ${sessionId}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to create session";
+      console.error("[VOICE] createSession error:", msg);
+      this.send(clientSocket, { type: "error", message: msg });
+      clientSocket.close(1011, msg.slice(0, 120));
+      return;
+    }
+
+    this.send(clientSocket, { type: "ready", session_id: sessionId });
+
+    let systemInstruction: string;
+    try {
+      systemInstruction = await this.promptService.getPrompt("ai_chat_system");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to load prompt";
+      console.error("[VOICE] getPrompt error:", msg);
+      this.send(clientSocket, { type: "error", message: msg });
+      clientSocket.close(1011, msg.slice(0, 120));
+      return;
+    }
+
+    const activeSkills = getSkillsByDomains(ALL_DOMAINS);
+    const tools = [{
+      function_declarations: activeSkills.map((s) => {
+        const { $schema: _, ...parameters } = zodToJsonSchema(s.declaration.schema) as Record<string, unknown>;
+        return {
+          name: s.declaration.name,
+          description: s.declaration.description,
+          parameters: cleanSchema(parameters),
+        };
+      }),
+    }];
+    console.log(`[VOICE] Skills loaded: ${activeSkills.length} (domains: ${ALL_DOMAINS.join(", ")})`);
+
+    const timezoneOffset = calcTimezoneOffset(timezone);
+    const ctx: SkillContext = {
+      agentId,
+      sessionId,
+      aiSessionService: this.aiSessionService,
+      timezone,
+      timezoneOffset,
+      ...this.skillContext,
+    };
+
+    // ── Create Gemini Live provider and assign to closure variable ───────────
+
+    geminiLive = new GeminiLiveProvider(this.apiKey, this.model, {
+      onSetupComplete: () => {
+        console.log(`[VOICE] Gemini setup complete for session ${sessionId}`);
+        this.send(clientSocket, { type: "gemini_ready" });
+      },
+
+      onAudio: (base64Data) => {
+        this.send(clientSocket, { type: "audio", data: base64Data });
+      },
+
+      onInputTranscription: (text) => {
+        pendingUserTranscript += text;
+        this.send(clientSocket, { type: "transcript_user", text });
+      },
+
+      onOutputTranscription: (text) => {
+        pendingModelTranscript += text;
+        this.send(clientSocket, { type: "transcript_model", text });
+      },
+
+      onInterrupted: () => {
+        console.log(`[VOICE] Barge-in — discarding partial model transcript: "${pendingModelTranscript.slice(0, 60)}"`);
+        pendingModelTranscript = "";
+        this.send(clientSocket, { type: "interrupted" });
+      },
+
+      onTurnComplete: async () => {
+        if (pendingUserTranscript) {
+          turns.push({ role: "user", text: pendingUserTranscript });
+          pendingUserTranscript = "";
+        }
+        if (pendingModelTranscript) {
+          turns.push({ role: "model", text: pendingModelTranscript });
+          pendingModelTranscript = "";
+        }
+        console.log(`[VOICE] Turn complete — accumulated ${turns.length} turns so far`);
+
+        try {
+          await this.usageService.checkAndIncrementChat(agentId);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : "Quota exceeded";
+          console.error(`[VOICE] Quota limit hit during voice session: ${msg}`);
+          this.send(clientSocket, { type: "error", message: msg });
+          geminiLive?.close();
+          return;
+        }
+
+        this.send(clientSocket, { type: "turn_complete" });
+      },
+
+      onToolCall: async (call) => {
+        console.log(`[VOICE] Executing skill: "${call.name}" args=${JSON.stringify(call.args).slice(0, 200)}`);
+        this.send(clientSocket, { type: "skill_call", name: call.name });
+
+        const skill = getSkillByName(call.name);
+        if (!skill) {
+          console.warn(`[VOICE] Unknown skill requested: ${call.name}`);
+          geminiLive?.sendToolResponse(call.id, call.name, { error: `Unknown skill: ${call.name}` });
+          return;
+        }
+
+        const validation = skill.declaration.schema.safeParse(call.args);
+        if (!validation.success) {
+          const missing = validation.error.issues
+            .map((i: { path: (string | number)[]; message: string }) =>
+              `${i.path.join(".") || "field"}: ${i.message}`
+            )
+            .join("; ");
+          console.warn(`[VOICE] Skill "${call.name}" validation failed: ${missing}`);
+          geminiLive?.sendToolResponse(call.id, call.name, {
+            error: `Missing required data — ${missing}. Ask the user before calling again.`,
+          });
+          return;
+        }
+
+        try {
+          const rawResult = await skill.execute(validation.data, ctx);
+          if (
+            rawResult &&
+            typeof rawResult === "object" &&
+            "__skillMetadata" in (rawResult as Record<string, unknown>)
+          ) {
+            const { __skillMetadata: _, ...result } = rawResult as Record<string, unknown>;
+            console.log(`[VOICE] Skill "${call.name}" result (stripped meta): ${JSON.stringify(result).slice(0, 200)}`);
+            geminiLive?.sendToolResponse(call.id, call.name, result);
+          } else {
+            console.log(`[VOICE] Skill "${call.name}" result: ${JSON.stringify(rawResult).slice(0, 200)}`);
+            geminiLive?.sendToolResponse(call.id, call.name, rawResult);
+          }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Error executing skill";
+          console.error(`[VOICE] Skill "${call.name}" threw: ${msg}`);
+          geminiLive?.sendToolResponse(call.id, call.name, { error: msg });
+        }
+      },
+
+      onUsageMetadata: (usage) => {
+        accTokens.promptTokens = usage.promptTokens;
+        accTokens.completionTokens = usage.completionTokens;
+        accTokens.totalTokens = usage.totalTokens;
+        console.log(`[VOICE] Accumulated tokens: ${JSON.stringify(accTokens)}`);
+      },
+
+      onClose: async (_code, _reason) => {
+        await flushSession();
+        if (clientSocket.readyState === WebSocket.OPEN) {
+          this.send(clientSocket, { type: "closed" });
+          clientSocket.close(1000, "Voice session ended");
+        }
+      },
+
+      onError: (message) => {
+        console.error(`[VOICE] Gemini provider error: ${message}`);
+        this.send(clientSocket, { type: "error", message });
+      },
+    });
+
+    // Connect to Gemini Live API
+    geminiLive.connect(systemInstruction, tools);
+  }
+
+  private send(socket: WebSocket, msg: Record<string, unknown>): void {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(msg));
+    }
+  }
+}

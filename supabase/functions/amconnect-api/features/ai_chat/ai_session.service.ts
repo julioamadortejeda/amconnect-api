@@ -4,7 +4,7 @@ import { AppError } from "../../shared/errors.ts";
 
 export interface CreateSessionInput {
   triggerMessage: string;
-  sessionType: "chat" | "knowledge_ingestion" | "policy_ingestion";
+  sessionType: "chat" | "knowledge_ingestion" | "policy_ingestion" | "voice";
   modelName?: string | null;
   embeddingModelName?: string | null;
 }

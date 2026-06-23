@@ -31,6 +31,18 @@ export class UsageService {
     }
   }
 
+  async checkChatQuotaOnly(agentId: string): Promise<void> {
+    const [usage, limit] = await Promise.all([
+      this.getMonthlyUsage(agentId),
+      this.repository.getChatLimit(agentId),
+    ]);
+    if (usage.chatCount >= limit) {
+      throw new QuotaExceededError(
+        "Alcanzaste el límite de mensajes de chat este mes. Actualiza tu plan para continuar.",
+      );
+    }
+  }
+
   async checkAndIncrementIngestion(agentId: string): Promise<void> {
     const { error } = await this.repository.incrementUsage(agentId, "ingestion");
     if (error) {
