@@ -297,4 +297,140 @@ export class VoiceChatService {
       socket.send(JSON.stringify(msg));
     }
   }
+
+  async initSession(agentId: string, timezone: string, resumeSessionId?: string) {
+    let sessionId = "";
+    if (resumeSessionId) {
+      sessionId = resumeSessionId;
+      console.log(`[VOICE] REST Init - Resuming session: ${sessionId}`);
+    } else {
+      sessionId = await this.aiSessionService.createSession(agentId, {
+        triggerMessage: "[voice_session]",
+        sessionType: "voice",
+        modelName: this.model,
+      });
+      console.log(`[VOICE] REST Init - Session created: ${sessionId}`);
+    }
+
+    const systemInstruction = await this.promptService.getPrompt("ai_chat_system");
+
+    const activeSkills = getSkillsByDomains(ALL_DOMAINS);
+    const tools = [{
+      function_declarations: activeSkills.map((s) => {
+        const { $schema: _, ...parameters } = zodToJsonSchema(s.declaration.schema) as Record<string, unknown>;
+        return {
+          name: s.declaration.name,
+          description: s.declaration.description,
+          parameters: cleanSchema(parameters),
+        };
+      }),
+    }];
+
+    return {
+      sessionId,
+      systemInstruction,
+      tools,
+    };
+  }
+
+  async executeTool(agentId: string, sessionId: string, timezone: string, toolName: string, args: Record<string, unknown>) {
+    console.log(`[VOICE] REST Execute - executing skill: "${toolName}" for session ${sessionId}`);
+
+    const timezoneOffset = calcTimezoneOffset(timezone);
+    const ctx: SkillContext = {
+      agentId,
+      sessionId,
+      aiSessionService: this.aiSessionService,
+      timezone,
+      timezoneOffset,
+      ...this.skillContext,
+    };
+
+    const skill = getSkillByName(toolName);
+    if (!skill) {
+      console.warn(`[VOICE] Unknown skill requested: ${toolName}`);
+      return { error: `Unknown skill: ${toolName}` };
+    }
+
+    const validation = skill.declaration.schema.safeParse(args);
+    if (!validation.success) {
+      const missing = validation.error.issues
+        .map((i: { path: (string | number)[]; message: string }) =>
+          `${i.path.join(".") || "field"}: ${i.message}`
+        )
+        .join("; ");
+      console.warn(`[VOICE] Skill "${toolName}" validation failed: ${missing}`);
+      return {
+        error: `Missing required data — ${missing}. Ask the user before calling again.`,
+      };
+    }
+
+    try {
+      const rawResult = await skill.execute(validation.data, ctx);
+      if (
+        rawResult &&
+        typeof rawResult === "object" &&
+        "__skillMetadata" in (rawResult as Record<string, unknown>)
+      ) {
+        const { __skillMetadata: _, ...result } = rawResult as Record<string, unknown>;
+        return result;
+      } else {
+        return rawResult;
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error executing skill";
+      console.error(`[VOICE] Skill "${toolName}" threw: ${msg}`);
+      return { error: msg };
+    }
+  }
+
+  async saveRound(agentId: string, sessionId: string, userText: string, modelText: string, promptTokens: number, completionTokens: number, totalTokens: number) {
+    console.log(`[VOICE] REST SaveRound - saving round for session ${sessionId} - prompt=${promptTokens} completion=${completionTokens}`);
+
+    // deno-lint-ignore no-explicit-any
+    const messages: any[] = [];
+    const historyDb: unknown[] = [];
+
+    if (userText) {
+      messages.push({
+        role: "user",
+        content: userText,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+      });
+      historyDb.push({
+        role: "user",
+        parts: [{ text: userText }],
+      });
+    }
+
+    if (modelText) {
+      messages.push({
+        role: "model",
+        content: modelText,
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+      });
+      historyDb.push({
+        role: "model",
+        parts: [{ text: modelText }],
+      });
+    }
+
+    const accTokens = { promptTokens, completionTokens, totalTokens };
+    try {
+      await this.aiSessionService.saveChatRound(agentId, sessionId, historyDb, messages, accTokens);
+      console.log(`[VOICE] Round saved successfully for ${sessionId}`);
+      
+      // Also increment usage in DB
+      await this.usageService.checkAndIncrementChat(agentId);
+      
+      return { success: true };
+    } catch (e) {
+      console.error("[VOICE] Error saving round to DB:", e);
+      throw e;
+    }
+  }
 }

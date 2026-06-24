@@ -53,4 +53,49 @@ export class VoiceChatController {
 
     return response;
   }
+
+  static async initSession(c: Context): Promise<Response> {
+    const agentId = c.get("agent_id") as string;
+    const body = await c.req.json().catch(() => ({}));
+    const timezone = body.timezone ?? c.req.header("x-timezone") ?? "America/Mexico_City";
+    const resumeSessionId = body.sessionId ?? c.req.header("sessionId") ?? undefined;
+
+    const usageService = c.get("usage_service") as UsageService;
+    await usageService.checkChatQuotaOnly(agentId);
+
+    const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
+    const config = await voiceChatService.initSession(agentId, timezone, resumeSessionId);
+
+    return c.json(config);
+  }
+
+  static async executeTool(c: Context): Promise<Response> {
+    const agentId = c.get("agent_id") as string;
+    const body = await c.req.json();
+    const { sessionId, timezone, toolName, args } = body;
+
+    const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
+    const result = await voiceChatService.executeTool(agentId, sessionId, timezone ?? "America/Mexico_City", toolName, args);
+
+    return c.json(result);
+  }
+
+  static async saveRound(c: Context): Promise<Response> {
+    const agentId = c.get("agent_id") as string;
+    const body = await c.req.json();
+    const { sessionId, userText, modelText, promptTokens, completionTokens, totalTokens } = body;
+
+    const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
+    const result = await voiceChatService.saveRound(
+      agentId,
+      sessionId,
+      userText,
+      modelText,
+      promptTokens ?? 0,
+      completionTokens ?? 0,
+      totalTokens ?? 0
+    );
+
+    return c.json(result);
+  }
 }

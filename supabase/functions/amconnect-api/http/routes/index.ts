@@ -42,6 +42,9 @@ apiRouter.post("/ai/ingest-text", AiController.ingestText);
 apiRouter.post("/ai/confirm-policy", AiController.confirmPolicy);
 apiRouter.post("/ai/rag-search", AiController.ragSearch);
 apiRouter.get("/ai/voice", VoiceChatController.connect);
+apiRouter.post("/ai/voice/init", VoiceChatController.initSession);
+apiRouter.post("/ai/voice/execute-tool", VoiceChatController.executeTool);
+apiRouter.post("/ai/voice/save-round", VoiceChatController.saveRound);
 // Deprecado — mantener por compatibilidad, redirige internamente a ingest
 apiRouter.post("/ai/process-document", AiController.processDocument);
 
