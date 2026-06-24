@@ -45,7 +45,7 @@ export class GeminiLiveProvider {
           },
           realtime_input_config: {
             automatic_activity_detection: {
-              start_of_speech_sensitivity: "START_SENSITIVITY_LOW",
+              start_of_speech_sensitivity: "START_SENSITIVITY_HIGH",
               end_of_speech_sensitivity: "END_SENSITIVITY_LOW",
               prefix_padding_ms: 200,
               silence_duration_ms: 500,
@@ -119,7 +119,7 @@ export class GeminiLiveProvider {
       const modelTurn = serverContent.model_turn ?? serverContent.modelTurn;
       if (modelTurn?.parts) {
         for (const part of modelTurn.parts as Record<string, unknown>[]) {
-          const inlineData = part.inline_data ?? part.inlineData;
+          const inlineData = (part.inline_data ?? part.inlineData) as Record<string, unknown> | undefined;
           if (inlineData?.data) {
             this.callbacks.onAudio(inlineData.data as string);
           }

@@ -1,3 +1,4 @@
+import { GoogleGenAI, Modality } from "@google/genai";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { GeminiLiveProvider } from "../../providers/gemini_live.provider.ts";
 import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
@@ -18,6 +19,27 @@ function calcTimezoneOffset(timezone: string): string {
     if (match) return `${match[1]}${match[2].padStart(2, "0")}:${(match[3] ?? "00").padStart(2, "0")}`;
   } catch (_) { /* fallback */ }
   return "-06:00";
+}
+
+// Voice sessions have no per-message text channel from the backend, so the
+// dynamic [CONTEXT] line that the text chat injects into each user message must
+// be appended to the voice system instruction instead. Without the current
+// date/time the model can't reason about "upcoming" reminders and answers that
+// it has no way to know — mirrors AiChatService's contextLines.
+function buildVoiceContext(timezone: string): string {
+  const offset = calcTimezoneOffset(timezone);
+  let iso: string;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    }).formatToParts(new Date());
+    const get = (t: string) => parts.find((x) => x.type === t)?.value ?? "00";
+    iso = `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}${offset}`;
+  } catch (_) {
+    iso = new Date().toISOString();
+  }
+  return `\n\n[CONTEXT] Current date/time: ${iso} | Timezone offset: ${offset}`;
 }
 
 // deno-lint-ignore no-explicit-any
@@ -137,7 +159,7 @@ export class VoiceChatService {
 
     let systemInstruction: string;
     try {
-      systemInstruction = await this.promptService.getPrompt("ai_chat_system");
+      systemInstruction = await this.promptService.getPrompt("ai_chat_system") + buildVoiceContext(timezone);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to load prompt";
       console.error("[VOICE] getPrompt error:", msg);
@@ -312,7 +334,8 @@ export class VoiceChatService {
       console.log(`[VOICE] REST Init - Session created: ${sessionId}`);
     }
 
-    const systemInstruction = await this.promptService.getPrompt("ai_chat_system");
+    const systemInstruction =
+      await this.promptService.getPrompt("ai_chat_system") + buildVoiceContext(timezone);
 
     const activeSkills = getSkillsByDomains(ALL_DOMAINS);
     const tools = [{
@@ -432,5 +455,38 @@ export class VoiceChatService {
       console.error("[VOICE] Error saving round to DB:", e);
       throw e;
     }
+  }
+
+  // Mints a short-lived Gemini Live token so the client never holds the raw
+  // GEMINI_API_KEY (which is extractable by decompiling the app binary). The
+  // client uses this token as the `access_token` query param on the v1alpha
+  // BidiGenerateContent WebSocket instead of `?key=<API_KEY>`.
+  // - newSessionExpireTime: how long the client has to OPEN the WebSocket.
+  // - expireTime: how long that session may stay connected once opened.
+  // - liveConnectConstraints: locks the token to this.model + AUDIO-only output,
+  //   so a leaked token can't be replayed against a different (pricier) model.
+  async createEphemeralToken(): Promise<{ token: string; expireTime: string }> {
+    const ai = new GoogleGenAI({ apiKey: this.apiKey, apiVersion: "v1alpha" });
+    const now = Date.now();
+    const expireTime = new Date(now + 30 * 60 * 1000).toISOString();
+    const newSessionExpireTime = new Date(now + 60 * 1000).toISOString();
+
+    const authToken = await ai.authTokens.create({
+      config: {
+        uses: 1,
+        expireTime,
+        newSessionExpireTime,
+        liveConnectConstraints: {
+          model: `models/${this.model}`,
+          config: { responseModalities: [Modality.AUDIO] },
+        },
+        httpOptions: { apiVersion: "v1alpha" },
+      },
+    });
+
+    if (!authToken.name) {
+      throw new Error("Gemini no devolvió un token efímero.");
+    }
+    return { token: authToken.name, expireTime };
   }
 }

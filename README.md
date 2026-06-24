@@ -171,3 +171,46 @@ vars {
   access_token:
 }
 ```
+
+---
+
+## Historial del Flujo de Sesión de Voz (Legacy WebSocket vs. Flujo Actual)
+
+Históricamente, la aplicación utilizaba un flujo donde Supabase actuaba como un proxy de WebSockets. Por razones de estabilidad y rendimiento, se migró a un modelo descentralizado de tokens efímeros. A continuación se detallan ambos flujos:
+
+### 1. Flujo Legacy (Supabase como Proxy WebSocket)
+* **Endpoint:** `GET /ai/voice` (vía WebSocket Upgrade)
+* **Arquitectura:**
+  ```
+  [Flutter Client] <--- WebSocket ---> [Supabase Edge Function] <--- WebSocket ---> [Gemini Live API]
+  ```
+* **Mecanismo:**
+  1. El cliente iniciaba una conexión WebSocket a Supabase (`/ai/voice`).
+  2. La función de Supabase actualizaba la conexión mediante `Deno.upgradeWebSocket(c.req.raw)`.
+  3. Para mantener el V8 isolate activo, se utilizaba `EdgeRuntime.waitUntil(...)`.
+  4. La función de Supabase abría una segunda conexión WebSocket saliente directa a la Gemini Live API usando la `GEMINI_API_KEY` del backend.
+  5. Supabase actuaba como un proxy bidireccional puro, transmitiendo fragmentos de audio PCM, transcripciones y eventos entre el cliente y Gemini.
+  6. Si Gemini requería una herramienta (tool call), Supabase la interceptaba, ejecutaba la lógica/base de datos dentro del contexto de la Edge Function, y devolvía el resultado a Gemini de inmediato a través del WebSocket.
+* **Limitaciones/Desventajas:**
+  * **Límites de tiempo de ejecución (Timeout):** Las Edge Functions de Supabase tienen restricciones estrictas de duración máxima por petición. Mantener una conexión WebSocket activa durante llamadas de voz prolongadas causaba desconexiones prematuras por parte del router de Supabase.
+  * **Latencia y Sobrecarga:** Canalizar ráfagas constantes de audio PCM a través de la Edge Function agregaba un salto de red extra innecesario y un consumo elevado de memoria/CPU en el runtime de Deno.
+
+### 2. Flujo Actual (Directo con Tokens Efímeros)
+* **Endpoints Relacionados:**
+  * `POST /ai/voice/token` (Genera token de acceso temporal de Gemini)
+  * `POST /ai/voice/init` (Inicializa la sesión y obtiene instrucciones de sistema y herramientas configuradas)
+  * `POST /ai/voice/execute-tool` (Ejecuta una herramienta de base de datos o lógica de negocio vía HTTP estándar)
+  * `POST /ai/voice/save-round` (Registra el consumo de tokens y transcripción de voz al final del turno)
+* **Arquitectura:**
+  ```
+  [Flutter Client] <---------------- WebSocket Directo ----------------> [Gemini Live API]
+        |
+        +-- (Llamadas HTTP REST para Config/Tools/Save) --> [Supabase Edge Function]
+  ```
+* **Mecanismo:**
+  1. El cliente solicita un token de corta duración a Supabase a través de `POST /ai/voice/token` y la configuración de sesión en `POST /ai/voice/init`.
+  2. Supabase genera un **token efímero** de Gemini usando la API de Auth de Google (limitado al modelo configurado y salida tipo `AUDIO`), evitando exponer la API Key maestra en el cliente.
+  3. El cliente abre el WebSocket bidireccional **directamente** con Gemini Live API usando dicho token efímero.
+  4. Cuando Gemini solicita ejecutar una herramienta, el cliente intercepta la petición y llama a la Edge Function de Supabase vía HTTP estándar (`POST /ai/voice/execute-tool`).
+  5. Al concluir cada ronda o terminar la sesión, el cliente reporta las transcripciones y los metadatos de uso a Supabase con `POST /ai/voice/save-round` para guardar el historial y aplicar controles de cuota.
+

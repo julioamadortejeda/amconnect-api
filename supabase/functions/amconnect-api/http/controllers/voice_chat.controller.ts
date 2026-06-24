@@ -54,6 +54,15 @@ export class VoiceChatController {
     return response;
   }
 
+  // Mints a short-lived Gemini Live token for the authenticated agent. Flutter
+  // calls this right before opening the direct-to-Gemini WebSocket, instead of
+  // embedding the raw GEMINI_API_KEY in the client binary.
+  static async getToken(c: Context): Promise<Response> {
+    const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
+    const result = await voiceChatService.createEphemeralToken();
+    return c.json(result);
+  }
+
   static async initSession(c: Context): Promise<Response> {
     const agentId = c.get("agent_id") as string;
     const body = await c.req.json().catch(() => ({}));
@@ -73,6 +82,18 @@ export class VoiceChatController {
     const agentId = c.get("agent_id") as string;
     const body = await c.req.json();
     const { sessionId, timezone, toolName, args } = body;
+
+    // Validate quota on every tool call. If the plan limit is exhausted, return a
+    // 200 + flag (not an error status) so Flutter can read the message, show it,
+    // and tear down the voice session instead of forwarding a result to Gemini.
+    const usageService = c.get("usage_service") as UsageService;
+    try {
+      await usageService.checkChatQuotaOnly(agentId);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Has alcanzado el límite de tu plan.";
+      console.warn(`[VOICE] Quota exceeded on execute-tool for agent ${agentId}: ${message}`);
+      return c.json({ quotaExceeded: true, message });
+    }
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
     const result = await voiceChatService.executeTool(agentId, sessionId, timezone ?? "America/Mexico_City", toolName, args);
