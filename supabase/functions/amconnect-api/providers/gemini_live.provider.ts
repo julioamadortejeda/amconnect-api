@@ -45,12 +45,10 @@ export class GeminiLiveProvider {
           },
           realtime_input_config: {
             automatic_activity_detection: {
-              // Low sensitivity avoids false triggers from ambient noise.
-              // Silence threshold 800ms gives time for natural speech pauses.
               start_of_speech_sensitivity: "START_SENSITIVITY_LOW",
               end_of_speech_sensitivity: "END_SENSITIVITY_LOW",
               prefix_padding_ms: 200,
-              silence_duration_ms: 800,
+              silence_duration_ms: 500,
             },
           },
           input_audio_transcription: {},
