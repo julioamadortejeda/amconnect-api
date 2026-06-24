@@ -11,6 +11,7 @@ export class VoiceChatController {
 
     const agentId = c.get("agent_id") as string;
     const timezone = c.req.header("x-timezone") ?? "America/Mexico_City";
+    const resumeSessionId = c.req.header("sessionId") ?? undefined;
 
     // Quota check before upgrading — returns HTTP error if limit exceeded
     const usageService = c.get("usage_service") as UsageService;
@@ -41,7 +42,7 @@ export class VoiceChatController {
     }
 
     // Start session asynchronously — the WebSocket upgrade response is returned immediately
-    voiceChatService.startSession(agentId, timezone, socket).catch((err: unknown) => {
+    voiceChatService.startSession(agentId, timezone, socket, resumeSessionId).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : "Voice session error";
       console.error("[VOICE] Session startup error:", msg);
       try {

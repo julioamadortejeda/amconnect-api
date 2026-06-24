@@ -42,8 +42,8 @@ export class VoiceChatService {
     private usageService: UsageService,
   ) {}
 
-  async startSession(agentId: string, timezone: string, clientSocket: WebSocket): Promise<void> {
-    console.log(`[VOICE] Starting session — agent=${agentId} timezone=${timezone}`);
+  async startSession(agentId: string, timezone: string, clientSocket: WebSocket, resumeSessionId?: string): Promise<void> {
+    console.log(`[VOICE] Starting session — agent=${agentId} timezone=${timezone}${resumeSessionId ? ` resume=${resumeSessionId}` : ""}`);
 
     // ── Late-bound state (filled after async init, referenced via closure) ──
     let geminiLive: GeminiLiveProvider | null = null;
@@ -114,12 +114,17 @@ export class VoiceChatService {
     // ── Async initialization ──────────────────────────────────────────────────
 
     try {
-      sessionId = await this.aiSessionService.createSession(agentId, {
-        triggerMessage: "[voice_session]",
-        sessionType: "voice",
-        modelName: this.model,
-      });
-      console.log(`[VOICE] Session created: ${sessionId}`);
+      if (resumeSessionId) {
+        sessionId = resumeSessionId;
+        console.log(`[VOICE] Resuming session: ${sessionId}`);
+      } else {
+        sessionId = await this.aiSessionService.createSession(agentId, {
+          triggerMessage: "[voice_session]",
+          sessionType: "voice",
+          modelName: this.model,
+        });
+        console.log(`[VOICE] Session created: ${sessionId}`);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to create session";
       console.error("[VOICE] createSession error:", msg);
