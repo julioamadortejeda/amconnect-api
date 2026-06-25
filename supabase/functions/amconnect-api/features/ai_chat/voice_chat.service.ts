@@ -1,4 +1,11 @@
-import { GoogleGenAI, Modality } from "@google/genai";
+import {
+  EndSensitivity,
+  type FunctionDeclaration,
+  GoogleGenAI,
+  Modality,
+  StartSensitivity,
+  type ToolListUnion,
+} from "@google/genai";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { GeminiLiveProvider } from "../../providers/gemini_live.provider.ts";
 import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
@@ -460,16 +467,31 @@ export class VoiceChatService {
   // Mints a short-lived Gemini Live token so the client never holds the raw
   // GEMINI_API_KEY (which is extractable by decompiling the app binary). The
   // client uses this token as the `access_token` query param on the v1alpha
-  // BidiGenerateContent WebSocket instead of `?key=<API_KEY>`.
+  // BidiGenerateContentConstrained WebSocket instead of `?key=<API_KEY>`.
   // - newSessionExpireTime: how long the client has to OPEN the WebSocket.
   // - expireTime: how long that session may stay connected once opened.
-  // - liveConnectConstraints: locks the token to this.model + AUDIO-only output,
-  //   so a leaked token can't be replayed against a different (pricier) model.
-  async createEphemeralToken(): Promise<{ token: string; expireTime: string }> {
+  //
+  // IMPORTANT: setting `liveConnectConstraints.config` LOCKS THE ENTIRE
+  // LiveConnectConfig for the session — any config the client sends in its own
+  // `setup` message (system_instruction, tools, transcription, VAD tuning...)
+  // is silently ignored by the API once this is set, per @google/genai's own
+  // Tokens.create() doc comment ("changing `outputAudioTranscription` in the
+  // Live API connection will be ignored by the API"). So everything the voice
+  // session actually needs must be baked in here — not just model + modality —
+  // or the model answers with no persona, no skills and no transcript.
+  async createEphemeralToken(
+    systemInstruction: string,
+    tools: Array<{ function_declarations: FunctionDeclaration[] }>,
+  ): Promise<{ token: string; expireTime: string }> {
     const ai = new GoogleGenAI({ apiKey: this.apiKey, apiVersion: "v1alpha" });
     const now = Date.now();
     const expireTime = new Date(now + 30 * 60 * 1000).toISOString();
     const newSessionExpireTime = new Date(now + 60 * 1000).toISOString();
+
+    // SDK config uses camelCase (functionDeclarations), unlike the snake_case
+    // REST shape (function_declarations) that initSession returns to Flutter
+    // and that Flutter forwards as-is in the raw WebSocket `setup` message.
+    const sdkTools: ToolListUnion = tools.map((t) => ({ functionDeclarations: t.function_declarations }));
 
     const authToken = await ai.authTokens.create({
       config: {
@@ -478,7 +500,21 @@ export class VoiceChatService {
         newSessionExpireTime,
         liveConnectConstraints: {
           model: `models/${this.model}`,
-          config: { responseModalities: [Modality.AUDIO] },
+          config: {
+            responseModalities: [Modality.AUDIO],
+            systemInstruction: { parts: [{ text: systemInstruction }] },
+            tools: sdkTools,
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
+            realtimeInputConfig: {
+              automaticActivityDetection: {
+                startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+                endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
+                prefixPaddingMs: 200,
+                silenceDurationMs: 500,
+              },
+            },
+          },
         },
         httpOptions: { apiVersion: "v1alpha" },
       },

@@ -58,8 +58,12 @@ export class VoiceChatController {
   // calls this right before opening the direct-to-Gemini WebSocket, instead of
   // embedding the raw GEMINI_API_KEY in the client binary.
   static async getToken(c: Context): Promise<Response> {
+    const body = await c.req.json().catch(() => ({}));
+    const systemInstruction = body.systemInstruction ?? "";
+    const tools = body.tools ?? [];
+
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
-    const result = await voiceChatService.createEphemeralToken();
+    const result = await voiceChatService.createEphemeralToken(systemInstruction, tools);
     return c.json(result);
   }
 
