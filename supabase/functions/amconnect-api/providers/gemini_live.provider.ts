@@ -42,8 +42,12 @@ export class GeminiLiveProvider {
           model: `models/${this.model}`,
           generation_config: {
             response_modalities: ["AUDIO"],
+            thinking_config: {
+              thinking_level: "MINIMAL",
+            },
           },
           realtime_input_config: {
+
             automatic_activity_detection: {
               start_of_speech_sensitivity: "START_SENSITIVITY_HIGH",
               end_of_speech_sensitivity: "END_SENSITIVITY_LOW",

@@ -11,6 +11,7 @@
     "@hono/zod-validator": "npm:@hono/zod-validator@0.4",
     "zod": "npm:zod@3",
     "zod-to-json-schema": "npm:zod-to-json-schema@3",
-    "@google/genai": "npm:@google/genai@^1"
+    "@google/genai": "npm:@google/genai@^2"
   }
 }
+

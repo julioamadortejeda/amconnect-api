@@ -81,3 +81,8 @@ Cada responsabilidad transversal tiene su propio servicio inyectable — no lóg
 - **Evitar lockfiles versión 5**: Para evitar errores de bootstrap en el runtime de Supabase Edge Runtime, `deno.json` debe tener siempre `"lock": false`.
 - **Inyección de PromptService**: Se inyecta a través del contenedor DI de Hono (`di/index.ts`) en todos los servicios y proveedores de IA que dependan de plantillas de prompts (ej: `AiChatService`, `GeminiProvider`, `KnowledgeIngestionService`, `PolicyIngestionService` y `DocumentProcessorService`).
 
+## Cambios Recientes
+
+- **Chat de Texto y Voz:** El chat de texto y los ajustes del chat de voz (con las correcciones del nuevo formato de audio `realtimeInput.audio` para evitar la desconexión del WebSocket en Gemini 3.1 Live API) están listos y validados (detalles en [walkthrough.md](file:///Users/julio/.gemini/antigravity/brain/a411ae05-c358-412b-93b2-578d9f685c96/walkthrough.md)).
+
+

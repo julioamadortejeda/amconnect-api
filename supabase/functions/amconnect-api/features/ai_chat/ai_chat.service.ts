@@ -46,11 +46,13 @@ export class AiChatService {
 
     // Cargar historial si hay sesión
     let sessionType = "chat";
+    let lastInteractionId: string | undefined = undefined;
 
     if (sId) {
       const session = await this.aiSessionService.getSessionContext(sId);
       if (session?.history) history.push(...(session.history as AiMessage[]));
       sessionType = session?.type ?? "chat";
+      lastInteractionId = session?.last_interaction_id ?? undefined;
     } else {
       // Crear nueva sesión
       currentSessionId = await this.aiSessionService.createSession(agentId, {
@@ -199,12 +201,22 @@ export class AiChatService {
     let loops = 0;
     let forceNextTurnToGenerateText = false;
     let skillMetadata: Record<string, unknown> | undefined;
+    let nextInteractionInput: string | Record<string, unknown>[] = contextPrefix + message;
 
     try {
     while (loops < MAX_LOOPS) {
       loops++;
       const currentTools = forceNextTurnToGenerateText ? [] : tools;
-      const result = await this.aiProvider.processUserRequest(history, currentTools, systemInstruction);
+      const result = await this.aiProvider.processInteraction(
+        nextInteractionInput,
+        currentTools,
+        systemInstruction,
+        lastInteractionId,
+      );
+
+      if (result.interactionId) {
+        lastInteractionId = result.interactionId;
+      }
 
       if (result.usage) {
         loopUsage.promptTokens += result.usage.promptTokens;
@@ -225,11 +237,20 @@ export class AiChatService {
 
       // Ejecutar function calls
       const functionResults = [];
+      const functionResponseSteps: Record<string, unknown>[] = [];
       history.push({ role: AiRole.MODEL, parts: result.rawModelParts as never[] });
 
       for (const call of result.functionCalls) {
         const skill = getSkillByName(call.name);
         let response: unknown;
+
+        // Recuperar el id del step original de la llamada para mapearlo al response de la Interactions API
+        const originalStep = result.rawModelParts?.find(
+          // deno-lint-ignore no-explicit-any
+          (p: any) => p.functionCall && p.functionCall.name === call.name,
+        );
+        const callId = (originalStep as any)?.functionCall?.id || `call_${Math.random().toString(36).substring(7)}`;
+
 
         if (skill) {
           const validation = skill.declaration.schema.safeParse(call.args);
@@ -273,9 +294,24 @@ export class AiChatService {
         functionResults.push({
           functionResponse: { name: call.name, response: { result: response } },
         });
+
+        functionResponseSteps.push({
+          type: "function_result",
+          call_id: callId,
+          name: call.name,
+          result: [
+            {
+              type: "text",
+              text: typeof response === "string" ? response : JSON.stringify(response),
+            },
+          ],
+        });
       }
 
       history.push({ role: AiRole.FUNCTION as never, parts: functionResults as never[] });
+
+      // Configurar el input para el siguiente turno de la Interactions API como el listado de steps de respuesta
+      nextInteractionInput = functionResponseSteps;
     }
 
     } catch (e) {
@@ -315,12 +351,15 @@ export class AiChatService {
           promptTokens: loopUsage.promptTokens,
           completionTokens: loopUsage.completionTokens,
           totalTokens: loopUsage.totalTokens,
+          interactionId: lastInteractionId,
         },
       ],
       totalUsage,
+      lastInteractionId,
     );
 
     return { text: finalText, sessionId: currentSessionId!, usage: totalUsage, sessionUsage, metadata: skillMetadata };
+
   }
 
   async startPolicySession(

@@ -26,6 +26,7 @@ export interface UpdateSessionData {
   embeddingTotalTokens?: number;
   embeddingCount?: number;
   metadata?: Record<string, unknown>;
+  lastInteractionId?: string | null;
 }
 
 export interface IngestionUsageRow {
@@ -49,6 +50,7 @@ export interface ChatMessageRow {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  interactionId?: string | null;
 }
 
 export interface PendingTaskRow {
@@ -62,7 +64,7 @@ export interface IAiSessionRepository {
   updateSession(sessionId: string, data: UpdateSessionData): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
   getSessionTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number }>;
-  getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string } | null>;
+  getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string; last_interaction_id?: string | null } | null>;
   getMetadata(sessionId: string): Promise<Record<string, unknown> | null>;
   savePendingTask(sessionId: string, agentId: string, taskType: string, payload: Record<string, unknown>): Promise<string>;
   resolvePendingTask(pendingTaskId: string, sessionId: string): Promise<void>;
@@ -113,6 +115,7 @@ export class AiSessionRepository implements IAiSessionRepository {
     if (data.embeddingTotalTokens !== undefined) payload.embedding_total_tokens = data.embeddingTotalTokens;
     if (data.embeddingCount !== undefined) payload.embedding_count = data.embeddingCount;
     if (data.metadata !== undefined) payload.metadata = data.metadata;
+    if (data.lastInteractionId !== undefined) payload.last_interaction_id = data.lastInteractionId;
 
     await this.supabase.from("ai_sessions").update(payload).eq("id", sessionId);
   }
@@ -135,10 +138,10 @@ export class AiSessionRepository implements IAiSessionRepository {
     await this.supabase.from("ai_sessions").delete().eq("id", sessionId);
   }
 
-  async getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string } | null> {
+  async getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string; last_interaction_id?: string | null } | null> {
     const { data } = await this.supabase
       .from("ai_sessions")
-      .select("history, type")
+      .select("history, type, last_interaction_id")
       .eq("id", sessionId)
       .single();
     return data ?? null;
@@ -223,6 +226,7 @@ export class AiSessionRepository implements IAiSessionRepository {
         prompt_tokens: r.promptTokens,
         completion_tokens: r.completionTokens,
         total_tokens: r.totalTokens,
+        interaction_id: r.interactionId ?? null,
       })),
     );
     if (error) {

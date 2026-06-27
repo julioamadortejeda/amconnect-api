@@ -73,6 +73,8 @@ export class VoiceChatController {
     const timezone = body.timezone ?? c.req.header("x-timezone") ?? "America/Mexico_City";
     const resumeSessionId = body.sessionId ?? c.req.header("sessionId") ?? undefined;
 
+    console.log(`[VOICE] initSession - body: ${JSON.stringify(body)} resumeSessionId: ${resumeSessionId}`);
+
     const usageService = c.get("usage_service") as UsageService;
     await usageService.checkChatQuotaOnly(agentId);
 

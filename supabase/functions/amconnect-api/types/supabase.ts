@@ -255,6 +255,7 @@ export type Database = {
           content: string | null
           created_at: string
           id: string
+          interaction_id: string | null
           prompt_tokens: number
           role: string
           session_id: string
@@ -266,6 +267,7 @@ export type Database = {
           content?: string | null
           created_at?: string
           id?: string
+          interaction_id?: string | null
           prompt_tokens?: number
           role: string
           session_id: string
@@ -277,6 +279,7 @@ export type Database = {
           content?: string | null
           created_at?: string
           id?: string
+          interaction_id?: string | null
           prompt_tokens?: number
           role?: string
           session_id?: string
@@ -470,6 +473,7 @@ export type Database = {
           history: Json | null
           id: string
           is_billable: boolean
+          last_interaction_id: string | null
           metadata: Json | null
           model_name: string | null
           prompt_tokens: number
@@ -494,6 +498,7 @@ export type Database = {
           history?: Json | null
           id?: string
           is_billable?: boolean
+          last_interaction_id?: string | null
           metadata?: Json | null
           model_name?: string | null
           prompt_tokens?: number
@@ -518,6 +523,7 @@ export type Database = {
           history?: Json | null
           id?: string
           is_billable?: boolean
+          last_interaction_id?: string | null
           metadata?: Json | null
           model_name?: string | null
           prompt_tokens?: number

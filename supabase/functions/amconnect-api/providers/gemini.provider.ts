@@ -79,6 +79,93 @@ export class GeminiProvider implements IAiProvider {
     };
   }
 
+  async processInteraction(
+    messageOrSteps: string | Record<string, unknown>[],
+    tools: Record<string, unknown>[],
+    systemInstruction?: string,
+    previousInteractionId?: string,
+  ): Promise<AiGenerationResult & { interactionId?: string }> {
+    // deno-lint-ignore no-explicit-any
+    let response: any;
+    try {
+      const isSteps = Array.isArray(messageOrSteps);
+      // Mapear tools para el formato de Interactions API (Vertex AI / new GenAI SDK)
+      // Cada tool para interactions.create debe ser un objeto plano con {"type": "function", "name": "...", "description": "...", "parameters": {...}}
+      // deno-lint-ignore no-explicit-any
+      const mappedTools: any[] = [];
+      if (tools) {
+        for (const t of tools as any[]) {
+          const declarations = t?.functionDeclarations || t?.function_declarations;
+          if (declarations && Array.isArray(declarations)) {
+            for (const fd of declarations) {
+              mappedTools.push({
+                type: "function",
+                name: fd.name,
+                description: fd.description,
+                parameters: fd.parameters,
+              });
+            }
+          } else {
+            mappedTools.push(t);
+          }
+        }
+      }
+
+      // deno-lint-ignore no-explicit-any
+      const params: any = {
+        model: this.model,
+        tools: mappedTools as never,
+        system_instruction: systemInstruction,
+        previous_interaction_id: previousInteractionId,
+        input: messageOrSteps as any,
+      };
+      response = await this.ai.interactions.create(params);
+    } catch (e) {
+      wrapGeminiError(e, "processInteraction");
+    }
+
+
+
+    const steps = response.steps || [];
+    const text = response.output_text || undefined;
+    const functionCalls: AiFunctionCall[] = [];
+    // deno-lint-ignore no-explicit-any
+    const rawModelParts: any[] = [];
+
+    for (const step of steps) {
+      if (step.type === "text") {
+        rawModelParts.push({ text: step.text });
+      } else if (step.type === "function_call") {
+        functionCalls.push({
+          name: step.name,
+          args: step.arguments || {},
+        });
+        rawModelParts.push({
+          functionCall: {
+            id: step.id,
+            name: step.name,
+            args: step.arguments || {},
+          },
+        });
+      }
+    }
+
+    return {
+      text,
+      functionCalls: functionCalls.length > 0 ? functionCalls : undefined,
+      rawModelParts: rawModelParts.length > 0 ? rawModelParts : undefined,
+      interactionId: response.id,
+      usage: response.usage
+        ? {
+          promptTokens: response.usage.total_input_tokens ?? 0,
+          completionTokens: response.usage.total_output_tokens ?? 0,
+          totalTokens: response.usage.total_tokens ?? 0,
+          cachedTokens: response.usage.total_cached_tokens ?? 0,
+        }
+        : undefined,
+    };
+  }
+
   async generateStructuredData<T>(
     prompt: string,
     schema: z.ZodType<T>,
