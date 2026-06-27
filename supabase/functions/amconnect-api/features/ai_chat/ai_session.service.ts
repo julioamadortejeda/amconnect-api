@@ -4,7 +4,7 @@ import { AppError } from "../../shared/errors.ts";
 
 export interface CreateSessionInput {
   triggerMessage: string;
-  sessionType: "chat" | "knowledge_ingestion" | "policy_ingestion";
+  sessionType: "chat" | "knowledge_ingestion" | "policy_ingestion" | "voice";
   modelName?: string | null;
   embeddingModelName?: string | null;
 }
@@ -22,6 +22,7 @@ export interface ChatMessageInput {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  interactionId?: string | null;
 }
 
 export class AiSessionService {
@@ -147,6 +148,7 @@ export class AiSessionService {
     history: unknown[],
     messages: ChatMessageInput[],
     deltaUsage: UsageTokens,
+    lastInteractionId?: string | null,
   ): Promise<UsageTokens> {
     const chatMessageRows: ChatMessageRow[] = messages.map((m) => ({
       agentId,
@@ -156,6 +158,7 @@ export class AiSessionService {
       promptTokens: m.promptTokens,
       completionTokens: m.completionTokens,
       totalTokens: m.totalTokens,
+      interactionId: m.interactionId ?? null,
     }));
 
     const current = await this.repository.getSessionTokens(sessionId);
@@ -169,6 +172,7 @@ export class AiSessionService {
     await Promise.all([
       this.repository.updateSession(sessionId, {
         history,
+        lastInteractionId,
         ...nextTokens,
       }),
       this.repository.insertChatMessages(chatMessageRows),
@@ -176,6 +180,7 @@ export class AiSessionService {
 
     return nextTokens;
   }
+
 
   async updateMetadata(sessionId: string, metadata: Record<string, unknown>): Promise<void> {
     await this.repository.updateSession(sessionId, { metadata });
@@ -223,9 +228,10 @@ export class AiSessionService {
     return { cancelledTasks };
   }
 
-  async getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string } | null> {
+  async getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string; last_interaction_id?: string | null } | null> {
     return await this.repository.getSessionContext(sessionId);
   }
+
 
   async getActivePendingTasks(sessionId: string): Promise<PendingTaskRow[]> {
     return await this.repository.getActivePendingTasks(sessionId);

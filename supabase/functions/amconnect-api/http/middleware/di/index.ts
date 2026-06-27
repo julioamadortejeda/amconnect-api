@@ -18,6 +18,8 @@ import { UsageRepository } from "../../../modules/subscription/usage.repository.
 import { StorageService } from "../../../modules/storage/storage.service.ts";
 import { StorageRepository } from "../../../modules/storage/storage.repository.ts";
 import { GeminiProvider } from "../../../providers/gemini.provider.ts";
+import { VoiceChatService } from "../../../features/ai_chat/voice_chat.service.ts";
+import { LIVE_AUDIO_MODEL } from "../../../shared/config.ts";
 import { VertexAiProvider } from "../../../providers/vertex_ai.provider.ts";
 import { GeminiEmbeddingProvider } from "../../../providers/gemini_embedding.provider.ts";
 import { EmbeddingsService } from "../../../features/rag/embeddings.service.ts";
@@ -91,6 +93,7 @@ export const injectServices = async (c: Context, next: Next) => {
   let embeddingsService: EmbeddingsService | undefined;
   let ragService: RagService | undefined;
   let aiChatService: AiChatService | undefined;
+  let voiceChatService: VoiceChatService | undefined;
   let docProvider: GeminiProvider | VertexAiProvider | undefined;
   let documentProcessorService: DocumentProcessorService | undefined;
   let knowledgeIngestionService: KnowledgeIngestionService | undefined;
@@ -147,6 +150,30 @@ export const injectServices = async (c: Context, next: Next) => {
       );
     }
     return aiChatService;
+  };
+
+  const getVoiceChatService = () => {
+    if (!voiceChatService) {
+      const apiKey = Deno.env.get("GEMINI_API_KEY");
+      if (!apiKey) throw new AppError("GEMINI_API_KEY no configurada.", 500);
+      voiceChatService = new VoiceChatService(
+        apiKey,
+        LIVE_AUDIO_MODEL,
+        {
+          contactService,
+          policyService,
+          reminderService,
+          reminderGenerationService,
+          ragService: getRagService(),
+          embeddingsService: getEmbeddingsService(),
+          catalogServices,
+        },
+        aiSessionService,
+        promptService,
+        usageService,
+      );
+    }
+    return voiceChatService;
   };
 
   const getDocProvider = () => {
@@ -225,6 +252,9 @@ export const injectServices = async (c: Context, next: Next) => {
     },
     get confirmPolicyService() {
       return getConfirmPolicyService();
+    },
+    get voiceChatService() {
+      return getVoiceChatService();
     },
   });
 

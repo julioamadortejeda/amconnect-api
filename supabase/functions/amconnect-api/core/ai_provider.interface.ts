@@ -45,11 +45,20 @@ export interface IAiProvider {
     systemInstruction?: string,
   ): Promise<AiGenerationResult>;
 
+  processInteraction(
+    messageOrSteps: string | Record<string, unknown>[],
+    tools: Record<string, unknown>[],
+    systemInstruction?: string,
+    previousInteractionId?: string,
+  ): Promise<AiGenerationResult & { interactionId?: string }>;
+
+
   generateStructuredData<T>(
     prompt: string,
     schema: z.ZodType<T>,
     inlineData?: AiInlineData,
   ): Promise<{ data: T; usage?: TokenUsage }>;
+
 
   classifyMessage(
     message: string,

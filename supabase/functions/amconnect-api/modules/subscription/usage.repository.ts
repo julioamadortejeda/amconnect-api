@@ -14,6 +14,7 @@ export interface IUsageRepository {
   getMonthlyUsage(agentId: string, yearMonth: string): Promise<MonthlyUsageRow | null>;
   incrementUsage(agentId: string, field: "chat" | "ingestion"): Promise<IncrementResult>;
   decrementUsage(agentId: string, field: "chat" | "ingestion"): Promise<void>;
+  getChatLimit(agentId: string): Promise<number>;
 }
 
 export class UsageRepository implements IUsageRepository {
@@ -44,5 +45,16 @@ export class UsageRepository implements IUsageRepository {
       p_agent_id: agentId,
       p_field: field,
     });
+  }
+
+  async getChatLimit(agentId: string): Promise<number> {
+    const { data } = await this.supabase
+      .from("agents")
+      .select("subscription_plans ( limits )")
+      .eq("id", agentId)
+      .single();
+    // deno-lint-ignore no-explicit-any
+    const limits = (data as any)?.subscription_plans?.limits;
+    return (limits?.chat_messages_monthly as number) ?? 0;
   }
 }

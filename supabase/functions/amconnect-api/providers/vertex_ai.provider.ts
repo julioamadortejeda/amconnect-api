@@ -41,6 +41,16 @@ export class VertexAiProvider implements IAiProvider {
     throw new AiError("processUserRequest no está implementado en VertexAiProvider. Usa GeminiProvider para chat.");
   }
 
+  processInteraction(
+    _messageOrSteps: string | Record<string, unknown>[],
+    _tools: Record<string, unknown>[],
+    _systemInstruction?: string,
+    _previousInteractionId?: string,
+  ): Promise<AiGenerationResult & { interactionId?: string }> {
+    throw new AiError("processInteraction no está implementado en VertexAiProvider. Usa GeminiProvider para chat.");
+  }
+
+
   async generateStructuredData<T>(
     prompt: string,
     schema: z.ZodType<T>,

@@ -46,6 +46,8 @@ begin
   delete from policies where agent_id = p_agent_id;
 
   -- 9. Contactos
+  -- Primero rompemos la auto-referencia de referidos para evitar violación de FK (referred_by_id)
+  update contacts set referred_by_id = null where agent_id = p_agent_id;
   delete from contacts where agent_id = p_agent_id;
 
   -- 10. Catálogos propios del agente

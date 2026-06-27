@@ -1,1 +1,4 @@
 export const AI_MODEL = Deno.env.get("GEMINI_MODEL") ?? "gemini-3.1-flash-lite";
+export const LIVE_AUDIO_MODEL = Deno.env.get("GEMINI_LIVE_MODEL") ?? "gemini-3.1-flash-live-preview";
+
+
