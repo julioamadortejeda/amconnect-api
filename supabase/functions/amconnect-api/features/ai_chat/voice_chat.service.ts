@@ -46,7 +46,7 @@ function buildVoiceContext(timezone: string): string {
   } catch (_) {
     iso = new Date().toISOString();
   }
-  return `\n\n[CONTEXT] Current date/time: ${iso} | Timezone offset: ${offset}`;
+  return `\n\n[CONTEXT] Current date/time: ${iso} | Timezone offset: ${offset}\n\nCRITICAL VOICE MODE RULE: You must detect the language the user is speaking in and respond in that exact same language (e.g. speak in Spanish if the user speaks to you in Spanish, speak in English if the user speaks to you in English). Do not default to English when the user speaks in Spanish.`;
 }
 
 // deno-lint-ignore no-explicit-any
