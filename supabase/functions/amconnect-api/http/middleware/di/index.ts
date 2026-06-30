@@ -11,6 +11,9 @@ import { ReminderGenerationService } from "../../../modules/reminder/reminder_ge
 import { ReminderGenerationRepository } from "../../../modules/reminder/reminder_generation.repository.ts";
 import { AgentService } from "../../../modules/agent/agent.service.ts";
 import { AgentRepository } from "../../../modules/agent/agent.repository.ts";
+import { DeviceTokenRepository } from "../../../modules/agent/device_token.repository.ts";
+import { DeviceTokenService } from "../../../modules/agent/device_token.service.ts";
+import { NotificationService } from "../../../features/notification/notification.service.ts";
 import { SubscriptionService } from "../../../modules/subscription/subscription.service.ts";
 import { SubscriptionRepository } from "../../../modules/subscription/subscription.repository.ts";
 import { UsageService } from "../../../modules/subscription/usage.service.ts";
@@ -77,6 +80,9 @@ export const injectServices = async (c: Context, next: Next) => {
   // Core modules
   const catalogServices = createCatalogServices(supabase, agentId);
   const agentService = new AgentService(new AgentRepository(supabase));
+  const deviceTokenRepository = new DeviceTokenRepository(supabase);
+  const deviceTokenService = new DeviceTokenService(deviceTokenRepository, subscriptionRepository);
+  const notificationService = new NotificationService(deviceTokenRepository, new ReminderRepository(supabase));
   const promptService = new PromptService(supabase);
   const storageService = new StorageService(new StorageRepository(supabase));
   c.set("storage_service", storageService);
@@ -225,6 +231,8 @@ export const injectServices = async (c: Context, next: Next) => {
 
   c.set("services", {
     agentService,
+    deviceTokenService,
+    notificationService,
     catalogServices,
     contactService,
     policyService,

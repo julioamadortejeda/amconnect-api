@@ -37,14 +37,14 @@ export const globalErrorHandler = async (err: Error, c: Context) => {
   // Errores de aplicación controlados
   if (err instanceof AppError) {
     if (CLIENT_ERROR_CODES.has(err.statusCode)) {
-      return c.json({ success: false, error: err.message }, err.statusCode as never);
+      return c.json({ success: false, error: err.message, errorCode: err.errorCode }, err.statusCode as never);
     }
 
     const errorId = await persistError(c, err.name, err.statusCode, err.message, err.stack);
     if (!errorId) console.error(`[${err.name}]`, err.message, err.stack);
 
     return c.json(
-      { success: false, error: err.message, errorId },
+      { success: false, error: err.message, errorCode: err.errorCode, errorId },
       err.statusCode as never,
     );
   }
@@ -52,7 +52,7 @@ export const globalErrorHandler = async (err: Error, c: Context) => {
   // Errores de validación Zod — cliente, no se persisten
   if (err instanceof ZodError) {
     return c.json(
-      { success: false, error: "Datos de entrada inválidos.", details: (err as ZodError).flatten() },
+      { success: false, error: "Datos de entrada inválidos.", errorCode: "VALIDATION_FAILED", details: (err as ZodError).flatten() },
       422,
     );
   }

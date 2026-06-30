@@ -34,6 +34,41 @@ export type Database = {
   }
   public: {
     Tables: {
+      agent_device_tokens: {
+        Row: {
+          agent_id: string
+          created_at: string
+          id: string
+          platform: string
+          token: string
+          updated_at: string
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          id?: string
+          platform: string
+          token: string
+          updated_at?: string
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          id?: string
+          platform?: string
+          token?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agent_device_tokens_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       agent_monthly_usage: {
         Row: {
           agent_id: string
@@ -1534,10 +1569,13 @@ export type Database = {
         Args: { p_agent_id: string; p_code: string }
         Returns: Json
       }
+      cron_check_due_reminders: { Args: never; Returns: undefined }
       decrement_monthly_usage: {
         Args: { p_agent_id: string; p_field: string }
         Returns: undefined
       }
+      get_notification_secret: { Args: never; Returns: string }
+      get_supabase_url: { Args: never; Returns: string }
       increment_monthly_usage: {
         Args: { p_agent_id: string; p_field: string }
         Returns: Json

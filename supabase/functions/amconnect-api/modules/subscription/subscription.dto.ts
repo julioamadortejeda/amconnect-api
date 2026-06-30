@@ -4,6 +4,7 @@ export interface PlanLimits {
   chat_messages_monthly: number;
   ingestions_monthly: number;
   storage_mb: number;
+  max_devices?: number;
 }
 
 export interface SubscriptionPlan {

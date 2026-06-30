@@ -33,6 +33,7 @@ export interface KnowledgeIngestFileInput {
   mimeType: string;
   contactId?: string | null;
   policyId?: string | null;
+  makeGeneral?: boolean | null;
   advisorLocale?: string;
 }
 
@@ -41,6 +42,7 @@ export interface KnowledgeIngestTextInput {
   sourceType: "whatsapp" | "text";
   contactId?: string | null;
   policyId?: string | null;
+  makeGeneral?: boolean | null;
   advisorLocale?: string;
 }
 
@@ -61,7 +63,7 @@ export class KnowledgeIngestionService {
   ) {}
 
   async ingestFile(agentId: string, sessionId: string, input: KnowledgeIngestFileInput): Promise<KnowledgeIngestResult> {
-    const { storagePath, fileName, mimeType, contactId, policyId, advisorLocale = 'es' } = input;
+    const { storagePath, fileName, mimeType, contactId, policyId, makeGeneral, advisorLocale = 'es' } = input;
 
     // Download throws AppError (pre-AI) — controller will deleteSession on catch
     const base64 = await this.storageService.downloadAsBase64("policies", storagePath);
@@ -109,7 +111,7 @@ export class KnowledgeIngestionService {
         extracted_at: new Date().toISOString(),
       });
 
-      const { noteId, embeddingTotalTokens, embeddingCount } = await this.embeddingsService.saveDocument(agentId, {
+      let { noteId, embeddingTotalTokens, embeddingCount } = await this.embeddingsService.saveDocument(agentId, {
         content: extraction.content,
         sourceType,
         contactId: contactId ?? null,
@@ -118,6 +120,21 @@ export class KnowledgeIngestionService {
         noteOrigin: 'knowledge',
         summary: extraction.summary,
       });
+
+      // Si se marcó como conocimiento general y tiene asociación a un cliente/póliza, guardamos copia general
+      if (makeGeneral && (contactId || policyId)) {
+        const genResult = await this.embeddingsService.saveDocument(agentId, {
+          content: extraction.content,
+          sourceType,
+          contactId: null,
+          policyId: null,
+          documentMetadataId: docMeta?.id ?? null,
+          noteOrigin: 'knowledge',
+          summary: extraction.summary,
+        });
+        embeddingTotalTokens += genResult.embeddingTotalTokens;
+        embeddingCount += genResult.embeddingCount;
+      }
 
       await this.aiSessionService.trackIngestionUsage(
         agentId,
@@ -148,8 +165,8 @@ export class KnowledgeIngestionService {
   }
 
   async ingestText(agentId: string, sessionId: string, input: KnowledgeIngestTextInput): Promise<KnowledgeIngestResult> {
-    const { content, sourceType, contactId, policyId, advisorLocale = 'es' } = input;
-    return await this.ingestRawContent(agentId, sessionId, content, sourceType, contactId ?? null, policyId ?? null, advisorLocale);
+    const { content, sourceType, contactId, policyId, makeGeneral, advisorLocale = 'es' } = input;
+    return await this.ingestRawContent(agentId, sessionId, content, sourceType, contactId ?? null, policyId ?? null, makeGeneral, advisorLocale);
   }
 
   private async ingestRawContent(
@@ -159,6 +176,7 @@ export class KnowledgeIngestionService {
     sourceType: NoteSourceType,
     contactId: string | null,
     policyId: string | null,
+    makeGeneral: boolean | null = false,
     advisorLocale: string = 'es',
   ): Promise<KnowledgeIngestResult> {
     const isLong = content.length > 4000;
@@ -188,6 +206,20 @@ export class KnowledgeIngestionService {
         noteOrigin: 'knowledge',
         summary: aiResult.data.summary,
       });
+
+      // Si se marcó como conocimiento general y tiene asociación a un cliente/póliza, guardamos copia general
+      if (makeGeneral && (contactId || policyId)) {
+        const genResult = await this.embeddingsService.saveDocument(agentId, {
+          content,
+          sourceType,
+          contactId: null,
+          policyId: null,
+          noteOrigin: 'knowledge',
+          summary: aiResult.data.summary,
+        });
+        docResult.embeddingTotalTokens += genResult.embeddingTotalTokens;
+        docResult.embeddingCount += genResult.embeddingCount;
+      }
     } catch (err) {
       if (err instanceof AiProviderError) throw err;
       throw new AiInvokedError(

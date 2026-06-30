@@ -4,6 +4,7 @@ import { authMiddleware } from "./http/middleware/auth.middleware.ts";
 import { injectServices } from "./http/middleware/di/index.ts";
 import { globalErrorHandler } from "./http/middleware/error.middleware.ts";
 import { apiRouter } from "./http/routes/index.ts";
+import { NotificationController } from "./http/controllers/notification.controller.ts";
 
 const app = new Hono();
 
@@ -20,6 +21,9 @@ app.use("*", async (c, next) => {
 });
 
 app.get("/amconnect-api/health", (c: Context) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
+
+// Endpoint interno disparado por pg_cron para enviar notificaciones de recordatorios vencidos
+app.post("/amconnect-api/notifications/send-due", NotificationController.sendDueNotifications);
 
 app.use("/amconnect-api/*", authMiddleware);
 app.use("/amconnect-api/*", injectServices);

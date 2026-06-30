@@ -175,7 +175,7 @@ export class AiController {
       const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
       throw new AppError(`Datos inválidos: ${issues}`, 400);
     }
-    const { storagePath, fileName, mimeType, contactId, policyId } = parsed.data;
+    const { storagePath, fileName, mimeType, contactId, policyId, makeGeneral } = parsed.data;
 
     const storageService = c.get("storage_service") as StorageService;
     storageService.validateMimeType(mimeType);
@@ -189,7 +189,7 @@ export class AiController {
     });
     try {
       const { noteId, responseMessage } = await knowledgeIngestionService.ingestFile(agentId, sessionId, {
-        storagePath, fileName, mimeType, contactId, policyId, advisorLocale,
+        storagePath, fileName, mimeType, contactId, policyId, makeGeneral, advisorLocale,
       });
       return sendSuccess(c, {
         noteId,
@@ -225,7 +225,7 @@ export class AiController {
       const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
       throw new AppError(`Datos inválidos: ${issues}`, 400);
     }
-    const { content, sourceType, contactId, policyId } = parsed.data;
+    const { content, sourceType, contactId, policyId, makeGeneral } = parsed.data;
 
     const advisorLocale = c.req.header('Accept-Language')?.split(',')[0]?.split(';')[0]?.trim() ?? 'es';
 
@@ -236,7 +236,7 @@ export class AiController {
     });
     try {
       const { noteId, responseMessage } = await knowledgeIngestionService.ingestText(agentId, sessionId, {
-        content, sourceType, contactId, policyId, advisorLocale,
+        content, sourceType, contactId, policyId, makeGeneral, advisorLocale,
       });
       return sendSuccess(c, {
         noteId,
