@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { AgentController } from "../controllers/agent.controller.ts";
+import { DeviceTokenController } from "../controllers/device_token.controller.ts";
 import { ContactController } from "../controllers/contact.controller.ts";
 import { PolicyController } from "../controllers/policy.controller.ts";
 import { ReminderController } from "../controllers/reminder.controller.ts";
@@ -24,6 +25,8 @@ export const apiRouter = new Hono();
 // ─── Agents ───────────────────────────────────────────────────────────────────
 apiRouter.get("/agents/me", AgentController.getMe);
 apiRouter.patch("/agents/me", AgentController.updateMe);
+apiRouter.post("/agents/device-tokens", DeviceTokenController.registerToken);
+apiRouter.delete("/agents/device-tokens", DeviceTokenController.deregisterToken);
 
 // ─── Suscripción ──────────────────────────────────────────────────────────────
 apiRouter.get("/subscription", SubscriptionController.getInfo);

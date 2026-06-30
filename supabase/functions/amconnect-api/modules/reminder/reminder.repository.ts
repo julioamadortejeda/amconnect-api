@@ -4,6 +4,19 @@ import { PaginatedResult } from "../../core/repository.interface.ts";
 import { ReminderResponseDTO } from "./reminder.dto.ts";
 import { AppError } from "../../shared/errors.ts";
 
+export interface DueReminderRow {
+  id: string;
+  title: string;
+  description: string | null;
+  agent_id: string;
+  due_date: string;
+}
+
+export interface INotificationReminderRepository {
+  findDueUnnotified(): Promise<DueReminderRow[]>;
+  markNotified(id: string): Promise<void>;
+}
+
 const REMINDER_SELECT = `
   *,
   type:reminder_types(id, name, code),
@@ -60,5 +73,38 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
       return null;
     }
     return data as unknown as ReminderResponseDTO[];
+  }
+
+  async findDueUnnotified(): Promise<DueReminderRow[]> {
+    const nowStr = new Date().toISOString();
+
+    const { data: statuses, error: statusErr } = await this.supabase
+      .from("reminder_statuses")
+      .select("id")
+      .in("code", ["CREATED", "IN_PROGRESS"]);
+
+    if (statusErr || !statuses) {
+      throw new AppError(`Failed to load reminder statuses: ${statusErr?.message}`, 500);
+    }
+
+    const { data, error } = await this.supabase
+      .from("reminders")
+      .select("id, title, description, agent_id, due_date")
+      .eq("is_active", true)
+      .in("status_id", statuses.map((s) => s.id))
+      .lte("due_date", nowStr)
+      .is("notified_at", null);
+
+    if (error) throw new AppError(`Failed to load due reminders: ${error.message}`, 500);
+    return (data ?? []) as DueReminderRow[];
+  }
+
+  async markNotified(id: string): Promise<void> {
+    const { error } = await this.supabase
+      .from("reminders")
+      .update({ notified_at: new Date().toISOString() })
+      .eq("id", id);
+
+    if (error) throw new AppError(`Failed to mark reminder ${id} as notified: ${error.message}`, 500);
   }
 }

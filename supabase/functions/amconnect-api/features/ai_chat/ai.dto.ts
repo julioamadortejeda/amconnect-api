@@ -38,6 +38,7 @@ export const AiIngestFileSchema = z.object({
   mimeType: z.string().min(1, "El campo 'mimeType' es requerido."),
   contactId: z.string().uuid().optional().nullable(),
   policyId: z.string().uuid().optional().nullable(),
+  makeGeneral: z.boolean().optional().nullable(),
 });
 
 export type AiIngestFileDTO = z.infer<typeof AiIngestFileSchema>;
@@ -49,6 +50,7 @@ export const AiIngestTextSchema = z.object({
   }),
   contactId: z.string().uuid().optional().nullable(),
   policyId: z.string().uuid().optional().nullable(),
+  makeGeneral: z.boolean().optional().nullable(),
 });
 
 export type AiIngestTextDTO = z.infer<typeof AiIngestTextSchema>;

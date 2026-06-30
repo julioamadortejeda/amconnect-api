@@ -1,7 +1,7 @@
 import { PostgrestError } from "@supabase/supabase-js";
 
 export class AppError extends Error {
-  constructor(message: string, public statusCode = 500) {
+  constructor(message: string, public statusCode = 500, public errorCode?: string) {
     super(message);
     this.name = "AppError";
   }
@@ -9,49 +9,49 @@ export class AppError extends Error {
 
 export class NotFoundError extends AppError {
   constructor(message = "Recurso no encontrado.") {
-    super(message, 404);
+    super(message, 404, "RESOURCE_NOT_FOUND");
     this.name = "NotFoundError";
   }
 }
 
 export class UnauthorizedError extends AppError {
   constructor(message = "No autorizado.") {
-    super(message, 401);
+    super(message, 401, "SESSION_EXPIRED");
     this.name = "UnauthorizedError";
   }
 }
 
 export class ForbiddenError extends AppError {
   constructor(message = "Acceso denegado.") {
-    super(message, 403);
+    super(message, 403, "ACCESS_DENIED");
     this.name = "ForbiddenError";
   }
 }
 
 export class ValidationError extends AppError {
   constructor(message: string) {
-    super(message, 422);
+    super(message, 422, "VALIDATION_FAILED");
     this.name = "ValidationError";
   }
 }
 
 export class PaymentRequiredError extends AppError {
   constructor(message = "Tu suscripción ha vencido. Activa un plan para continuar.") {
-    super(message, 402);
+    super(message, 402, "SUBSCRIPTION_REQUIRED");
     this.name = "PaymentRequiredError";
   }
 }
 
 export class QuotaExceededError extends AppError {
   constructor(message: string) {
-    super(message, 429);
+    super(message, 429, "QUOTA_EXCEEDED");
     this.name = "QuotaExceededError";
   }
 }
 
 export class AiError extends AppError {
   constructor(message: string) {
-    super(message, 502);
+    super(message, 502, "AI_ERROR");
     this.name = "AiError";
   }
 }
@@ -63,7 +63,7 @@ export class AiError extends AppError {
  */
 export class AiProviderError extends AppError {
   constructor(message: string) {
-    super(message, 503);
+    super(message, 503, "AI_PROVIDER_BUSY");
     this.name = "AiProviderError";
   }
 }
@@ -75,14 +75,14 @@ export class AiProviderError extends AppError {
  */
 export class AiInvokedError extends AppError {
   constructor(message: string, public override readonly cause?: Error) {
-    super(message, 500);
+    super(message, 500, "AI_INVOCATION_FAILED");
     this.name = "AiInvokedError";
   }
 }
 
 export class ConflictError extends AppError {
   constructor(message = "Ya existe un registro con esos datos.") {
-    super(message, 409);
+    super(message, 409, "RESOURCE_CONFLICT");
     this.name = "ConflictError";
   }
 }
