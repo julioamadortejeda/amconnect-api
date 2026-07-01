@@ -90,6 +90,9 @@ export class VoiceChatService {
       if (pendingModelTranscript) turns.push({ role: "model", text: pendingModelTranscript });
       console.log(`[VOICE] Flushing session ${sessionId} — turns=${turns.length} tokens=${JSON.stringify(accTokens)}`);
       try {
+        const session = await this.aiSessionService.getSessionContext(sessionId).catch(() => null);
+        const existingHistory = session?.history ? (session.history as unknown[]) : [];
+
         const messages = turns.map((t) => ({
           role: t.role,
           content: t.text,
@@ -97,10 +100,13 @@ export class VoiceChatService {
           completionTokens: 0,
           totalTokens: 0,
         }));
-        const historyDb = turns.map((t) => ({
+        const newHistory = turns.map((t) => ({
           role: t.role === "user" ? "user" : "model",
           parts: [{ text: t.text }],
         }));
+        
+        const historyDb = [...existingHistory, ...newHistory];
+        
         await this.aiSessionService.saveChatRound(agentId, sessionId, historyDb, messages, accTokens);
         console.log(`[VOICE] Session ${sessionId} saved to DB`);
       } catch (e) {
@@ -112,6 +118,15 @@ export class VoiceChatService {
     // The Edge Runtime closes the socket if no handlers are registered
     // when the function returns its HTTP response. Closures reference
     // geminiLive / sessionId which are assigned after the async init below.
+
+    // Enforce 10 minutes maximum duration limit to release server resources
+    const maxDurationTimer = setTimeout(() => {
+      console.log(`[VOICE] Enforcing maximum session duration of 10 minutes for ${sessionId}`);
+      geminiLive?.close();
+      try {
+        clientSocket.close(1000, "Maximum session duration reached");
+      } catch (_) {}
+    }, 10 * 60 * 1000);
 
     clientSocket.onmessage = (event: MessageEvent) => {
       try {
@@ -130,12 +145,14 @@ export class VoiceChatService {
     };
 
     clientSocket.onclose = async () => {
+      clearTimeout(maxDurationTimer);
       console.log(`[VOICE] Flutter disconnected — session ${sessionId}`);
       geminiLive?.close();
       await flushSession();
     };
 
     clientSocket.onerror = (err: Event) => {
+      clearTimeout(maxDurationTimer);
       console.error("[VOICE] Flutter socket error:", err);
       geminiLive?.close();
     };
@@ -419,7 +436,10 @@ export class VoiceChatService {
 
     // deno-lint-ignore no-explicit-any
     const messages: any[] = [];
-    const historyDb: unknown[] = [];
+    
+    // Obtener historial previo para no sobrescribirlo
+    const session = await this.aiSessionService.getSessionContext(sessionId).catch(() => null);
+    const historyDb: unknown[] = session?.history ? [...(session.history as unknown[])] : [];
 
     if (userText) {
       messages.push({
@@ -485,7 +505,7 @@ export class VoiceChatService {
   ): Promise<{ token: string; expireTime: string }> {
     const ai = new GoogleGenAI({ apiKey: this.apiKey, apiVersion: "v1alpha" });
     const now = Date.now();
-    const expireTime = new Date(now + 30 * 60 * 1000).toISOString();
+    const expireTime = new Date(now + 10 * 60 * 1000).toISOString();
     const newSessionExpireTime = new Date(now + 60 * 1000).toISOString();
 
     // SDK config uses camelCase (functionDeclarations), unlike the snake_case

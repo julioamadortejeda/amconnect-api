@@ -1,3 +1,10 @@
+export function daysFromNowRange(days: number): { from: string; to: string } {
+  return {
+    from: new Date().toISOString(),
+    to: new Date(Date.now() + days * 86400000).toISOString(),
+  };
+}
+
 export async function resolveCatalogId(
   service: { getAll(): Promise<Record<string, unknown>[] | null> },
   queryText: string | undefined,

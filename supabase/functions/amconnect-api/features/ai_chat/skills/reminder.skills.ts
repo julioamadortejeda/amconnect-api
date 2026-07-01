@@ -102,13 +102,14 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "get_upcoming_reminders",
-      description: "Retrieves the advisor's upcoming reminders (defaults to the next 7 days). Only returns pending or in progress reminders.",
+      description: "Retrieves the advisor's upcoming reminders within a date range. Only returns pending or in progress reminders. If the user gives a relative time expression (e.g. 'today', 'this week', 'next 2 days', 'hoy', 'esta semana'), resolve it into 'from'/'to' yourself using the current date/time and timezone offset from the [CONTEXT] block: 'today' -> from is today at 00:00:00 and to is today at 23:59:59 (advisor's local offset); 'this week' -> from today through Sunday 23:59:59 of the current week; 'next N days' -> from now through now+N days at 23:59:59. If the user gives no time reference at all, omit both fields to use the default (next 7 days).",
       schema: z.object({
-        days: z.number().optional().describe("Number of days to look ahead (default: 7)"),
+        from: z.string().optional().describe("Start of the range in ISO 8601 with the advisor's local timezone offset (e.g., 2026-07-01T00:00:00-06:00). Omit if the user gave no time reference."),
+        to: z.string().optional().describe("End of the range in ISO 8601 with the advisor's local timezone offset (e.g., 2026-07-06T23:59:59-06:00). Omit if the user gave no time reference."),
       }),
     },
-    async execute({ days }, ctx) {
-      const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, (days as number) ?? 7);
+    async execute({ from, to }, ctx) {
+      const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, from as string | undefined, to as string | undefined);
       return (reminders ?? []).map(slimReminder);
     },
   },

@@ -107,4 +107,25 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
 
     if (error) throw new AppError(`Failed to mark reminder ${id} as notified: ${error.message}`, 500);
   }
+
+  async getUpcomingReminders(agentId: string, fromDate: string, toDate: string, excludedStatusIds: string[]): Promise<ReminderResponseDTO[] | null> {
+    let query = this.supabase
+      .from("reminders")
+      .select(REMINDER_SELECT)
+      .eq("agent_id", agentId)
+      .eq("is_active", true)
+      .gte("due_date", fromDate)
+      .lte("due_date", toDate);
+
+    if (excludedStatusIds.length > 0) {
+      query = query.not("status_id", "in", `(${excludedStatusIds.join(",")})`);
+    }
+
+    const { data, error } = await query.order("due_date", { ascending: true });
+    if (error) {
+      console.error("[ReminderRepository.getUpcomingReminders]:", error);
+      return null;
+    }
+    return data as unknown as ReminderResponseDTO[];
+  }
 }
