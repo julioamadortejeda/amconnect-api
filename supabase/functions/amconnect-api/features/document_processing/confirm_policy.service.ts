@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PolicyService } from "../../modules/policy/policy.service.ts";
 import { EmbeddingsService } from "../rag/embeddings.service.ts";
+import { assertNoDuplicatePolicyNumber } from "../../shared/utils.ts";
 
 export const ConfirmPolicySchema = z.object({
   documentMetadataId: z.string().uuid().optional().nullable(),
@@ -45,6 +46,8 @@ export class ConfirmPolicyService {
   ) {}
 
   async confirm(agentId: string, data: ConfirmPolicyDTO) {
+    await assertNoDuplicatePolicyNumber(this.policyService, agentId, data.policyNumber);
+
     // Crear la póliza
     const policy = await this.policyService.create({
       agentId,

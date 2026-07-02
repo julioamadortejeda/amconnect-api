@@ -1,8 +1,29 @@
+import { ConflictError } from "./errors.ts";
+
 export function daysFromNowRange(days: number): { from: string; to: string } {
   return {
     from: new Date().toISOString(),
     to: new Date(Date.now() + days * 86400000).toISOString(),
   };
+}
+
+/**
+ * Lanza ConflictError si ya existe una póliza activa con el mismo policy_number
+ * para este agente. No hace nada si policyNumber es null/undefined/"" —
+ * el número es opcional y varias pólizas sin número son válidas.
+ */
+export async function assertNoDuplicatePolicyNumber(
+  policyService: { findByFilters(filters: Record<string, unknown>, limit?: number): Promise<{ id: string }[] | null> },
+  agentId: string,
+  policyNumber: string | null | undefined,
+): Promise<void> {
+  if (!policyNumber) return;
+  const existing = await policyService.findByFilters({ agent_id: agentId, policy_number: policyNumber }, 1);
+  if (existing && existing.length > 0) {
+    throw new ConflictError(
+      `Ya existe una póliza activa con el número '${policyNumber}'. Usa la opción de actualizar en vez de crear una nueva.`,
+    );
+  }
 }
 
 export async function resolveCatalogId(

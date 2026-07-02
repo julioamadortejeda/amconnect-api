@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { SkillDefinition, SkillContext } from "./skill.core.ts";
-import { resolveCatalogId } from "../../../shared/utils.ts";
+import { assertNoDuplicatePolicyNumber, resolveCatalogId } from "../../../shared/utils.ts";
 import { buildChangelogContent, buildCoveragesNote, diffPolicy, PolicyChange } from "../../document_processing/policy_diff.ts";
 import type { PolicyExtraction } from "../../document_processing/policy_extraction.schema.ts";
 
@@ -104,6 +104,10 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
   if (!carrierName || !branchName || !holderName) {
     return { error: "Missing required data: carrier_name, branch_name, and holder_name are required." };
   }
+
+  // Re-validar duplicados con el policy_number FINAL (puede diferir del extraído
+  // originalmente si el asesor lo corrigió en el chat antes de confirmar).
+  await assertNoDuplicatePolicyNumber(policyService, agentId, policyNumber);
 
   // ─── Leer documentMetadataId de la sesión ────────────────────────────────
   const sessionMetadata = await aiSessionService.getSessionMetadata(sessionId);

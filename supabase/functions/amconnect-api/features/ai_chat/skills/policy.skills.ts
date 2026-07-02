@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { SkillDefinition } from "./skill.core.ts";
 import { PolicyResponseDTO } from "../../../modules/policy/policy.dto.ts";
-import { appendNote, resolveCatalogId } from "../../../shared/utils.ts";
+import { appendNote, assertNoDuplicatePolicyNumber, resolveCatalogId } from "../../../shared/utils.ts";
 
 const slimPolicy = (p: PolicyResponseDTO) => ({
   id: p.id,
@@ -117,6 +117,7 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute(args, ctx) {
       const params = args as any;
+      await assertNoDuplicatePolicyNumber(ctx.policyService, ctx.agentId, params.policy_number);
       const statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "VIGENTE" });
       const currencyId = await resolveCatalogId(ctx.catalogServices.currencyService, params.currency, { key: "code", value: "MXN" });
       const paymentFrequencyId = params.payment_frequency 
