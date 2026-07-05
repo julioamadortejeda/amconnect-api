@@ -149,6 +149,8 @@ export class AiSessionService {
     messages: ChatMessageInput[],
     deltaUsage: UsageTokens,
     lastInteractionId?: string | null,
+    durationSeconds?: number,
+    replaceTokens = false,
   ): Promise<UsageTokens> {
     const chatMessageRows: ChatMessageRow[] = messages.map((m) => ({
       agentId,
@@ -162,17 +164,25 @@ export class AiSessionService {
     }));
 
     const current = await this.repository.getSessionTokens(sessionId);
-    const nextTokens = {
-      promptTokens: current.promptTokens + deltaUsage.promptTokens,
-      completionTokens: current.completionTokens + deltaUsage.completionTokens,
-      totalTokens: current.totalTokens + deltaUsage.totalTokens,
-      cachedTokens: current.cachedTokens + (deltaUsage.cachedTokens ?? 0),
-    };
+    const nextTokens = replaceTokens
+      ? {
+          promptTokens: deltaUsage.promptTokens,
+          completionTokens: deltaUsage.completionTokens,
+          totalTokens: deltaUsage.totalTokens,
+          cachedTokens: deltaUsage.cachedTokens ?? 0,
+        }
+      : {
+          promptTokens: current.promptTokens + deltaUsage.promptTokens,
+          completionTokens: current.completionTokens + deltaUsage.completionTokens,
+          totalTokens: current.totalTokens + deltaUsage.totalTokens,
+          cachedTokens: current.cachedTokens + (deltaUsage.cachedTokens ?? 0),
+        };
 
     await Promise.all([
       this.repository.updateSession(sessionId, {
         history,
         lastInteractionId,
+        durationSeconds,
         ...nextTokens,
       }),
       this.repository.insertChatMessages(chatMessageRows),

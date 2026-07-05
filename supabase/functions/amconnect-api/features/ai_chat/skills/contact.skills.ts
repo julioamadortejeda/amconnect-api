@@ -29,7 +29,14 @@ export const contactSkills: SkillDefinition[] = [
     },
     async execute({ query }, ctx) {
       const results = await ctx.contactService.findSimilarContact(ctx.agentId, query as string);
-      return (results ?? []).map(slimContact);
+      const slim = (results ?? []).map(slimContact);
+      return {
+        contacts: slim,
+        __skillMetadata: {
+          type: "contact_list",
+          contacts: slim,
+        },
+      };
     },
   },
   {
@@ -43,7 +50,19 @@ export const contactSkills: SkillDefinition[] = [
       }),
     },
     async execute({ contact_id }, ctx) {
-      return await ctx.contactService.getById(contact_id as string);
+      const contact = await ctx.contactService.getById(contact_id as string);
+      if (!contact) return null;
+      return {
+        ...contact,
+        __skillMetadata: {
+          type: "contact_info",
+          contactId: contact.id,
+          fullName: contact.fullName,
+          email: contact.email,
+          phone: contact.phone,
+          isProspect: contact.isProspect,
+        },
+      };
     },
   },
   {
@@ -66,7 +85,7 @@ export const contactSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
-      return await ctx.contactService.create({
+      const contact = await ctx.contactService.create({
         agentId: ctx.agentId,
         fullName: (args.full_name ?? args.name) as string,
         email: args.email as string ?? null,
@@ -79,6 +98,18 @@ export const contactSkills: SkillDefinition[] = [
         notes: args.notes as string ?? null,
         isProspect: args.is_prospect as boolean ?? false,
       });
+      if (!contact) return null;
+      return {
+        ...contact,
+        __skillMetadata: {
+          type: "contact_created",
+          contactId: contact.id,
+          fullName: contact.fullName,
+          email: contact.email,
+          phone: contact.phone,
+          isProspect: contact.isProspect,
+        },
+      };
     },
   },
   {
@@ -90,7 +121,14 @@ export const contactSkills: SkillDefinition[] = [
     },
     async execute(_args, ctx) {
       const contacts = await ctx.contactService.getByField("agent_id", ctx.agentId);
-      return (contacts ?? []).map(slimContact);
+      const slim = (contacts ?? []).map(slimContact);
+      return {
+        contacts: slim,
+        __skillMetadata: {
+          type: "contact_list",
+          contacts: slim,
+        },
+      };
     },
   },
   {

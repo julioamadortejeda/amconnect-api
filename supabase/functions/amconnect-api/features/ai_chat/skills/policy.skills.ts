@@ -74,7 +74,30 @@ export const policySkills: SkillDefinition[] = [
         ctx.policyService.getParticipants(policy_id as string),
         ctx.policyService.getBeneficiaries(policy_id as string),
       ]);
-      return { policy, participants, beneficiaries };
+      if (!policy) return { policy: null, participants: [], beneficiaries: [] };
+      // deno-lint-ignore no-explicit-any
+      const policyAny = policy as any;
+      return {
+        policy,
+        participants,
+        beneficiaries,
+        __skillMetadata: {
+          type: "policy_info",
+          policyId: policy.id,
+          policyNumber: policy.policyNumber,
+          carrierName: policyAny.product?.branch?.carrier?.name ?? "",
+          branchName: policyAny.product?.branch?.name ?? "",
+          productName: policyAny.product?.name ?? "",
+          holderName: policy.contact?.fullName ?? "",
+          premium: policy.premium,
+          sumInsured: policy.sumInsured,
+          startDate: policy.startDate,
+          endDate: policy.endDate,
+          renewalDate: policy.renewalDate,
+          nextPaymentDate: policy.nextPaymentDate,
+          statusName: policyAny.status?.name ?? "",
+        },
+      };
     },
   },
   {

@@ -86,8 +86,13 @@ export class VoiceChatService {
         
         const historyDb = [...existingHistory, ...newHistory];
         
-        await this.aiSessionService.saveChatRound(agentId, sessionId, historyDb, messages, accTokens);
-        console.log(`[VOICE] Session ${sessionId} saved to DB`);
+        let durationSeconds: number | undefined;
+        if (session?.createdAt) {
+          durationSeconds = Math.round((Date.now() - new Date(session.createdAt).getTime()) / 1000);
+        }
+
+        await this.aiSessionService.saveChatRound(agentId, sessionId, historyDb, messages, accTokens, null, durationSeconds, true);
+        console.log(`[VOICE] Session ${sessionId} saved to DB - duration=${durationSeconds}s`);
       } catch (e) {
         console.error("[VOICE] Error saving session to DB:", e);
       }
@@ -336,7 +341,10 @@ export class VoiceChatService {
     };
 
     const execution = await executeSkill(toolName, args, ctx);
-    return execution.response;
+    return {
+      result: execution.response,
+      __skillMetadata: execution.metadata,
+    };
   }
 
   async saveRound(agentId: string, sessionId: string, userText: string, modelText: string, promptTokens: number, completionTokens: number, totalTokens: number) {
@@ -377,10 +385,15 @@ export class VoiceChatService {
       });
     }
 
+    let durationSeconds: number | undefined;
+    if (session?.createdAt) {
+      durationSeconds = Math.round((Date.now() - new Date(session.createdAt).getTime()) / 1000);
+    }
+
     const accTokens = { promptTokens, completionTokens, totalTokens };
     try {
-      await this.aiSessionService.saveChatRound(agentId, sessionId, historyDb, messages, accTokens);
-      console.log(`[VOICE] Round saved successfully for ${sessionId}`);
+      await this.aiSessionService.saveChatRound(agentId, sessionId, historyDb, messages, accTokens, null, durationSeconds, true);
+      console.log(`[VOICE] Round saved successfully for ${sessionId} - duration=${durationSeconds}s`);
       
       // Also increment usage in DB
       await this.usageService.checkAndIncrementChat(agentId);

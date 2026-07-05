@@ -95,22 +95,47 @@ export const reminderSkills: SkillDefinition[] = [
         policyId: args.policy_id as string ?? null,
         comment: args.comment as string ?? null,
       });
-      return result ? slimReminder(result) : null;
+      if (!result) return null;
+      const slim = slimReminder(result);
+      return {
+        ...slim,
+        __skillMetadata: {
+          type: "reminder_created",
+          reminderId: result.id,
+          title: result.title,
+          description: result.description,
+          dueDate: result.dueDate,
+          clientName: result.contact?.fullName ?? null,
+        },
+      };
     },
   },
   {
     domain: "reminder",
     declaration: {
       name: "get_upcoming_reminders",
-      description: "Retrieves the advisor's upcoming reminders within a date range. Only returns pending or in progress reminders. If the user gives a relative time expression (e.g. 'today', 'this week', 'next 2 days', 'hoy', 'esta semana'), resolve it into 'from'/'to' yourself using the current date/time and timezone offset from the [CONTEXT] block: 'today' -> from is today at 00:00:00 and to is today at 23:59:59 (advisor's local offset); 'this week' -> from today through Sunday 23:59:59 of the current week; 'next N days' -> from now through now+N days at 23:59:59. If the user gives no time reference at all, omit both fields to use the default (next 7 days).",
+      description: "Retrieves the advisor's upcoming reminders within a date range. Only returns pending or in progress reminders. CRITICAL: If the user gives a relative time expression (e.g. 'today', 'this week', 'next 2 days', 'hoy', 'esta semana'), you MUST resolve it into local 'from'/'to' ISO 8601 bounds using the current date/time and timezone offset from the [CONTEXT] block. For 'today' (hoy) -> 'from' is today at 00:00:00 and 'to' is today at 23:59:59 using the local offset. If no time reference is given, leave both fields empty to query the default next 7 days.",
       schema: z.object({
-        from: z.string().optional().describe("Start of the range in ISO 8601 with the advisor's local timezone offset (e.g., 2026-07-01T00:00:00-06:00). Omit if the user gave no time reference."),
-        to: z.string().optional().describe("End of the range in ISO 8601 with the advisor's local timezone offset (e.g., 2026-07-06T23:59:59-06:00). Omit if the user gave no time reference."),
+        from: z.string().optional().describe("Local start range (ISO 8601, e.g. '2026-07-04T00:00:00-06:00'). MUST be calculated relative to [CONTEXT]'s local time when querying a relative timeframe."),
+        to: z.string().optional().describe("Local end range (ISO 8601, e.g. '2026-07-04T23:59:59-06:00'). MUST be calculated relative to [CONTEXT]'s local time when querying a relative timeframe."),
       }),
     },
     async execute({ from, to }, ctx) {
       const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, from as string | undefined, to as string | undefined);
-      return (reminders ?? []).map(slimReminder);
+      const slim = (reminders ?? []).map(slimReminder);
+      return {
+        reminders: slim,
+        __skillMetadata: {
+          type: "reminder_list",
+          reminders: slim.map(r => ({
+            id: r.id,
+            title: r.title,
+            description: r.description,
+            dueDate: r.dueDate,
+            clientName: r.contact?.fullName ?? null,
+          })),
+        },
+      };
     },
   },
   {
@@ -246,7 +271,19 @@ export const reminderSkills: SkillDefinition[] = [
         comment: params.comment ?? null,
       });
 
-      return reminder ? slimReminder(reminder) : null;
+      if (!reminder) return null;
+      const slim = slimReminder(reminder);
+      return {
+        ...slim,
+        __skillMetadata: {
+          type: "reminder_created",
+          reminderId: reminder.id,
+          title: reminder.title,
+          description: reminder.description,
+          dueDate: reminder.dueDate,
+          clientName: contacts[0].fullName,
+        },
+      };
     },
   },
 ];
