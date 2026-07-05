@@ -8,7 +8,11 @@ interface CacheEntry {
 }
 
 export class PromptService {
-  private cache = new Map<string, CacheEntry>();
+  // Cache estática: PromptService se instancia por request en el DI, así que
+  // una cache de instancia moriría con cada request y todos los mensajes de
+  // chat harían SELECT a system_prompts. A nivel de clase sobrevive mientras
+  // el isolate del Edge Runtime esté caliente.
+  private static cache = new Map<string, CacheEntry>();
 
   constructor(private supabase: SupabaseClient) {}
 
@@ -20,7 +24,7 @@ export class PromptService {
     }
 
     const now = Date.now();
-    const cached = this.cache.get(code);
+    const cached = PromptService.cache.get(code);
 
     if (cached && cached.expiresAt > now) {
       return cached.prompt;
@@ -52,7 +56,7 @@ export class PromptService {
     const ttlMs = ttlMinutes * 60 * 1000;
 
     // Cache the result
-    this.cache.set(code, {
+    PromptService.cache.set(code, {
       prompt,
       expiresAt: now + ttlMs,
     });

@@ -2,8 +2,10 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface.ts";
 import { AiSessionService } from "./ai_session.service.ts";
 import { AiError, AiProviderError } from "../../shared/errors.ts";
-import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
+import { getSkillsByDomains } from "./skills/index.ts";
+import { executeSkill } from "./skills/skill_executor.ts";
 import { SkillContext } from "./skills/skill.core.ts";
+import { buildLocalDateTime, DEFAULT_TIMEZONE } from "../../shared/datetime.ts";
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
 import type { PolicyChange } from "../document_processing/policy_diff.ts";
 import { AiChatContext } from "./ai.dto.ts";
@@ -40,7 +42,6 @@ export class AiChatService {
     context?: AiChatContext | null,
   ): Promise<ChatResponse> {
     const history: AiMessage[] = [];
-    debugger;
     const sId = sessionId ?? undefined;
     let currentSessionId = sId;
 
@@ -101,61 +102,8 @@ export class AiChatService {
       }),
     }];
 
-    // Calcular fecha y hora local con zona horaria del servidor/asesor
-    const now = new Date();
-    let localIso = "";
-    let offsetStr = "";
-
-    try {
-      const tz = timezone || "America/Mexico_City";
-      const formatter = new Intl.DateTimeFormat("en-US", {
-        timeZone: tz,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      });
-      const parts = formatter.formatToParts(now);
-      const partVal = (type: string) => parts.find((p) => p.type === type)!.value;
-      
-      const year = partVal("year");
-      const month = partVal("month");
-      const day = partVal("day");
-      const hour = partVal("hour");
-      const minute = partVal("minute");
-      const second = partVal("second");
-
-      const tzFormatter = new Intl.DateTimeFormat("en-US", {
-        timeZone: tz,
-        timeZoneName: "longOffset",
-      });
-      const tzParts = tzFormatter.formatToParts(now);
-      const tzNamePart = tzParts.find((p) => p.type === "timeZoneName")?.value || "";
-      
-      if (tzNamePart === "GMT" || tzNamePart === "UTC") {
-        offsetStr = "+00:00";
-      } else {
-        const match = tzNamePart.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
-        if (match) {
-          const sign = match[1];
-          const hours = match[2].padStart(2, "0");
-          const minutes = (match[3] || "00").padStart(2, "0");
-          offsetStr = `${sign}${hours}:${minutes}`;
-        } else {
-          offsetStr = "+00:00";
-        }
-      }
-      localIso = `${year}-${month}-${day}T${hour}:${minute}:${second}${offsetStr}`;
-    } catch (_e) {
-      const offsetMin = -now.getTimezoneOffset();
-      const sign = offsetMin >= 0 ? "+" : "-";
-      const pad = (n: number) => String(Math.abs(n)).padStart(2, "0");
-      offsetStr = `${sign}${pad(Math.floor(offsetMin / 60))}:${pad(offsetMin % 60)}`;
-      localIso = new Date(now.getTime() + (offsetMin * 60 * 1000)).toISOString().slice(0, 19) + offsetStr;
-    }
+    // Fecha y hora local del asesor — implementación compartida con voz
+    const { localIso, offsetStr } = buildLocalDateTime(timezone || DEFAULT_TIMEZONE);
 
     // System instruction 100% estático — sin sustituciones dinámicas.
     // Gemini implicit caching aplica cuando el prefijo es idéntico entre requests.
@@ -241,48 +189,17 @@ export class AiChatService {
       history.push({ role: AiRole.MODEL, parts: result.rawModelParts as never[] });
 
       for (const call of result.functionCalls) {
-        const skill = getSkillByName(call.name);
-        let response: unknown;
-
         // Recuperar el id del step original de la llamada para mapearlo al response de la Interactions API
         const originalStep = result.rawModelParts?.find(
           // deno-lint-ignore no-explicit-any
           (p: any) => p.functionCall && p.functionCall.name === call.name,
         );
+        // deno-lint-ignore no-explicit-any
         const callId = (originalStep as any)?.functionCall?.id || `call_${Math.random().toString(36).substring(7)}`;
 
-
-        if (skill) {
-          const validation = skill.declaration.schema.safeParse(call.args);
-          if (!validation.success) {
-            const missing = validation.error.issues
-              .map((i: { path: (string | number)[]; message: string }) => `${i.path.join(".") || "campo"}: ${i.message}`)
-              .join("; ");
-            response = { error: `Faltan datos requeridos — ${missing}. Pídelos al usuario antes de volver a llamar este skill.` };
-          } else {
-            try {
-              const rawResponse = await skill.execute(validation.data, ctx);
-              // Interceptar __skillMetadata sin enviarlo al modelo
-              if (
-                rawResponse &&
-                typeof rawResponse === "object" &&
-                "__skillMetadata" in (rawResponse as Record<string, unknown>)
-              ) {
-                const { __skillMetadata, ...rest } = rawResponse as Record<string, unknown>;
-                skillMetadata = __skillMetadata as Record<string, unknown>;
-                response = rest;
-              } else {
-                response = rawResponse;
-              }
-            } catch (e) {
-              const msg = e instanceof Error ? e.message : "Error ejecutando la herramienta.";
-              console.error(`[CHAT] skill=${call.name} threw: ${msg}`);
-              response = { error: msg };
-            }
-          }
-        } else {
-          response = { error: `Herramienta desconocida: ${call.name}` };
-        }
+        const execution = await executeSkill(call.name, call.args, ctx);
+        if (execution.metadata) skillMetadata = execution.metadata;
+        const response = execution.response;
 
         // Si la base de conocimiento o notas de contacto devuelven vacío, forzamos que en el siguiente turno genere texto directo
         if (call.name === "search_knowledge" || call.name === "search_contact_notes") {

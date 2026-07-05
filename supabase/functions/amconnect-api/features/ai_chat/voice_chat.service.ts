@@ -8,25 +8,15 @@ import {
 } from "@google/genai";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { GeminiLiveProvider } from "../../providers/gemini_live.provider.ts";
-import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
+import { getSkillsByDomains } from "./skills/index.ts";
+import { executeSkill } from "./skills/skill_executor.ts";
 import { SkillContext } from "./skills/skill.core.ts";
+import { buildLocalDateTime, calcTimezoneOffset } from "../../shared/datetime.ts";
 import { AiSessionService } from "./ai_session.service.ts";
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
 
 const ALL_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog", "knowledge"];
-
-function calcTimezoneOffset(timezone: string): string {
-  try {
-    const now = new Date();
-    const formatter = new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeZoneName: "longOffset" });
-    const tzName = formatter.formatToParts(now).find((p) => p.type === "timeZoneName")?.value ?? "";
-    if (tzName === "GMT" || tzName === "UTC") return "+00:00";
-    const match = tzName.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
-    if (match) return `${match[1]}${match[2].padStart(2, "0")}:${(match[3] ?? "00").padStart(2, "0")}`;
-  } catch (_) { /* fallback */ }
-  return "-06:00";
-}
 
 // Voice sessions have no per-message text channel from the backend, so the
 // dynamic [CONTEXT] line that the text chat injects into each user message must
@@ -34,19 +24,8 @@ function calcTimezoneOffset(timezone: string): string {
 // date/time the model can't reason about "upcoming" reminders and answers that
 // it has no way to know — mirrors AiChatService's contextLines.
 function buildVoiceContext(timezone: string): string {
-  const offset = calcTimezoneOffset(timezone);
-  let iso: string;
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-    }).formatToParts(new Date());
-    const get = (t: string) => parts.find((x) => x.type === t)?.value ?? "00";
-    iso = `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}${offset}`;
-  } catch (_) {
-    iso = new Date().toISOString();
-  }
-  return `\n\n[CONTEXT] Current date/time: ${iso} | Timezone offset: ${offset}\n\nCRITICAL VOICE MODE RULE: You must detect the language the user is speaking in and respond in that exact same language (e.g. speak in Spanish if the user speaks to you in Spanish, speak in English if the user speaks to you in English). Do not default to English when the user speaks in Spanish.`;
+  const { localIso, offsetStr } = buildLocalDateTime(timezone);
+  return `\n\n[CONTEXT] Current date/time: ${localIso} | Timezone offset: ${offsetStr}\n\nCRITICAL VOICE MODE RULE: You must detect the language the user is speaking in and respond in that exact same language (e.g. speak in Spanish if the user speaks to you in Spanish, speak in English if the user speaks to you in English). Do not default to English when the user speaks in Spanish.`;
 }
 
 // deno-lint-ignore no-explicit-any
@@ -271,46 +250,9 @@ export class VoiceChatService {
         console.log(`[VOICE] Executing skill: "${call.name}" args=${JSON.stringify(call.args).slice(0, 200)}`);
         this.send(clientSocket, { type: "skill_call", name: call.name });
 
-        const skill = getSkillByName(call.name);
-        if (!skill) {
-          console.warn(`[VOICE] Unknown skill requested: ${call.name}`);
-          geminiLive?.sendToolResponse(call.id, call.name, { error: `Unknown skill: ${call.name}` });
-          return;
-        }
-
-        const validation = skill.declaration.schema.safeParse(call.args);
-        if (!validation.success) {
-          const missing = validation.error.issues
-            .map((i: { path: (string | number)[]; message: string }) =>
-              `${i.path.join(".") || "field"}: ${i.message}`
-            )
-            .join("; ");
-          console.warn(`[VOICE] Skill "${call.name}" validation failed: ${missing}`);
-          geminiLive?.sendToolResponse(call.id, call.name, {
-            error: `Missing required data — ${missing}. Ask the user before calling again.`,
-          });
-          return;
-        }
-
-        try {
-          const rawResult = await skill.execute(validation.data, ctx);
-          if (
-            rawResult &&
-            typeof rawResult === "object" &&
-            "__skillMetadata" in (rawResult as Record<string, unknown>)
-          ) {
-            const { __skillMetadata: _, ...result } = rawResult as Record<string, unknown>;
-            console.log(`[VOICE] Skill "${call.name}" result (stripped meta): ${JSON.stringify(result).slice(0, 200)}`);
-            geminiLive?.sendToolResponse(call.id, call.name, result);
-          } else {
-            console.log(`[VOICE] Skill "${call.name}" result: ${JSON.stringify(rawResult).slice(0, 200)}`);
-            geminiLive?.sendToolResponse(call.id, call.name, rawResult);
-          }
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : "Error executing skill";
-          console.error(`[VOICE] Skill "${call.name}" threw: ${msg}`);
-          geminiLive?.sendToolResponse(call.id, call.name, { error: msg });
-        }
+        const execution = await executeSkill(call.name, call.args, ctx);
+        console.log(`[VOICE] Skill "${call.name}" result: ${JSON.stringify(execution.response).slice(0, 200)}`);
+        geminiLive?.sendToolResponse(call.id, call.name, execution.response);
       },
 
       onUsageMetadata: (usage) => {
@@ -393,42 +335,8 @@ export class VoiceChatService {
       ...this.skillContext,
     };
 
-    const skill = getSkillByName(toolName);
-    if (!skill) {
-      console.warn(`[VOICE] Unknown skill requested: ${toolName}`);
-      return { error: `Unknown skill: ${toolName}` };
-    }
-
-    const validation = skill.declaration.schema.safeParse(args);
-    if (!validation.success) {
-      const missing = validation.error.issues
-        .map((i: { path: (string | number)[]; message: string }) =>
-          `${i.path.join(".") || "field"}: ${i.message}`
-        )
-        .join("; ");
-      console.warn(`[VOICE] Skill "${toolName}" validation failed: ${missing}`);
-      return {
-        error: `Missing required data — ${missing}. Ask the user before calling again.`,
-      };
-    }
-
-    try {
-      const rawResult = await skill.execute(validation.data, ctx);
-      if (
-        rawResult &&
-        typeof rawResult === "object" &&
-        "__skillMetadata" in (rawResult as Record<string, unknown>)
-      ) {
-        const { __skillMetadata: _, ...result } = rawResult as Record<string, unknown>;
-        return result;
-      } else {
-        return rawResult;
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Error executing skill";
-      console.error(`[VOICE] Skill "${toolName}" threw: ${msg}`);
-      return { error: msg };
-    }
+    const execution = await executeSkill(toolName, args, ctx);
+    return execution.response;
   }
 
   async saveRound(agentId: string, sessionId: string, userText: string, modelText: string, promptTokens: number, completionTokens: number, totalTokens: number) {

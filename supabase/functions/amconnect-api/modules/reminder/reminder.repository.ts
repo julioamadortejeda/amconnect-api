@@ -2,7 +2,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { SupabaseRepository } from "../../core/base_repository.ts";
 import { PaginatedResult } from "../../core/repository.interface.ts";
 import { ReminderResponseDTO } from "./reminder.dto.ts";
-import { AppError } from "../../shared/errors.ts";
+import { AppError, internalError } from "../../shared/errors.ts";
 
 export interface DueReminderRow {
   id: string;
@@ -84,7 +84,7 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
       .in("code", ["CREATED", "IN_PROGRESS"]);
 
     if (statusErr || !statuses) {
-      throw new AppError(`Failed to load reminder statuses: ${statusErr?.message}`, 500);
+      throw internalError("No se pudieron cargar los estados de recordatorio.", `reminder_statuses load failed: ${statusErr?.message}`);
     }
 
     const { data, error } = await this.supabase
@@ -95,7 +95,7 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
       .lte("due_date", nowStr)
       .is("notified_at", null);
 
-    if (error) throw new AppError(`Failed to load due reminders: ${error.message}`, 500);
+    if (error) throw internalError("No se pudieron cargar los recordatorios vencidos.", `due reminders load failed: ${error.message}`);
     return (data ?? []) as DueReminderRow[];
   }
 
@@ -105,7 +105,7 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
       .update({ notified_at: new Date().toISOString() })
       .eq("id", id);
 
-    if (error) throw new AppError(`Failed to mark reminder ${id} as notified: ${error.message}`, 500);
+    if (error) throw internalError("No se pudo marcar el recordatorio como notificado.", `mark notified failed for ${id}: ${error.message}`);
   }
 
   async getUpcomingReminders(agentId: string, fromDate: string, toDate: string, excludedStatusIds: string[]): Promise<ReminderResponseDTO[] | null> {

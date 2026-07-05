@@ -3,7 +3,7 @@ import { sendSuccess } from "../../shared/api_response.ts";
 import { PolicyService } from "../../modules/policy/policy.service.ts";
 import { PolicyRequestSchema, PolicyParticipantSchema, BeneficiarySchema } from "../../modules/policy/policy.dto.ts";
 import { parsePagination } from "../../shared/pagination.ts";
-import { NoteRepository } from "../../modules/note/note.repository.ts";
+import { NoteService } from "../../modules/note/note.service.ts";
 import { AppError } from "../../shared/errors.ts";
 
 export class PolicyController {
@@ -68,8 +68,8 @@ export class PolicyController {
 
   static async getNotes(c: Context) {
     const policyId = c.req.param("id") as string;
-    const repo = new NoteRepository(c.get("supabase"));
-    const notes = await repo.getByPolicyId(policyId);
+    const service: NoteService = c.get("services").noteService;
+    const notes = await service.getByPolicyId(policyId);
     return sendSuccess(c, { data: notes });
   }
 
@@ -77,8 +77,8 @@ export class PolicyController {
     const agentId: string = c.get("agent_id");
     const noteId = c.req.param("id") as string;
     if (!noteId) throw new AppError("El parámetro 'id' es requerido.", 400);
-    const repo = new NoteRepository(c.get("supabase"));
-    await repo.deleteNote(agentId, noteId);
+    const service: NoteService = c.get("services").noteService;
+    await service.deleteNote(agentId, noteId);
     return sendSuccess(c, { deleted: true });
   }
 }

@@ -1,6 +1,6 @@
 import type { ISubscriptionRepository } from "./subscription.repository.ts";
 import type { SubscriptionInfo, SubscriptionPlan, UsageThisMonth } from "./subscription.dto.ts";
-import { AppError, PaymentRequiredError } from "../../shared/errors.ts";
+import { AppError, PaymentRequiredError, internalError } from "../../shared/errors.ts";
 import { UsageService } from "./usage.service.ts";
 
 export class SubscriptionService {
@@ -63,7 +63,7 @@ export class SubscriptionService {
       if (error.message === "promo_not_found") throw new AppError("Código promocional inválido o inactivo.", 400);
       if (error.message === "promo_expired") throw new AppError("El código promocional ha expirado.", 400);
       if (error.message === "promo_max_uses_reached") throw new AppError("El código promocional ya alcanzó su límite de usos.", 400);
-      throw new AppError(`Error al aplicar código promocional: ${error.message}`, 500);
+      throw internalError("No se pudo aplicar el código promocional.", `applyPromoCode failed: ${error.message}`);
     }
     return { trialEndsAt: data!.trial_ends_at };
   }

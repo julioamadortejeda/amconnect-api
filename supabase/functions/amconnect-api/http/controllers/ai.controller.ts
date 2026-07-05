@@ -147,19 +147,7 @@ export class AiController {
         isDuplicate: ingestResult.status === 'duplicate_detected',
       }, 201);
     } catch (err) {
-      if (err instanceof AiProviderError) {
-        await Promise.all([
-          (aiSessionService as AiSessionService).markSessionProviderError(sessionId, err.message),
-          usageService.decrementIngestion(agentId),
-        ]);
-      } else if (err instanceof AiInvokedError) {
-        await (aiSessionService as AiSessionService).markSessionFailed(sessionId, err.message);
-      } else {
-        await Promise.all([
-          (aiSessionService as AiSessionService).deleteSession(sessionId),
-          usageService.decrementIngestion(agentId),
-        ]);
-      }
+      await AiController.compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId);
       throw err;
     }
   }
@@ -197,19 +185,7 @@ export class AiController {
         message: responseMessage,
       }, 201);
     } catch (err) {
-      if (err instanceof AiProviderError) {
-        await Promise.all([
-          (aiSessionService as AiSessionService).markSessionProviderError(sessionId, err.message),
-          usageService.decrementIngestion(agentId),
-        ]);
-      } else if (err instanceof AiInvokedError) {
-        await (aiSessionService as AiSessionService).markSessionFailed(sessionId, err.message);
-      } else {
-        await Promise.all([
-          (aiSessionService as AiSessionService).deleteSession(sessionId),
-          usageService.decrementIngestion(agentId),
-        ]);
-      }
+      await AiController.compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId);
       throw err;
     }
   }
@@ -244,19 +220,7 @@ export class AiController {
         message: responseMessage,
       }, 201);
     } catch (err) {
-      if (err instanceof AiProviderError) {
-        await Promise.all([
-          (aiSessionService as AiSessionService).markSessionProviderError(sessionId, err.message),
-          usageService.decrementIngestion(agentId),
-        ]);
-      } else if (err instanceof AiInvokedError) {
-        await (aiSessionService as AiSessionService).markSessionFailed(sessionId, err.message);
-      } else {
-        await Promise.all([
-          (aiSessionService as AiSessionService).deleteSession(sessionId),
-          usageService.decrementIngestion(agentId),
-        ]);
-      }
+      await AiController.compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId);
       throw err;
     }
   }
@@ -298,5 +262,33 @@ export class AiController {
       limit: typeof limit === "number" ? limit : 10,
     });
     return sendSuccess(c, results);
+  }
+
+  /**
+   * Compensación cuando una ingesta falla, según el tipo de error:
+   * - AiProviderError: el provider falló (no es culpa del usuario) → marcar sesión y devolver la cuota
+   * - AiInvokedError: el AI ya consumió tokens → marcar sesión fallida, la cuota se queda consumida
+   * - Cualquier otro: nada llegó al AI → borrar la sesión y devolver la cuota
+   */
+  private static async compensateIngestionFailure(
+    err: unknown,
+    aiSessionService: AiSessionService,
+    usageService: UsageService,
+    agentId: string,
+    sessionId: string,
+  ): Promise<void> {
+    if (err instanceof AiProviderError) {
+      await Promise.all([
+        aiSessionService.markSessionProviderError(sessionId, err instanceof Error ? err.message : ""),
+        usageService.decrementIngestion(agentId),
+      ]);
+    } else if (err instanceof AiInvokedError) {
+      await aiSessionService.markSessionFailed(sessionId, err.message);
+    } else {
+      await Promise.all([
+        aiSessionService.deleteSession(sessionId),
+        usageService.decrementIngestion(agentId),
+      ]);
+    }
   }
 }

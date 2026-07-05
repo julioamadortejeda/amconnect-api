@@ -1,5 +1,9 @@
 # CLAUDE.md — AmConnect Backend
 
+> **Obligatorio:** lee `RULES.md` (mismo directorio) antes de escribir código. Ahí están las reglas duras de arquitectura, errores, BD y prompts.
+
+Contexto general del proyecto: `/Users/Development/Projects/JACATSoft/context.md` · Backlog: `/Users/Development/Projects/JACATSoft/backlog.md`
+
 ## Comandos
 
 ```bash
@@ -19,14 +23,15 @@ supabase gen types typescript --local \
 
 ```
 supabase/
-├── migrations/          # 001-016 SQL — NO modificar sin crear nueva migración
+├── migrations/          # 30+ SQL — NO modificar sin crear nueva migración
 └── functions/amconnect-api/
     ├── core/            # Interfaces + clases base (NO tocar salvo cambio de contrato)
-    ├── shared/          # errors.ts, api_response.ts, case_converter.ts
-    ├── providers/       # gemini.provider.ts, vertex_ai.provider.ts
-    ├── modules/         # contact/, policy/, reminder/, catalog/, agent/ — dto + repository + service
-    ├── features/        # rag/, document_processing/, ai_chat/skills/
-    ├── http/            # controllers/, routes/, middleware/di/
+    ├── shared/          # errors.ts, api_response.ts, case_converter.ts, config.ts
+    ├── providers/       # gemini, gemini_live, gemini_embedding, vertex_ai
+    ├── modules/         # contact/, policy/, reminder/, catalog/, note/, prompt/, storage/, subscription/, agent/, error_log/ — dto + repository + service
+    ├── features/        # rag/, document_processing/, ai_chat/ (skills/, voice), notification/
+    ├── http/            # controllers/, routes/, middleware/ (auth, error, di/)
+    ├── prompts/         # dev_prompts.ts (solo local con USE_FILE_PROMPTS=true)
     └── index.ts         # Entry point
 ```
 
@@ -40,7 +45,12 @@ supabase/
   - Catálogo grande o por agente (`carriers`, `branches`, `products`) → skill `search_<tipo>(query)` con pg_trgm
 - **Parámetros de skills tolerantes:** usar `args.full_name ?? args.name` para aceptar variantes que el modelo renombre
 - **`prepareForUpdate` usa `stripUndefined`** — no llama a `prepareForCreate`. Solo incluye campos explícitamente provistos
-- **`ai_pending_tasks`:** skills `save_pending_task` + `resolve_pending_task` para flujos con ambigüedad
+- **`ai_pending_tasks`:** skills `save_pending_task` + `resolve_pending_task` para flujos con ambigüedad. `POST /ai/sessions/:sessionId/cancel` cancela tareas pendientes cuando el usuario sale del chat. Los pending tasks activos se inyectan en el contexto de cada mensaje
+- **RAG — threshold:** todos los skills de búsqueda vectorial usan `threshold: 0.5` explícito (el default de `RagService.searchNotes` es 0.7 — siempre sobrescribir desde skills)
+- **RAG — summary chunk:** `EmbeddingsService.saveDocument` indexa `[...chunks_de_content, summary]` en un solo batch; el chunk de summary mejora el recall para queries conversacionales
+- **RAG — `created_at`:** `NoteMatch` incluye `createdAt` (de `agent_notes`) para que el AI responda con la fecha exacta de una nota
+- **Contexto de AI vs notas RAG:** el `CONTEXT` por mensaje trae datos estructurados de la BD; las notas RAG traen conocimiento extraído de documentos. Son complementarios
+- **Migraciones de `system_prompts`:** NO crear la migración hasta estar listo para producción; en local `USE_FILE_PROMPTS=true` usa `dev_prompts.ts`. Migración creada por error: borrar archivo + `DELETE FROM supabase_migrations.schema_migrations WHERE version = '<timestamp>'`
 - **Códigos de catálogo en inglés:** todos los campos `code` usan inglés (`ACTIVE`, `LIFE`, `PAYMENT`). Los campos `name` también están en inglés en la BD; la app Flutter traduce vía `CatalogL10n` usando el `code` como clave ARB.
 - **Timezone del asesor:** el cliente envía `x-timezone` (ej: `America/Mexico_City`) en el header. El controller lo pasa a `AiChatService.processMessage(timezone)`, que calcula `timezoneOffset` (ej: `-06:00`) y lo expone en `SkillContext`. Para reminders auto-generados (sin hora específica), usar `toLocalMidnight(dateStr, timezoneOffset)` → `"YYYY-MM-DDT00:00:00-06:00"`. Así Flutter's `.toLocal()` devuelve el mismo día con `hour=0` y `_formatHora` muestra `'—'`.
 - **Soft delete:** `is_active = false` + `deleted_at`, nunca `DELETE`

@@ -7,7 +7,13 @@ import { NotificationService } from "../../features/notification/notification.se
 export class NotificationController {
   static async sendDueNotifications(c: Context) {
     const authHeader = c.req.header("Authorization");
-    const notificationSecret = Deno.env.get("NOTIFICATION_SECRET") ?? "super-secret-notification-token";
+    // Fail closed: sin secret configurado el endpoint no opera. Nunca usar un
+    // fallback hardcodeado — este endpoint corre con service role (salta RLS).
+    const notificationSecret = Deno.env.get("NOTIFICATION_SECRET");
+    if (!notificationSecret) {
+      console.error("[NotificationController] NOTIFICATION_SECRET is not configured");
+      return c.json({ error: "Internal server configuration error" }, 500);
+    }
 
     if (!authHeader || authHeader !== `Bearer ${notificationSecret}`) {
       return c.json({ error: "Unauthorized" }, 401);

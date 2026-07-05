@@ -42,6 +42,7 @@ import { AppError } from "../../../shared/errors.ts";
 import { AI_MODEL } from "../../../shared/config.ts";
 import { PromptService } from "../../../modules/prompt/prompt.service.ts";
 import { NoteRepository } from "../../../modules/note/note.repository.ts";
+import { NoteService } from "../../../modules/note/note.service.ts";
 
 function buildGeminiProvider(promptService?: PromptService): GeminiProvider {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
@@ -89,7 +90,7 @@ export const injectServices = async (c: Context, next: Next) => {
 
   const contactService = new ContactService(new ContactRepository(supabase));
   const policyService = new PolicyService(supabase, new PolicyRepository(supabase));
-  const noteRepository = new NoteRepository(supabase);
+  const noteService = new NoteService(new NoteRepository(supabase));
   const reminderService = new ReminderService(new ReminderRepository(supabase));
   const reminderGenerationService = new ReminderGenerationService(new ReminderGenerationRepository(supabase));
 
@@ -236,7 +237,7 @@ export const injectServices = async (c: Context, next: Next) => {
     catalogServices,
     contactService,
     policyService,
-    noteRepository,
+    noteService,
     reminderService,
     aiSessionService,
     promptService,

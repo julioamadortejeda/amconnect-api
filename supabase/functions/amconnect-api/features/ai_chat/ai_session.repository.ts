@@ -1,5 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { AppError } from "../../shared/errors.ts";
+import { AppError, internalError } from "../../shared/errors.ts";
 
 export interface CreateSessionData {
   agentId: string;
@@ -93,7 +93,7 @@ export class AiSessionRepository implements IAiSessionRepository {
       .single();
 
     if (error || !result) {
-      throw new AppError(`No se pudo iniciar la sesión de IA: ${error?.message}`, 500);
+      throw internalError("No se pudo iniciar la sesión de IA.", `createSession failed: ${error?.message}`);
     }
     return result.id;
   }
@@ -230,7 +230,7 @@ export class AiSessionRepository implements IAiSessionRepository {
       })),
     );
     if (error) {
-      throw new AppError(`No se pudieron guardar los mensajes del chat: ${error.message}`, 500);
+      throw internalError("No se pudieron guardar los mensajes del chat.", `saveChatRound failed: ${error.message}`);
     }
   }
 
@@ -258,7 +258,7 @@ export class AiSessionRepository implements IAiSessionRepository {
       .single();
 
     if (error) {
-      throw new AppError(`No se pudo obtener el costo de la sesión: ${error.message}`, 404);
+      throw internalError("No se pudo obtener el costo de la sesión.", `getSessionCost failed: ${error.message}`, 404);
     }
     return data;
   }
