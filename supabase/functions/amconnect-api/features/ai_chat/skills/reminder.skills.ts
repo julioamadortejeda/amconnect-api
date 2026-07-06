@@ -1,15 +1,19 @@
 import { z } from "zod";
-import { SkillDefinition } from "./skill.core.ts";
+import { SkillContext, SkillDefinition } from "./skill.core.ts";
 import { ReminderResponseDTO } from "../../../modules/reminder/reminder.dto.ts";
+import { utcToLocalIso } from "../../../shared/datetime.ts";
+import { daysFromNowRange } from "../../../shared/utils.ts";
 
-const slimReminder = (r: ReminderResponseDTO) => ({
+// Postgres devuelve timestamptz en UTC; al modelo se le entregan ya convertidos
+// al timezone del asesor para que no tenga que hacer aritmética de husos horarios.
+const slimReminder = (r: ReminderResponseDTO, ctx: SkillContext) => ({
   id: r.id,
   title: r.title,
   description: r.description,
-  dueDate: r.dueDate,
+  dueDate: utcToLocalIso(r.dueDate, ctx.timezone),
   statusId: r.statusId,
   status: r.status,
-  comments: r.comments,
+  comments: r.comments?.map((c) => ({ ...c, createdAt: utcToLocalIso(c.createdAt, ctx.timezone) })),
   contactId: r.contactId,
   policyId: r.policyId,
   type: r.type,
@@ -96,7 +100,7 @@ export const reminderSkills: SkillDefinition[] = [
         comment: args.comment as string ?? null,
       });
       if (!result) return null;
-      const slim = slimReminder(result);
+      const slim = slimReminder(result, ctx);
       return {
         ...slim,
         __skillMetadata: {
@@ -104,7 +108,7 @@ export const reminderSkills: SkillDefinition[] = [
           reminderId: result.id,
           title: result.title,
           description: result.description,
-          dueDate: result.dueDate,
+          dueDate: slim.dueDate,
           clientName: result.contact?.fullName ?? null,
         },
       };
@@ -114,16 +118,32 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "get_upcoming_reminders",
-      description: "Retrieves the advisor's upcoming reminders within a date range. Only returns pending or in progress reminders. CRITICAL: If the user gives a relative time expression (e.g. 'today', 'this week', 'next 2 days', 'hoy', 'esta semana'), you MUST resolve it into local 'from'/'to' ISO 8601 bounds using the current date/time and timezone offset from the [CONTEXT] block. For 'today' (hoy) -> 'from' is today at 00:00:00 and 'to' is today at 23:59:59 using the local offset. If no time reference is given, leave both fields empty to query the default next 7 days.",
+      description: "Retrieves the advisor's upcoming reminders within a date range. Only returns pending or in progress reminders. CRITICAL: If the user gives a relative time expression (e.g. 'today', 'this week', 'next 2 days', 'hoy', 'esta semana'), you MUST resolve it into local 'from'/'to' ISO 8601 bounds using the current date/time and timezone offset from the [CONTEXT] block. For 'today' (hoy) -> 'from' is today at 00:00:00 and 'to' is today at 23:59:59 using the local offset. If no time reference is given, leave both fields empty to query the default next 7 days. The response includes 'queriedRange' with the exact window consulted — before answering, verify each reminder's dueDate actually falls within the timeframe the user asked about.",
       schema: z.object({
         from: z.string().optional().describe("Local start range (ISO 8601, e.g. '2026-07-04T00:00:00-06:00'). MUST be calculated relative to [CONTEXT]'s local time when querying a relative timeframe."),
         to: z.string().optional().describe("Local end range (ISO 8601, e.g. '2026-07-04T23:59:59-06:00'). MUST be calculated relative to [CONTEXT]'s local time when querying a relative timeframe."),
       }),
     },
     async execute({ from, to }, ctx) {
-      const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, from as string | undefined, to as string | undefined);
-      const slim = (reminders ?? []).map(slimReminder);
+      // Rango efectivo explícito: si el modelo no manda bounds se aplica el
+      // mismo default del service (próximos 7 días), pero informándolo en la
+      // respuesta para que el modelo sepa qué ventana está viendo y no
+      // presente tareas de mañana como pendientes de "hoy".
+      const usedDefault = !from && !to;
+      const defaults = daysFromNowRange(7);
+      const fromEff = (from as string | undefined) ?? defaults.from;
+      const toEff = (to as string | undefined) ?? defaults.to;
+
+      const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, fromEff, toEff);
+      const slim = (reminders ?? []).map((r) => slimReminder(r, ctx));
       return {
+        queriedRange: {
+          from: utcToLocalIso(fromEff, ctx.timezone),
+          to: utcToLocalIso(toEff, ctx.timezone),
+          note: usedDefault
+            ? "No explicit range was requested — this is the DEFAULT 7-day window. If the user asked about a narrower timeframe (e.g. today), filter by dueDate before answering."
+            : undefined,
+        },
         reminders: slim,
         __skillMetadata: {
           type: "reminder_list",
@@ -167,7 +187,7 @@ export const reminderSkills: SkillDefinition[] = [
         status: params.status as string | undefined,
         comment: params.comment as string | undefined,
       });
-      return result ? slimReminder(result) : null;
+      return result ? slimReminder(result, ctx) : null;
     },
   },
   {
@@ -186,7 +206,7 @@ export const reminderSkills: SkillDefinition[] = [
         status: "DONE",
         comment: comment as string | undefined,
       });
-      return result ? slimReminder(result) : null;
+      return result ? slimReminder(result, ctx) : null;
     },
   },
   {
@@ -216,7 +236,7 @@ export const reminderSkills: SkillDefinition[] = [
     },
     async execute({ query, status }, ctx) {
       const items = await ctx.reminderService.searchReminders(ctx.agentId, query as string, status as string | undefined);
-      return (items ?? []).map(slimReminder);
+      return (items ?? []).map((r) => slimReminder(r, ctx));
     },
   },
   {
@@ -272,7 +292,7 @@ export const reminderSkills: SkillDefinition[] = [
       });
 
       if (!reminder) return null;
-      const slim = slimReminder(reminder);
+      const slim = slimReminder(reminder, ctx);
       return {
         ...slim,
         __skillMetadata: {
@@ -280,7 +300,7 @@ export const reminderSkills: SkillDefinition[] = [
           reminderId: reminder.id,
           title: reminder.title,
           description: reminder.description,
-          dueDate: reminder.dueDate,
+          dueDate: slim.dueDate,
           clientName: contacts[0].fullName,
         },
       };

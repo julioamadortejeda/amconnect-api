@@ -313,6 +313,16 @@ skip_nonce_check = false
 # If enabled, it will allow the user to successfully authenticate when the provider does not return an email address.
 email_optional = false
 
+# Google — sign-in nativo desde la app (signInWithIdToken). GoTrue valida que el
+# `aud` del idToken esté en client_id: se listan el Web client (audiencia del
+# serverClientId) y el iOS client. No hay flujo web → no se requiere secret.
+[auth.external.google]
+enabled = true
+client_id = "209849163943-tnlpoo835d1ijmjc3umaesqco07o5qti.apps.googleusercontent.com,209849163943-dugb3qfo959i86rdkgrq3jvtbovnl7m9.apps.googleusercontent.com"
+secret = ""
+# Requerido para sign-in local con Google (google_sign_in no envía nonce).
+skip_nonce_check = true
+
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard.
 # You can configure "web3" rate limit in the [auth.rate_limit] section and set up [auth.captcha] if self-hosting.
 [auth.web3.solana]

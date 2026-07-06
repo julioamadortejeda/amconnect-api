@@ -2,6 +2,7 @@ import { Context } from "hono";
 import { AppError } from "../../shared/errors.ts";
 import { VoiceChatService } from "../../features/ai_chat/voice_chat.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
+import { resolveTimezone } from "../../shared/datetime.ts";
 
 export class VoiceChatController {
   static async connect(c: Context): Promise<Response> {
@@ -10,7 +11,7 @@ export class VoiceChatController {
     }
 
     const agentId = c.get("agent_id") as string;
-    const timezone = c.req.header("x-timezone") ?? "America/Mexico_City";
+    const timezone = resolveTimezone(c.req.header("x-timezone"), c.req.header("x-timezone-offset"));
     const resumeSessionId = c.req.header("sessionId") ?? undefined;
 
     // Quota check before upgrading — returns HTTP error if limit exceeded
@@ -70,7 +71,10 @@ export class VoiceChatController {
   static async initSession(c: Context): Promise<Response> {
     const agentId = c.get("agent_id") as string;
     const body = await c.req.json().catch(() => ({}));
-    const timezone = body.timezone ?? c.req.header("x-timezone") ?? "America/Mexico_City";
+    const timezone = resolveTimezone(
+      body.timezone ?? c.req.header("x-timezone"),
+      body.timezoneOffset ?? c.req.header("x-timezone-offset"),
+    );
     const resumeSessionId = body.sessionId ?? c.req.header("sessionId") ?? undefined;
 
     console.log(`[VOICE] initSession - body: ${JSON.stringify(body)} resumeSessionId: ${resumeSessionId}`);
@@ -102,7 +106,13 @@ export class VoiceChatController {
     }
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
-    const result = await voiceChatService.executeTool(agentId, sessionId, timezone ?? "America/Mexico_City", toolName, args);
+    const result = await voiceChatService.executeTool(
+      agentId,
+      sessionId,
+      resolveTimezone(timezone ?? c.req.header("x-timezone"), c.req.header("x-timezone-offset")),
+      toolName,
+      args,
+    );
 
     return c.json(result);
   }

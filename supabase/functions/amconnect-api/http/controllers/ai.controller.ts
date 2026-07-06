@@ -7,6 +7,7 @@ import { AiSessionService } from "../../features/ai_chat/ai_session.service.ts";
 import { ConfirmPolicySchema } from "../../features/document_processing/confirm_policy.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
 import { StorageService } from "../../modules/storage/storage.service.ts";
+import { resolveTimezone } from "../../shared/datetime.ts";
 import {
   AiChatSchema,
   AiIngestFileSchema,
@@ -29,7 +30,7 @@ export class AiController {
     await usageService.checkAndIncrementChat(agentId);
 
     try {
-      const timezone = c.req.header("x-timezone") || "America/Mexico_City";
+      const timezone = resolveTimezone(c.req.header("x-timezone"), c.req.header("x-timezone-offset"));
       const service: AiChatService = c.get("services").aiChatService;
       const response = await service.processMessage(message, agentId, session_id, timezone, context);
       return sendSuccess(c, response);

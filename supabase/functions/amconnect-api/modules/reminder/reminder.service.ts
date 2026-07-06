@@ -164,7 +164,7 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     const excludedIds = excludedStatuses ? excludedStatuses.map((s) => s.id) : [];
 
     const items = await this.reminderRepo.getUpcomingReminders(agentId, from, to, excludedIds);
-    return items;
+    return items ? items.map((r) => this.toDTO(r)) : null;
   }
 
   async searchReminders(agentId: string, queryText: string, statusCode?: string): Promise<ReminderResponseDTO[] | null> {

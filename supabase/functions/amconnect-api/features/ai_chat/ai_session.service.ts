@@ -238,7 +238,7 @@ export class AiSessionService {
     return { cancelledTasks };
   }
 
-  async getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string; last_interaction_id?: string | null } | null> {
+  async getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string; last_interaction_id?: string | null; createdAt?: string } | null> {
     return await this.repository.getSessionContext(sessionId);
   }
 

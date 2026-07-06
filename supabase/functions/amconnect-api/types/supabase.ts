@@ -498,6 +498,7 @@ export type Database = {
           cached_tokens: number
           completion_tokens: number
           created_at: string
+          duration_seconds: number | null
           embedding_count: number
           embedding_model_name: string | null
           embedding_total_tokens: number
@@ -523,6 +524,7 @@ export type Database = {
           cached_tokens?: number
           completion_tokens?: number
           created_at?: string
+          duration_seconds?: number | null
           embedding_count?: number
           embedding_model_name?: string | null
           embedding_total_tokens?: number
@@ -548,6 +550,7 @@ export type Database = {
           cached_tokens?: number
           completion_tokens?: number
           created_at?: string
+          duration_seconds?: number | null
           embedding_count?: number
           embedding_model_name?: string | null
           embedding_total_tokens?: number
