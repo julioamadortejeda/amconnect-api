@@ -20,6 +20,7 @@ import { UsageService } from "../../../modules/subscription/usage.service.ts";
 import { UsageRepository } from "../../../modules/subscription/usage.repository.ts";
 import { StorageService } from "../../../modules/storage/storage.service.ts";
 import { StorageRepository } from "../../../modules/storage/storage.repository.ts";
+import { GoogleGenAiProvider } from "../../../providers/google_genai.provider.ts";
 import { GeminiProvider } from "../../../providers/gemini.provider.ts";
 import { VoiceChatService } from "../../../features/ai_chat/voice_chat.service.ts";
 import { LIVE_AUDIO_MODEL } from "../../../shared/config.ts";
@@ -44,23 +45,32 @@ import { PromptService } from "../../../modules/prompt/prompt.service.ts";
 import { NoteRepository } from "../../../modules/note/note.repository.ts";
 import { NoteService } from "../../../modules/note/note.service.ts";
 
-function buildGeminiProvider(promptService?: PromptService): GeminiProvider {
+// Switch único gratis ↔ pago: AI_BACKEND=studio (default, Gemini API con
+// GEMINI_API_KEY) | vertex (Vertex AI con VERTEX_API_KEY). Aplica a chat,
+// documentos y embeddings. La voz (Live API) queda SIEMPRE en AI Studio:
+// los tokens efímeros que usa la app son un feature v1alpha exclusivo de Studio.
+function useVertexBackend(): boolean {
+  return Deno.env.get("AI_BACKEND")?.trim().toLowerCase() === "vertex";
+}
+
+function getBackendApiKey(): string {
+  if (useVertexBackend()) {
+    // Sin fallback a GEMINI_API_KEY: una key de AI Studio no sirve en Vertex
+    // y produciría 401s confusos en runtime — mejor fallar claro al arrancar.
+    const apiKey = Deno.env.get("VERTEX_API_KEY");
+    if (!apiKey) throw new AppError("AI_BACKEND=vertex pero VERTEX_API_KEY no está configurada.", 500);
+    return apiKey;
+  }
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) throw new AppError("GEMINI_API_KEY no configurada.", 500);
-  const model = AI_MODEL;
-  return new GeminiProvider(apiKey, model, promptService);
+  return apiKey;
 }
 
-function buildVertexProvider(): VertexAiProvider {
-  const projectId = Deno.env.get("VERTEX_PROJECT_ID");
-  const location = Deno.env.get("VERTEX_LOCATION") ?? "us-central1";
-  if (!projectId) throw new AppError("VERTEX_PROJECT_ID no configurado.", 500);
-  return new VertexAiProvider(projectId, location, AI_MODEL);
-}
-
-function buildDocProvider(promptService?: PromptService) {
-  if (Deno.env.get("VERTEX_PROJECT_ID")) return buildVertexProvider();
-  return buildGeminiProvider(promptService);
+function buildAiProvider(promptService?: PromptService): GoogleGenAiProvider {
+  const apiKey = getBackendApiKey();
+  return useVertexBackend()
+    ? new VertexAiProvider(apiKey, AI_MODEL, promptService)
+    : new GeminiProvider(apiKey, AI_MODEL, promptService);
 }
 
 export const injectServices = async (c: Context, next: Next) => {
@@ -95,28 +105,26 @@ export const injectServices = async (c: Context, next: Next) => {
   const reminderGenerationService = new ReminderGenerationService(new ReminderGenerationRepository(supabase));
 
   // AI infrastructure (instanciados de forma perezosa / lazy loaded)
-  let geminiProvider: GeminiProvider | undefined;
+  let geminiProvider: GoogleGenAiProvider | undefined;
   let embeddingProvider: GeminiEmbeddingProvider | undefined;
   let embeddingsService: EmbeddingsService | undefined;
   let ragService: RagService | undefined;
   let aiChatService: AiChatService | undefined;
   let voiceChatService: VoiceChatService | undefined;
-  let docProvider: GeminiProvider | VertexAiProvider | undefined;
+  let docProvider: GoogleGenAiProvider | undefined;
   let documentProcessorService: DocumentProcessorService | undefined;
   let knowledgeIngestionService: KnowledgeIngestionService | undefined;
   let policyIngestionService: PolicyIngestionService | undefined;
   let confirmPolicyService: ConfirmPolicyService | undefined;
 
   const getGeminiProvider = () => {
-    if (!geminiProvider) geminiProvider = buildGeminiProvider(promptService);
+    if (!geminiProvider) geminiProvider = buildAiProvider(promptService);
     return geminiProvider;
   };
 
   const getEmbeddingProvider = () => {
     if (!embeddingProvider) {
-      const apiKey = Deno.env.get("GEMINI_API_KEY");
-      if (!apiKey) throw new AppError("GEMINI_API_KEY no configurada.", 500);
-      embeddingProvider = new GeminiEmbeddingProvider(apiKey);
+      embeddingProvider = new GeminiEmbeddingProvider(getBackendApiKey(), 768, useVertexBackend());
     }
     return embeddingProvider;
   };
@@ -184,7 +192,7 @@ export const injectServices = async (c: Context, next: Next) => {
   };
 
   const getDocProvider = () => {
-    if (!docProvider) docProvider = buildDocProvider(promptService);
+    if (!docProvider) docProvider = buildAiProvider(promptService);
     return docProvider;
   };
 

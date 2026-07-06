@@ -29,6 +29,9 @@ export class GeminiLiveProvider {
     private callbacks: GeminiLiveCallbacks,
   ) {}
 
+  // La voz vive SIEMPRE en AI Studio, independiente de AI_BACKEND: la app se
+  // conecta a Gemini con tokens efímeros (authTokens, API v1alpha) y ese
+  // feature no existe en Vertex AI.
   connect(systemInstruction: string, tools: Record<string, unknown>[]): void {
     const url = `${LIVE_API_URL}?key=${this.apiKey}`;
     console.log(`[VOICE] Connecting to Gemini Live API — model: ${this.model}`);

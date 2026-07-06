@@ -1,111 +1,24 @@
 import { GoogleGenAI } from "@google/genai";
-import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
-import {
-  AiGenerationResult,
-  AiInlineData,
-  AiMessage,
-  IAiProvider,
-  TokenUsage,
-} from "../core/ai_provider.interface.ts";
-import { AiError, AiProviderError } from "../shared/errors.ts";
+import { GoogleGenAiProvider } from "./google_genai.provider.ts";
+import { PromptService } from "../modules/prompt/prompt.service.ts";
 
 /**
- * VertexAiProvider — usa Vertex AI con Service Account.
- * Se activa solo para agentes con plan 'pro'.
+ * VertexAiProvider — usa Vertex AI autenticando con una API key de GCP
+ * (creada en Credentials y restringida a la Vertex AI API). El proyecto y la
+ * región vienen amarrados a la key, por lo que NO se pasan al cliente: el SDK
+ * rechaza combinar project/location con apiKey ("mutually exclusive").
  * Cumple con LFPDPPP al procesar datos dentro de infraestructura Google Cloud.
  */
-export class VertexAiProvider implements IAiProvider {
-  private ai: GoogleGenAI;
-  model: string;
+export class VertexAiProvider extends GoogleGenAiProvider {
   constructor(
-    projectId: string,
-    location = "us-central1",
+    apiKey: string,
     model: string,
+    promptService?: PromptService,
   ) {
-    this.ai = new GoogleGenAI({
-      vertexai: true,
-      project: projectId,
-      location,
-    });
-    this.model = model;
-  }
-
-  // Chat y function calling — se delega a GeminiProvider en el DI para plan pro.
-  // VertexAiProvider se usa principalmente para procesamiento de documentos.
-  processUserRequest(
-    _history: AiMessage[],
-    _tools: Record<string, unknown>[],
-    _systemInstruction?: string,
-  ): Promise<AiGenerationResult> {
-    throw new AiError("processUserRequest no está implementado en VertexAiProvider. Usa GeminiProvider para chat.");
-  }
-
-  processInteraction(
-    _messageOrSteps: string | Record<string, unknown>[],
-    _tools: Record<string, unknown>[],
-    _systemInstruction?: string,
-    _previousInteractionId?: string,
-  ): Promise<AiGenerationResult & { interactionId?: string }> {
-    throw new AiError("processInteraction no está implementado en VertexAiProvider. Usa GeminiProvider para chat.");
-  }
-
-
-  async generateStructuredData<T>(
-    prompt: string,
-    schema: z.ZodType<T>,
-    inlineData?: AiInlineData,
-  ): Promise<{ data: T; usage?: TokenUsage }> {
-    const jsonSchema = zodToJsonSchema(schema, { target: "openApi3" });
-
-    // deno-lint-ignore no-explicit-any
-    const parts: any[] = [{ text: prompt }];
-    if (inlineData) {
-      parts.push({ inlineData: { mimeType: inlineData.mimeType, data: inlineData.data } });
-    }
-
-    // deno-lint-ignore no-explicit-any
-    let response: any;
-    try {
-      response = await this.ai.models.generateContent({
-        model: this.model,
-        contents: [{ role: "user", parts }],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: jsonSchema as never,
-        },
-      });
-    } catch (e) {
-      // deno-lint-ignore no-explicit-any
-      const err = e as any;
-      const status: number | undefined = err?.status ?? err?.statusCode ?? err?.httpStatus;
-      if (status === 429 || status === 503 || status === 500) {
-        throw new AiProviderError(
-          `El servicio de IA no está disponible en este momento (${status}). Intenta de nuevo en unos segundos.`,
-        );
-      }
-      throw new AiError(`Error en generateStructuredData: ${err?.message ?? String(e)}`);
-    }
-
-    const text = response.text ?? "{}";
-    const parsed = JSON.parse(text);
-
-    return {
-      data: schema.parse(parsed),
-      usage: response.usageMetadata
-        ? {
-          promptTokens: response.usageMetadata.promptTokenCount ?? 0,
-          completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
-          totalTokens: response.usageMetadata.totalTokenCount ?? 0,
-        }
-        : undefined,
-    };
-  }
-
-  classifyMessage(
-    _message: string,
-    _availableDomains: string[],
-  ): Promise<{ domains: string[]; usage?: TokenUsage }> {
-    throw new AiError("classifyMessage no está implementado en VertexAiProvider.");
+    super(
+      new GoogleGenAI({ vertexai: true, apiKey }),
+      model,
+      promptService,
+    );
   }
 }

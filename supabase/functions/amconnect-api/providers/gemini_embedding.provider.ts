@@ -5,9 +5,19 @@ import { AiError } from "../shared/errors.ts";
 export class GeminiEmbeddingProvider implements IEmbeddingProvider {
   private ai: GoogleGenAI;
   readonly model = "gemini-embedding-2";
+  private outputDimensionality: number;
 
-  constructor(apiKey: string, private outputDimensionality = 768) {
-    this.ai = new GoogleGenAI({ apiKey });
+  constructor(
+    apiKey: string,
+    outputDimensionality = 768,
+    useVertex = false,
+  ) {
+    // Con API key el proyecto viene amarrado a la key — el SDK rechaza
+    // combinar project/location con apiKey.
+    this.ai = useVertex
+      ? new GoogleGenAI({ vertexai: true, apiKey })
+      : new GoogleGenAI({ apiKey });
+    this.outputDimensionality = outputDimensionality;
   }
 
   async generateEmbedding(text: string): Promise<EmbeddingResult> {
