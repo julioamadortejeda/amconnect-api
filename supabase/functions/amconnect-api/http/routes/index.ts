@@ -37,6 +37,7 @@ apiRouter.post("/subscription/apply-promo", SubscriptionController.applyPromo);
 apiRouter.post("/ai/upload", AiController.uploadFile);
 apiRouter.post("/ai/ingest-policy", AiController.ingestPolicy);
 apiRouter.post("/ai/chat", AiController.chat);
+apiRouter.post("/ai/chat/tts", AiController.chatTts);
 apiRouter.post("/ai/sessions/:sessionId/cancel", AiController.cancelSession);
 apiRouter.get("/ai/sessions/:sessionId/cost", AiController.getSessionCost);
 apiRouter.get("/ai/upload-url", AiController.getUploadUrl);

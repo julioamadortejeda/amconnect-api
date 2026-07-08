@@ -4,7 +4,7 @@ import { AppError } from "../../shared/errors.ts";
 
 export interface CreateSessionInput {
   triggerMessage: string;
-  sessionType: "chat" | "knowledge_ingestion" | "policy_ingestion" | "voice";
+  sessionType: "chat" | "chat_tts" | "knowledge_ingestion" | "policy_ingestion" | "voice";
   modelName?: string | null;
   embeddingModelName?: string | null;
 }
@@ -191,6 +191,16 @@ export class AiSessionService {
     return nextTokens;
   }
 
+  /** Acumula el uso de TTS de un turno en la sesión — mismo patrón read-then-add-write que saveChatRound. */
+  async addTtsUsage(sessionId: string, modelName: string, deltaUsage: UsageTokens): Promise<void> {
+    const current = await this.repository.getSessionTtsTokens(sessionId);
+    await this.repository.updateSession(sessionId, {
+      ttsModelName: modelName,
+      ttsPromptTokens: current.promptTokens + deltaUsage.promptTokens,
+      ttsCompletionTokens: current.completionTokens + deltaUsage.completionTokens,
+      ttsTotalTokens: current.totalTokens + deltaUsage.totalTokens,
+    });
+  }
 
   async updateMetadata(sessionId: string, metadata: Record<string, unknown>): Promise<void> {
     await this.repository.updateSession(sessionId, { metadata });
@@ -255,6 +265,8 @@ export class AiSessionService {
     const chatModel = data.chat_model ? (Array.isArray(data.chat_model) ? data.chat_model[0] : data.chat_model) as any : null;
     // deno-lint-ignore any
     const embeddingModel = data.embedding_model ? (Array.isArray(data.embedding_model) ? data.embedding_model[0] : data.embedding_model) as any : null;
+    // deno-lint-ignore any
+    const ttsModel = data.tts_model ? (Array.isArray(data.tts_model) ? data.tts_model[0] : data.tts_model) as any : null;
 
     const calcCosts = (promptTokens: number, cachedTokens: number, completionTokens: number, model: any) => {
       if (!model) return { inputCostUsd: 0, cacheReadCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 };
@@ -273,7 +285,9 @@ export class AiSessionService {
       embeddingCostUsd = (data.embedding_total_tokens * Number(embeddingModel.input_cost_per_1m)) / 1_000_000;
     }
 
-    const totalCostUsd = chatCosts.totalCostUsd + extractionCosts.totalCostUsd + embeddingCostUsd;
+    const ttsCosts = calcCosts(data.tts_prompt_tokens ?? 0, 0, data.tts_completion_tokens ?? 0, ttsModel);
+
+    const totalCostUsd = chatCosts.totalCostUsd + extractionCosts.totalCostUsd + embeddingCostUsd + ttsCosts.totalCostUsd;
 
     return {
       sessionId: data.id,
@@ -313,6 +327,18 @@ export class AiSessionService {
         cost: {
           inputUsd: embeddingCostUsd,
           totalUsd: embeddingCostUsd,
+        },
+      },
+      tts: {
+        model: data.tts_model_name ?? null,
+        displayName: ttsModel?.display_name ?? null,
+        promptTokens: data.tts_prompt_tokens ?? 0,
+        completionTokens: data.tts_completion_tokens ?? 0,
+        totalTokens: data.tts_total_tokens ?? 0,
+        cost: {
+          inputUsd: ttsCosts.inputCostUsd,
+          outputUsd: ttsCosts.outputCostUsd,
+          totalUsd: ttsCosts.totalCostUsd,
         },
       },
       totalCostUsd,

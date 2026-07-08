@@ -40,25 +40,26 @@ export class AiChatService {
     sessionId?: string | null,
     timezone?: string,
     context?: AiChatContext | null,
+    newSessionType: "chat" | "chat_tts" = "chat",
   ): Promise<ChatResponse> {
     const history: AiMessage[] = [];
     const sId = sessionId ?? undefined;
     let currentSessionId = sId;
 
     // Cargar historial si hay sesión
-    let sessionType = "chat";
+    let sessionType: string = newSessionType;
     let lastInteractionId: string | undefined = undefined;
 
     if (sId) {
       const session = await this.aiSessionService.getSessionContext(sId);
       if (session?.history) history.push(...(session.history as AiMessage[]));
-      sessionType = session?.type ?? "chat";
+      sessionType = session?.type ?? newSessionType;
       lastInteractionId = session?.last_interaction_id ?? undefined;
     } else {
       // Crear nueva sesión
       currentSessionId = await this.aiSessionService.createSession(agentId, {
         triggerMessage: message,
-        sessionType: "chat",
+        sessionType: newSessionType,
         modelName: this.aiProvider.model,
       });
     }

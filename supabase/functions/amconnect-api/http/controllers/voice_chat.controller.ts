@@ -120,7 +120,7 @@ export class VoiceChatController {
   static async saveRound(c: Context): Promise<Response> {
     const agentId = c.get("agent_id") as string;
     const body = await c.req.json();
-    const { sessionId, userText, modelText, promptTokens, completionTokens, totalTokens } = body;
+    const { sessionId, userText, modelText, promptTokens, completionTokens, totalTokens, toolCalls } = body;
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
     const result = await voiceChatService.saveRound(
@@ -130,7 +130,8 @@ export class VoiceChatController {
       modelText,
       promptTokens ?? 0,
       completionTokens ?? 0,
-      totalTokens ?? 0
+      totalTokens ?? 0,
+      Array.isArray(toolCalls) ? toolCalls : [],
     );
 
     return c.json(result);

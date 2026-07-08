@@ -12,7 +12,7 @@ import {
 import { AiError, AiProviderError } from "../shared/errors.ts";
 import { PromptService } from "../modules/prompt/prompt.service.ts";
 
-function wrapGeminiError(e: unknown, context: string): never {
+export function wrapGeminiError(e: unknown, context: string): never {
   // deno-lint-ignore no-explicit-any
   const err = e as any;
   const status: number | undefined = err?.status ?? err?.statusCode ?? err?.httpStatus;
@@ -31,6 +31,7 @@ export class GoogleGenAiProvider implements IAiProvider {
     protected ai: GoogleGenAI,
     public model: string,
     protected promptService?: PromptService,
+    public apiKey?: string,
   ) {}
 
   async processUserRequest(
@@ -253,5 +254,13 @@ Advisor message: "${message}"`;
         }
         : undefined,
     };
+  }
+
+  async createEphemeralToken(
+    _model: string,
+    _systemInstruction: string,
+    _tools: Record<string, unknown>[],
+  ): Promise<{ token: string; url: string; headers: Record<string, string> | null; expireTime: string; model: string }> {
+    throw new Error("createEphemeralToken no está implementado para este proveedor.");
   }
 }

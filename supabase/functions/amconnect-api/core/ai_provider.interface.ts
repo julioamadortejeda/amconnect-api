@@ -64,4 +64,10 @@ export interface IAiProvider {
     message: string,
     availableDomains: string[],
   ): Promise<{ domains: string[]; usage?: TokenUsage }>;
+
+  createEphemeralToken(
+    model: string,
+    systemInstruction: string,
+    tools: Record<string, unknown>[],
+  ): Promise<{ token: string; url: string; headers: Record<string, string> | null; expireTime: string; model: string }>;
 }

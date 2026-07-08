@@ -25,6 +25,10 @@ export interface UpdateSessionData {
   extractionCachedTokens?: number;
   embeddingTotalTokens?: number;
   embeddingCount?: number;
+  ttsModelName?: string;
+  ttsPromptTokens?: number;
+  ttsCompletionTokens?: number;
+  ttsTotalTokens?: number;
   metadata?: Record<string, unknown>;
   lastInteractionId?: string | null;
   durationSeconds?: number;
@@ -65,6 +69,7 @@ export interface IAiSessionRepository {
   updateSession(sessionId: string, data: UpdateSessionData): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
   getSessionTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number }>;
+  getSessionTtsTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number }>;
   getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string; last_interaction_id?: string | null; createdAt?: string } | null>;
   getMetadata(sessionId: string): Promise<Record<string, unknown> | null>;
   savePendingTask(sessionId: string, agentId: string, taskType: string, payload: Record<string, unknown>): Promise<string>;
@@ -115,6 +120,10 @@ export class AiSessionRepository implements IAiSessionRepository {
     if (data.extractionCachedTokens !== undefined) payload.extraction_cached_tokens = data.extractionCachedTokens;
     if (data.embeddingTotalTokens !== undefined) payload.embedding_total_tokens = data.embeddingTotalTokens;
     if (data.embeddingCount !== undefined) payload.embedding_count = data.embeddingCount;
+    if (data.ttsModelName !== undefined) payload.tts_model_name = data.ttsModelName;
+    if (data.ttsPromptTokens !== undefined) payload.tts_prompt_tokens = data.ttsPromptTokens;
+    if (data.ttsCompletionTokens !== undefined) payload.tts_completion_tokens = data.ttsCompletionTokens;
+    if (data.ttsTotalTokens !== undefined) payload.tts_total_tokens = data.ttsTotalTokens;
     if (data.metadata !== undefined) payload.metadata = data.metadata;
     if (data.lastInteractionId !== undefined) payload.last_interaction_id = data.lastInteractionId;
     if (data.durationSeconds !== undefined) payload.duration_seconds = data.durationSeconds;
@@ -133,6 +142,19 @@ export class AiSessionRepository implements IAiSessionRepository {
       completionTokens: data?.completion_tokens ?? 0,
       totalTokens: data?.total_tokens ?? 0,
       cachedTokens: data?.cached_tokens ?? 0,
+    };
+  }
+
+  async getSessionTtsTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number }> {
+    const { data } = await this.supabase
+      .from("ai_sessions")
+      .select("tts_prompt_tokens, tts_completion_tokens, tts_total_tokens")
+      .eq("id", sessionId)
+      .single();
+    return {
+      promptTokens: data?.tts_prompt_tokens ?? 0,
+      completionTokens: data?.tts_completion_tokens ?? 0,
+      totalTokens: data?.tts_total_tokens ?? 0,
     };
   }
 
@@ -259,8 +281,13 @@ export class AiSessionRepository implements IAiSessionRepository {
         extraction_cached_tokens,
         embedding_total_tokens,
         embedding_count,
+        tts_model_name,
+        tts_prompt_tokens,
+        tts_completion_tokens,
+        tts_total_tokens,
         chat_model:model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m, cache_read_cost_per_1m),
-        embedding_model:embedding_model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m)
+        embedding_model:embedding_model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m),
+        tts_model:tts_model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m)
       `)
       .eq("id", sessionId)
       .single();

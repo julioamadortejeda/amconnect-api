@@ -516,6 +516,10 @@ export type Database = {
           status: string
           total_tokens: number
           trigger_message: string | null
+          tts_completion_tokens: number
+          tts_model_name: string | null
+          tts_prompt_tokens: number
+          tts_total_tokens: number
           type: string
           updated_at: string
         }
@@ -542,6 +546,10 @@ export type Database = {
           status?: string
           total_tokens?: number
           trigger_message?: string | null
+          tts_completion_tokens?: number
+          tts_model_name?: string | null
+          tts_prompt_tokens?: number
+          tts_total_tokens?: number
           type?: string
           updated_at?: string
         }
@@ -568,6 +576,10 @@ export type Database = {
           status?: string
           total_tokens?: number
           trigger_message?: string | null
+          tts_completion_tokens?: number
+          tts_model_name?: string | null
+          tts_prompt_tokens?: number
+          tts_total_tokens?: number
           type?: string
           updated_at?: string
         }
@@ -589,6 +601,13 @@ export type Database = {
           {
             foreignKeyName: "ai_sessions_model_name_fkey"
             columns: ["model_name"]
+            isOneToOne: false
+            referencedRelation: "ai_models"
+            referencedColumns: ["model_name"]
+          },
+          {
+            foreignKeyName: "ai_sessions_tts_model_name_fkey"
+            columns: ["tts_model_name"]
             isOneToOne: false
             referencedRelation: "ai_models"
             referencedColumns: ["model_name"]

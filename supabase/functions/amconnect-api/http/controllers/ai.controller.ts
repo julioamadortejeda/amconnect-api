@@ -3,6 +3,7 @@ import type { ZodIssue } from "zod";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { AiInvokedError, AiProviderError, AppError } from "../../shared/errors.ts";
 import { AiChatService } from "../../features/ai_chat/ai_chat.service.ts";
+import { ChatTtsService } from "../../features/ai_chat/chat_tts.service.ts";
 import { AiSessionService } from "../../features/ai_chat/ai_session.service.ts";
 import { ConfirmPolicySchema } from "../../features/document_processing/confirm_policy.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
@@ -18,13 +19,7 @@ import {
 export class AiController {
   static async chat(c: Context) {
     const agentId: string = c.get("agent_id");
-    const body = await c.req.json();
-    const parsed = AiChatSchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
-    const { message, sessionId: session_id, context } = parsed.data;
+    const { message, sessionId, context } = AiController.parseChatBody(await c.req.json());
 
     const usageService = c.get("usage_service") as UsageService;
     await usageService.checkAndIncrementChat(agentId);
@@ -32,7 +27,7 @@ export class AiController {
     try {
       const timezone = resolveTimezone(c.req.header("x-timezone"), c.req.header("x-timezone-offset"));
       const service: AiChatService = c.get("services").aiChatService;
-      const response = await service.processMessage(message, agentId, session_id, timezone, context);
+      const response = await service.processMessage(message, agentId, sessionId, timezone, context, "chat");
       return sendSuccess(c, response);
     } catch (err) {
       if (err instanceof AiProviderError) {
@@ -41,6 +36,41 @@ export class AiController {
       }
       throw err;
     }
+  }
+
+  // Chat de voz "turn-based" (walkie-talkie): la app transcribe el audio del
+  // asesor on-device (STT local, sin subir audio) y manda el texto aquí, tal
+  // cual /ai/chat — misma sesión, mismas skills, mismo historial vía
+  // ChatTtsService, que compone AiChatService y solo agrega la síntesis de
+  // audio + su propio log de tokens.
+  static async chatTts(c: Context) {
+    const agentId: string = c.get("agent_id");
+    const { message, sessionId, context } = AiController.parseChatBody(await c.req.json());
+
+    const usageService = c.get("usage_service") as UsageService;
+    await usageService.checkAndIncrementChat(agentId);
+
+    try {
+      const timezone = resolveTimezone(c.req.header("x-timezone"), c.req.header("x-timezone-offset"));
+      const service: ChatTtsService = c.get("services").chatTtsService;
+      const response = await service.processMessage(message, agentId, sessionId, timezone, context);
+      return sendSuccess(c, response);
+    } catch (err) {
+      if (err instanceof AiProviderError) {
+        // Session already marked inside processMessage; only decrement usage
+        await usageService.decrementChat(agentId);
+      }
+      throw err;
+    }
+  }
+
+  private static parseChatBody(body: unknown) {
+    const parsed = AiChatSchema.safeParse(body);
+    if (!parsed.success) {
+      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      throw new AppError(`Datos inválidos: ${issues}`, 400);
+    }
+    return { message: parsed.data.message, sessionId: parsed.data.sessionId, context: parsed.data.context };
   }
 
   static async cancelSession(c: Context) {

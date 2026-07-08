@@ -7,7 +7,9 @@ import {
   type ToolListUnion,
 } from "@google/genai";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import { GoogleGenAiProvider } from "../../providers/google_genai.provider.ts";
 import { GeminiLiveProvider } from "../../providers/gemini_live.provider.ts";
+import { LIVE_AUDIO_MODEL } from "../../shared/config.ts";
 import { getSkillsByDomains } from "./skills/index.ts";
 import { executeSkill } from "./skills/skill_executor.ts";
 import { SkillContext } from "./skills/skill.core.ts";
@@ -17,6 +19,20 @@ import { PromptService } from "../../modules/prompt/prompt.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
 
 const ALL_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog", "knowledge"];
+
+export interface VoiceToolCallLog {
+  name: string;
+  args?: Record<string, unknown>;
+  response: unknown;
+}
+
+// Ordered log of a voice session for the WS proxy flow — text turns interleaved
+// with function calls, mirroring what AiChatService pushes into `history`
+// (model functionCall parts + function functionResponse parts) each loop.
+type VoiceTurn =
+  | { kind: "text"; role: "user" | "model"; text: string }
+  | { kind: "function_call"; name: string; args: Record<string, unknown> }
+  | { kind: "function_result"; name: string; response: unknown };
 
 // Voice sessions have no per-message text channel from the backend, so the
 // dynamic [CONTEXT] line that the text chat injects into each user message must
@@ -42,8 +58,7 @@ function cleanSchema(obj: any): any {
 
 export class VoiceChatService {
   constructor(
-    private apiKey: string,
-    private model: string,
+    private aiProvider: GoogleGenAiProvider,
     private skillContext: Omit<SkillContext, "agentId" | "sessionId" | "aiSessionService" | "timezone" | "timezoneOffset">,
     private aiSessionService: AiSessionService,
     private promptService: PromptService,
@@ -58,32 +73,49 @@ export class VoiceChatService {
     let sessionId = "";
     let pendingUserTranscript = "";
     let pendingModelTranscript = "";
-    const turns: Array<{ role: string; text: string }> = [];
+    const turns: VoiceTurn[] = [];
     const accTokens = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
     let flushed = false;
+
+    // Function calls arrive mid-turn (after the user's transcript is complete
+    // but before the model's turn_complete) — flush the pending user text into
+    // `turns` first so history keeps question → function call → answer order.
+    const pushPendingUserTurn = () => {
+      if (pendingUserTranscript) {
+        turns.push({ kind: "text", role: "user", text: pendingUserTranscript });
+        pendingUserTranscript = "";
+      }
+    };
 
     const flushSession = async () => {
       if (flushed || !sessionId) return;
       flushed = true;
-      if (pendingUserTranscript) turns.push({ role: "user", text: pendingUserTranscript });
-      if (pendingModelTranscript) turns.push({ role: "model", text: pendingModelTranscript });
+      pushPendingUserTurn();
+      if (pendingModelTranscript) turns.push({ kind: "text", role: "model", text: pendingModelTranscript });
       console.log(`[VOICE] Flushing session ${sessionId} — turns=${turns.length} tokens=${JSON.stringify(accTokens)}`);
       try {
         const session = await this.aiSessionService.getSessionContext(sessionId).catch(() => null);
         const existingHistory = session?.history ? (session.history as unknown[]) : [];
 
-        const messages = turns.map((t) => ({
-          role: t.role,
-          content: t.text,
-          promptTokens: 0,
-          completionTokens: 0,
-          totalTokens: 0,
-        }));
-        const newHistory = turns.map((t) => ({
-          role: t.role === "user" ? "user" : "model",
-          parts: [{ text: t.text }],
-        }));
-        
+        // ai_chat_messages only gets user/model text rows — same as text chat,
+        // which never writes function call/response rows there either.
+        const messages = turns
+          .filter((t): t is Extract<VoiceTurn, { kind: "text" }> => t.kind === "text")
+          .map((t) => ({
+            role: t.role,
+            content: t.text,
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+          }));
+        const newHistory = turns.map((t) => {
+          if (t.kind === "text") return { role: t.role, parts: [{ text: t.text }] };
+          if (t.kind === "function_call") {
+            return { role: "model", parts: [{ functionCall: { name: t.name, args: t.args } }] };
+          }
+          return { role: "function", parts: [{ functionResponse: { name: t.name, response: { result: t.response } } }] };
+        });
+
         const historyDb = [...existingHistory, ...newHistory];
         
         let durationSeconds: number | undefined;
@@ -151,7 +183,7 @@ export class VoiceChatService {
         sessionId = await this.aiSessionService.createSession(agentId, {
           triggerMessage: "[voice_session]",
           sessionType: "voice",
-          modelName: this.model,
+          modelName: this.aiProvider.model,
         });
         console.log(`[VOICE] Session created: ${sessionId}`);
       }
@@ -201,7 +233,7 @@ export class VoiceChatService {
 
     // ── Create Gemini Live provider and assign to closure variable ───────────
 
-    geminiLive = new GeminiLiveProvider(this.apiKey, this.model, {
+    geminiLive = new GeminiLiveProvider(this.aiProvider.apiKey!, this.aiProvider.model, {
       onSetupComplete: () => {
         console.log(`[VOICE] Gemini setup complete for session ${sessionId}`);
         this.send(clientSocket, { type: "gemini_ready" });
@@ -228,12 +260,9 @@ export class VoiceChatService {
       },
 
       onTurnComplete: async () => {
-        if (pendingUserTranscript) {
-          turns.push({ role: "user", text: pendingUserTranscript });
-          pendingUserTranscript = "";
-        }
+        pushPendingUserTurn();
         if (pendingModelTranscript) {
-          turns.push({ role: "model", text: pendingModelTranscript });
+          turns.push({ kind: "text", role: "model", text: pendingModelTranscript });
           pendingModelTranscript = "";
         }
         console.log(`[VOICE] Turn complete — accumulated ${turns.length} turns so far`);
@@ -255,15 +284,23 @@ export class VoiceChatService {
         console.log(`[VOICE] Executing skill: "${call.name}" args=${JSON.stringify(call.args).slice(0, 200)}`);
         this.send(clientSocket, { type: "skill_call", name: call.name });
 
+        pushPendingUserTurn();
+        turns.push({ kind: "function_call", name: call.name, args: call.args });
+
         const execution = await executeSkill(call.name, call.args, ctx);
         console.log(`[VOICE] Skill "${call.name}" result: ${JSON.stringify(execution.response).slice(0, 200)}`);
+        turns.push({ kind: "function_result", name: call.name, response: execution.response });
         geminiLive?.sendToolResponse(call.id, call.name, execution.response);
       },
 
       onUsageMetadata: (usage) => {
-        accTokens.promptTokens = usage.promptTokens;
-        accTokens.completionTokens = usage.completionTokens;
-        accTokens.totalTokens = usage.totalTokens;
+        // Gemini manda varios usage_metadata por sesión con conteos acumulados;
+        // tomar el máximo evita que un mensaje con un snapshot parcial (menor
+        // al ya visto) pise el conteo real — esto es lo que causaba que
+        // completion_tokens quedara en 0 en ai_sessions para voz.
+        accTokens.promptTokens = Math.max(accTokens.promptTokens, usage.promptTokens);
+        accTokens.completionTokens = Math.max(accTokens.completionTokens, usage.completionTokens);
+        accTokens.totalTokens = Math.max(accTokens.totalTokens, usage.totalTokens);
         console.log(`[VOICE] Accumulated tokens: ${JSON.stringify(accTokens)}`);
       },
 
@@ -300,7 +337,7 @@ export class VoiceChatService {
       sessionId = await this.aiSessionService.createSession(agentId, {
         triggerMessage: "[voice_session]",
         sessionType: "voice",
-        modelName: this.model,
+        modelName: this.aiProvider.model,
       });
       console.log(`[VOICE] REST Init - Session created: ${sessionId}`);
     }
@@ -347,23 +384,34 @@ export class VoiceChatService {
     };
   }
 
-  async saveRound(agentId: string, sessionId: string, userText: string, modelText: string, promptTokens: number, completionTokens: number, totalTokens: number) {
-    console.log(`[VOICE] REST SaveRound - saving round for session ${sessionId} - prompt=${promptTokens} completion=${completionTokens}`);
+  async saveRound(
+    agentId: string,
+    sessionId: string,
+    userText: string,
+    modelText: string,
+    promptTokens: number,
+    completionTokens: number,
+    totalTokens: number,
+    toolCalls: VoiceToolCallLog[] = [],
+  ) {
+    console.log(`[VOICE] REST SaveRound - saving round for session ${sessionId} - prompt=${promptTokens} completion=${completionTokens} toolCalls=${toolCalls.length}`);
 
     // deno-lint-ignore no-explicit-any
     const messages: any[] = [];
-    
+
     // Obtener historial previo para no sobrescribirlo
     const session = await this.aiSessionService.getSessionContext(sessionId).catch(() => null);
     const historyDb: unknown[] = session?.history ? [...(session.history as unknown[])] : [];
+
+    const hasModelText = !!modelText;
 
     if (userText) {
       messages.push({
         role: "user",
         content: userText,
-        promptTokens: 0,
+        promptTokens: hasModelText ? 0 : promptTokens,
         completionTokens: 0,
-        totalTokens: 0,
+        totalTokens: hasModelText ? 0 : promptTokens,
       });
       historyDb.push({
         role: "user",
@@ -371,13 +419,29 @@ export class VoiceChatService {
       });
     }
 
+    // Function calls happen mid-turn, between the user's question and the
+    // model's spoken answer — mirrors AiChatService's history.push of
+    // rawModelParts (functionCall) + functionResults (functionResponse).
+    // Not added to `messages`/ai_chat_messages: text chat doesn't persist
+    // function calls there either, only in ai_sessions.history.
+    for (const call of toolCalls) {
+      historyDb.push({
+        role: "model",
+        parts: [{ functionCall: { name: call.name, args: call.args ?? {} } }],
+      });
+      historyDb.push({
+        role: "function",
+        parts: [{ functionResponse: { name: call.name, response: { result: call.response } } }],
+      });
+    }
+
     if (modelText) {
       messages.push({
         role: "model",
         content: modelText,
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
+        promptTokens: promptTokens,
+        completionTokens: completionTokens,
+        totalTokens: promptTokens + completionTokens,
       });
       historyDb.push({
         role: "model",
@@ -392,7 +456,7 @@ export class VoiceChatService {
 
     const accTokens = { promptTokens, completionTokens, totalTokens };
     try {
-      await this.aiSessionService.saveChatRound(agentId, sessionId, historyDb, messages, accTokens, null, durationSeconds, true);
+      await this.aiSessionService.saveChatRound(agentId, sessionId, historyDb, messages, accTokens, null, durationSeconds, false);
       console.log(`[VOICE] Round saved successfully for ${sessionId} - duration=${durationSeconds}s`);
       
       // Also increment usage in DB
@@ -423,47 +487,8 @@ export class VoiceChatService {
   async createEphemeralToken(
     systemInstruction: string,
     tools: Array<{ function_declarations: FunctionDeclaration[] }>,
-  ): Promise<{ token: string; expireTime: string }> {
-    const ai = new GoogleGenAI({ apiKey: this.apiKey, apiVersion: "v1alpha" });
-    const now = Date.now();
-    const expireTime = new Date(now + 10 * 60 * 1000).toISOString();
-    const newSessionExpireTime = new Date(now + 60 * 1000).toISOString();
-
-    // SDK config uses camelCase (functionDeclarations), unlike the snake_case
-    // REST shape (function_declarations) that initSession returns to Flutter
-    // and that Flutter forwards as-is in the raw WebSocket `setup` message.
-    const sdkTools: ToolListUnion = tools.map((t) => ({ functionDeclarations: t.function_declarations }));
-
-    const authToken = await ai.authTokens.create({
-      config: {
-        uses: 1,
-        expireTime,
-        newSessionExpireTime,
-        liveConnectConstraints: {
-          model: `models/${this.model}`,
-          config: {
-            responseModalities: [Modality.AUDIO],
-            systemInstruction: { parts: [{ text: systemInstruction }] },
-            tools: sdkTools,
-            inputAudioTranscription: {},
-            outputAudioTranscription: {},
-            realtimeInputConfig: {
-              automaticActivityDetection: {
-                startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-                endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
-                prefixPaddingMs: 200,
-                silenceDurationMs: 500,
-              },
-            },
-          },
-        },
-        httpOptions: { apiVersion: "v1alpha" },
-      },
-    });
-
-    if (!authToken.name) {
-      throw new Error("Gemini no devolvió un token efímero.");
-    }
-    return { token: authToken.name, expireTime };
+  ): Promise<{ token: string; url: string; headers: Record<string, string> | null; expireTime: string; model: string }> {
+    // Delegate token creation to the underlying provider (Gemini or Vertex AI)
+    return await this.aiProvider.createEphemeralToken(LIVE_AUDIO_MODEL, systemInstruction, tools);
   }
 }

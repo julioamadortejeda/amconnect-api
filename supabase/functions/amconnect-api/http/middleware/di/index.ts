@@ -22,6 +22,7 @@ import { StorageService } from "../../../modules/storage/storage.service.ts";
 import { StorageRepository } from "../../../modules/storage/storage.repository.ts";
 import { GoogleGenAiProvider } from "../../../providers/google_genai.provider.ts";
 import { GeminiProvider } from "../../../providers/gemini.provider.ts";
+import { GeminiTtsProvider } from "../../../providers/gemini_tts.provider.ts";
 import { VoiceChatService } from "../../../features/ai_chat/voice_chat.service.ts";
 import { LIVE_AUDIO_MODEL } from "../../../shared/config.ts";
 import { VertexAiProvider } from "../../../providers/vertex_ai.provider.ts";
@@ -31,6 +32,7 @@ import { EmbeddingsRepository } from "../../../features/rag/embeddings.repositor
 import { RagService } from "../../../features/rag/rag.service.ts";
 import { RagRepository } from "../../../features/rag/rag.repository.ts";
 import { AiChatService } from "../../../features/ai_chat/ai_chat.service.ts";
+import { ChatTtsService } from "../../../features/ai_chat/chat_tts.service.ts";
 import { AiSessionService } from "../../../features/ai_chat/ai_session.service.ts";
 import { AiSessionRepository } from "../../../features/ai_chat/ai_session.repository.ts";
 import { TextSplitter } from "../../../shared/text_splitter.ts";
@@ -110,16 +112,29 @@ export const injectServices = async (c: Context, next: Next) => {
   let embeddingsService: EmbeddingsService | undefined;
   let ragService: RagService | undefined;
   let aiChatService: AiChatService | undefined;
+  let chatTtsService: ChatTtsService | undefined;
   let voiceChatService: VoiceChatService | undefined;
   let docProvider: GoogleGenAiProvider | undefined;
   let documentProcessorService: DocumentProcessorService | undefined;
   let knowledgeIngestionService: KnowledgeIngestionService | undefined;
   let policyIngestionService: PolicyIngestionService | undefined;
   let confirmPolicyService: ConfirmPolicyService | undefined;
+  let ttsProvider: GeminiTtsProvider | undefined;
 
   const getGeminiProvider = () => {
     if (!geminiProvider) geminiProvider = buildAiProvider(promptService);
     return geminiProvider;
+  };
+
+  // TTS del chat de voz turn-based: siempre AI Studio, independiente de
+  // AI_BACKEND (mismo criterio que la voz Live API).
+  const getTtsProvider = () => {
+    if (!ttsProvider) {
+      const apiKey = Deno.env.get("GEMINI_API_KEY");
+      if (!apiKey) throw new AppError("GEMINI_API_KEY no configurada.", 500);
+      ttsProvider = new GeminiTtsProvider(apiKey);
+    }
+    return ttsProvider;
   };
 
   const getEmbeddingProvider = () => {
@@ -167,13 +182,17 @@ export const injectServices = async (c: Context, next: Next) => {
     return aiChatService;
   };
 
+  const getChatTtsService = () => {
+    if (!chatTtsService) {
+      chatTtsService = new ChatTtsService(getAiChatService(), getTtsProvider(), aiSessionService);
+    }
+    return chatTtsService;
+  };
+
   const getVoiceChatService = () => {
     if (!voiceChatService) {
-      const apiKey = Deno.env.get("GEMINI_API_KEY");
-      if (!apiKey) throw new AppError("GEMINI_API_KEY no configurada.", 500);
       voiceChatService = new VoiceChatService(
-        apiKey,
-        LIVE_AUDIO_MODEL,
+        getGeminiProvider(),
         {
           contactService,
           policyService,
@@ -257,6 +276,9 @@ export const injectServices = async (c: Context, next: Next) => {
     },
     get aiChatService() {
       return getAiChatService();
+    },
+    get chatTtsService() {
+      return getChatTtsService();
     },
     get documentProcessorService() {
       return getDocumentProcessorService();
