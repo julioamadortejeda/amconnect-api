@@ -24,8 +24,8 @@ begin
   -- 1. Logs de error (FK SET NULL, borrar para limpiar completamente)
   delete from error_logs where agent_id = p_agent_id;
 
-  -- 2. Uso de ingesta (referencia sessions y document_metadata — borrar primero)
-  delete from ai_ingestion_usage where agent_id = p_agent_id;
+  -- 2. Uso de tokens (referencia sessions, document_metadata y agent_notes — borrar primero)
+  delete from tokens_usage where agent_id = p_agent_id;
 
   -- 3. Sesiones de IA (cascadea → ai_chat_messages + ai_pending_tasks)
   delete from ai_sessions where agent_id = p_agent_id;

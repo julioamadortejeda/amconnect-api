@@ -166,6 +166,7 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
         this.embeddingProvider.model,
         embeddingTotalTokens,
         embeddingCount,
+        noteId,
       );
 
       if (duplicateInfo) {

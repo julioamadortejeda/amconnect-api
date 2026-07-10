@@ -50,6 +50,10 @@ export interface IAiProvider {
     tools: Record<string, unknown>[],
     systemInstruction?: string,
     previousInteractionId?: string,
+    // Historial completo en formato generateContent. El Interactions API no lo
+    // necesita (usa previousInteractionId), pero Vertex no soporta interactions
+    // y su implementación delega a generateContent, que sí requiere historial.
+    history?: AiMessage[],
   ): Promise<AiGenerationResult & { interactionId?: string }>;
 
 

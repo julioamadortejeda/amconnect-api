@@ -49,8 +49,9 @@ import { NoteService } from "../../../modules/note/note.service.ts";
 
 // Switch único gratis ↔ pago: AI_BACKEND=studio (default, Gemini API con
 // GEMINI_API_KEY) | vertex (Vertex AI con VERTEX_API_KEY). Aplica a chat,
-// documentos y embeddings. La voz (Live API) queda SIEMPRE en AI Studio:
-// los tokens efímeros que usa la app son un feature v1alpha exclusivo de Studio.
+// documentos, embeddings y voz. En vertex la voz usa el WebSocket de Vertex
+// Live con token OAuth de la service account (región VERTEX_LIVE_LOCATION,
+// default us-central1); en studio usa tokens efímeros v1alpha.
 function useVertexBackend(): boolean {
   return Deno.env.get("AI_BACKEND")?.trim().toLowerCase() === "vertex";
 }

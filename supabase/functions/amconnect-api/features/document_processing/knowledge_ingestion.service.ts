@@ -145,6 +145,7 @@ export class KnowledgeIngestionService {
         this.embeddingProvider.model,
         embeddingTotalTokens,
         embeddingCount,
+        noteId,
       );
 
       await this.aiSessionService.updateMetadata(sessionId, {
@@ -239,6 +240,7 @@ export class KnowledgeIngestionService {
           this.embeddingProvider.model,
           docResult.embeddingTotalTokens,
           docResult.embeddingCount,
+          docResult.noteId,
         ),
         this.aiSessionService.updateMetadata(sessionId, {
           noteId: docResult.noteId,

@@ -286,39 +286,30 @@ export type Database = {
       ai_chat_messages: {
         Row: {
           agent_id: string
-          completion_tokens: number
           content: string | null
           created_at: string
           id: string
           interaction_id: string | null
-          prompt_tokens: number
           role: string
           session_id: string
-          total_tokens: number
         }
         Insert: {
           agent_id: string
-          completion_tokens?: number
           content?: string | null
           created_at?: string
           id?: string
           interaction_id?: string | null
-          prompt_tokens?: number
           role: string
           session_id: string
-          total_tokens?: number
         }
         Update: {
           agent_id?: string
-          completion_tokens?: number
           content?: string | null
           created_at?: string
           id?: string
           interaction_id?: string | null
-          prompt_tokens?: number
           role?: string
           session_id?: string
-          total_tokens?: number
         }
         Relationships: [
           {
@@ -330,80 +321,6 @@ export type Database = {
           },
           {
             foreignKeyName: "ai_chat_messages_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "ai_sessions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ai_ingestion_usage: {
-        Row: {
-          agent_id: string
-          cached_tokens: number
-          completion_tokens: number
-          created_at: string
-          document_metadata_id: string | null
-          id: string
-          item_count: number | null
-          model_name: string
-          operation: string
-          prompt_tokens: number
-          session_id: string | null
-          total_tokens: number
-        }
-        Insert: {
-          agent_id: string
-          cached_tokens?: number
-          completion_tokens?: number
-          created_at?: string
-          document_metadata_id?: string | null
-          id?: string
-          item_count?: number | null
-          model_name: string
-          operation: string
-          prompt_tokens?: number
-          session_id?: string | null
-          total_tokens?: number
-        }
-        Update: {
-          agent_id?: string
-          cached_tokens?: number
-          completion_tokens?: number
-          created_at?: string
-          document_metadata_id?: string | null
-          id?: string
-          item_count?: number | null
-          model_name?: string
-          operation?: string
-          prompt_tokens?: number
-          session_id?: string | null
-          total_tokens?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ai_ingestion_usage_agent_id_fkey"
-            columns: ["agent_id"]
-            isOneToOne: false
-            referencedRelation: "agents"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ai_ingestion_usage_document_metadata_id_fkey"
-            columns: ["document_metadata_id"]
-            isOneToOne: false
-            referencedRelation: "document_metadata"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ai_ingestion_usage_model_name_fkey"
-            columns: ["model_name"]
-            isOneToOne: false
-            referencedRelation: "ai_models"
-            referencedColumns: ["model_name"]
-          },
-          {
-            foreignKeyName: "ai_ingestion_usage_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "ai_sessions"
@@ -496,25 +413,16 @@ export type Database = {
         Row: {
           agent_id: string
           cached_tokens: number
-          completion_tokens: number
           created_at: string
           duration_seconds: number | null
-          embedding_count: number
           embedding_model_name: string | null
-          embedding_total_tokens: number
-          extraction_cached_tokens: number
-          extraction_completion_tokens: number
-          extraction_prompt_tokens: number
-          extraction_total_tokens: number
           history: Json | null
           id: string
           is_billable: boolean
           last_interaction_id: string | null
           metadata: Json | null
           model_name: string | null
-          prompt_tokens: number
           status: string
-          total_tokens: number
           trigger_message: string | null
           tts_completion_tokens: number
           tts_model_name: string | null
@@ -526,25 +434,16 @@ export type Database = {
         Insert: {
           agent_id: string
           cached_tokens?: number
-          completion_tokens?: number
           created_at?: string
           duration_seconds?: number | null
-          embedding_count?: number
           embedding_model_name?: string | null
-          embedding_total_tokens?: number
-          extraction_cached_tokens?: number
-          extraction_completion_tokens?: number
-          extraction_prompt_tokens?: number
-          extraction_total_tokens?: number
           history?: Json | null
           id?: string
           is_billable?: boolean
           last_interaction_id?: string | null
           metadata?: Json | null
           model_name?: string | null
-          prompt_tokens?: number
           status?: string
-          total_tokens?: number
           trigger_message?: string | null
           tts_completion_tokens?: number
           tts_model_name?: string | null
@@ -556,25 +455,16 @@ export type Database = {
         Update: {
           agent_id?: string
           cached_tokens?: number
-          completion_tokens?: number
           created_at?: string
           duration_seconds?: number | null
-          embedding_count?: number
           embedding_model_name?: string | null
-          embedding_total_tokens?: number
-          extraction_cached_tokens?: number
-          extraction_completion_tokens?: number
-          extraction_prompt_tokens?: number
-          extraction_total_tokens?: number
           history?: Json | null
           id?: string
           is_billable?: boolean
           last_interaction_id?: string | null
           metadata?: Json | null
           model_name?: string | null
-          prompt_tokens?: number
           status?: string
-          total_tokens?: number
           trigger_message?: string | null
           tts_completion_tokens?: number
           tts_model_name?: string | null
@@ -1581,6 +1471,87 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      tokens_usage: {
+        Row: {
+          agent_id: string
+          cached_tokens: number
+          completion_tokens: number
+          created_at: string
+          document_metadata_id: string | null
+          id: string
+          model_name: string
+          note_id: string | null
+          prompt_tokens: number
+          session_id: string | null
+          source: string
+          total_tokens: number
+        }
+        Insert: {
+          agent_id: string
+          cached_tokens?: number
+          completion_tokens?: number
+          created_at?: string
+          document_metadata_id?: string | null
+          id?: string
+          model_name: string
+          note_id?: string | null
+          prompt_tokens?: number
+          session_id?: string | null
+          source: string
+          total_tokens?: number
+        }
+        Update: {
+          agent_id?: string
+          cached_tokens?: number
+          completion_tokens?: number
+          created_at?: string
+          document_metadata_id?: string | null
+          id?: string
+          model_name?: string
+          note_id?: string | null
+          prompt_tokens?: number
+          session_id?: string | null
+          source?: string
+          total_tokens?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tokens_usage_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tokens_usage_document_metadata_id_fkey"
+            columns: ["document_metadata_id"]
+            isOneToOne: false
+            referencedRelation: "document_metadata"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tokens_usage_model_name_fkey"
+            columns: ["model_name"]
+            isOneToOne: false
+            referencedRelation: "ai_models"
+            referencedColumns: ["model_name"]
+          },
+          {
+            foreignKeyName: "tokens_usage_note_id_fkey"
+            columns: ["note_id"]
+            isOneToOne: false
+            referencedRelation: "agent_notes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tokens_usage_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "ai_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

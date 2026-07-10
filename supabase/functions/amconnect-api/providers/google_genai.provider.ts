@@ -84,6 +84,7 @@ export class GoogleGenAiProvider implements IAiProvider {
     tools: Record<string, unknown>[],
     systemInstruction?: string,
     previousInteractionId?: string,
+    _history?: AiMessage[],
   ): Promise<AiGenerationResult & { interactionId?: string }> {
     // deno-lint-ignore no-explicit-any
     let response: any;

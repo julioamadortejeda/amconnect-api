@@ -1,4 +1,4 @@
-import type { IUsageRepository } from "./usage.repository.ts";
+import type { IUsageRepository, TokenUsageParams } from "./usage.repository.ts";
 import { AppError, QuotaExceededError, internalError } from "../../shared/errors.ts";
 
 export interface MonthlyUsage {
@@ -61,5 +61,9 @@ export class UsageService {
 
   async decrementIngestion(agentId: string): Promise<void> {
     await this.repository.decrementUsage(agentId, "ingestion");
+  }
+
+  async logTokenUsage(params: TokenUsageParams): Promise<void> {
+    await this.repository.logTokenUsage(params);
   }
 }

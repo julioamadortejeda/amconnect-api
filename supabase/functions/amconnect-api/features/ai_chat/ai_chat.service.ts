@@ -161,6 +161,7 @@ export class AiChatService {
         currentTools,
         systemInstruction,
         lastInteractionId,
+        history,
       );
 
       if (result.interactionId) {
