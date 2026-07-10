@@ -2,10 +2,11 @@ import { GoogleGenAI } from "@google/genai";
 import { BatchEmbeddingResult, EmbeddingResult, IEmbeddingProvider } from "../core/embedding_provider.interface.ts";
 import { AiError } from "../shared/errors.ts";
 import { getGoogleCloudAccessToken } from "../shared/google_oauth.ts";
+import { EMBEDDING_MODEL } from "../shared/config.ts";
 
 export class GeminiEmbeddingProvider implements IEmbeddingProvider {
   private ai: GoogleGenAI;
-  readonly model = "gemini-embedding-2";
+  readonly model = EMBEDDING_MODEL;
   private outputDimensionality: number;
   private useVertex: boolean;
 

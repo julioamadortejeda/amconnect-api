@@ -24,8 +24,9 @@ import { GoogleGenAiProvider } from "../../../providers/google_genai.provider.ts
 import { GeminiProvider } from "../../../providers/gemini.provider.ts";
 import { GeminiTtsProvider } from "../../../providers/gemini_tts.provider.ts";
 import { VoiceChatService } from "../../../features/ai_chat/voice_chat.service.ts";
-import { LIVE_AUDIO_MODEL } from "../../../shared/config.ts";
-import { VertexAiProvider } from "../../../providers/vertex_ai.provider.ts";
+import { EMBEDDING_MODEL, LIVE_AUDIO_MODEL } from "../../../shared/config.ts";
+import { TTS_MODEL } from "../../../providers/gemini_tts.provider.ts";
+import { setupVertexFetchInterceptor, VertexAiProvider } from "../../../providers/vertex_ai.provider.ts";
 import { GeminiEmbeddingProvider } from "../../../providers/gemini_embedding.provider.ts";
 import { EmbeddingsService } from "../../../features/rag/embeddings.service.ts";
 import { EmbeddingsRepository } from "../../../features/rag/embeddings.repository.ts";
@@ -76,9 +77,35 @@ function buildAiProvider(promptService?: PromptService): GoogleGenAiProvider {
     : new GeminiProvider(apiKey, AI_MODEL, promptService);
 }
 
+// Los modelos de env DEBEN existir y estar activos en ai_models (catálogo de
+// precios): las FKs de ai_sessions/tokens_usage rechazarían la sesión y los
+// costos se calcularían mal. Se valida una vez por isolate al primer request.
+let modelCatalogChecked = false;
+async function checkModelCatalog(supabase: SupabaseClient): Promise<void> {
+  if (modelCatalogChecked) return;
+  const required = [...new Set([AI_MODEL, LIVE_AUDIO_MODEL, TTS_MODEL, EMBEDDING_MODEL])];
+  const { data, error } = await supabase
+    .from("ai_models")
+    .select("model_name")
+    .in("model_name", required)
+    .eq("is_active", true);
+  if (error) throw new AppError("No se pudo validar el catálogo de modelos (ai_models).", 500);
+  const found = new Set((data ?? []).map((r: { model_name: string }) => r.model_name));
+  const missing = required.filter((m) => !found.has(m));
+  if (missing.length > 0) {
+    throw new AppError(
+      `Modelos configurados sin fila activa en ai_models: ${missing.join(", ")}. Agrégalos al catálogo (migración) o corrige el env.`,
+      500,
+    );
+  }
+  modelCatalogChecked = true;
+}
+
 export const injectServices = async (c: Context, next: Next) => {
   const supabase: SupabaseClient = c.get("supabase");
   const agentId: string = c.get("agent_id");
+
+  await checkModelCatalog(supabase);
 
   // Usage + Subscription
   const usageRepository = new UsageRepository(supabase);
@@ -127,13 +154,13 @@ export const injectServices = async (c: Context, next: Next) => {
     return geminiProvider;
   };
 
-  // TTS del chat de voz turn-based: siempre AI Studio, independiente de
-  // AI_BACKEND (mismo criterio que la voz Live API).
+  // TTS del chat de voz turn-based: sigue AI_BACKEND como todo lo demás. En
+  // vertex necesita el interceptor de fetch instalado (OAuth + URL con
+  // proyecto) por si el TTS se usa antes de construir el VertexAiProvider.
   const getTtsProvider = () => {
     if (!ttsProvider) {
-      const apiKey = Deno.env.get("GEMINI_API_KEY");
-      if (!apiKey) throw new AppError("GEMINI_API_KEY no configurada.", 500);
-      ttsProvider = new GeminiTtsProvider(apiKey);
+      if (useVertexBackend()) setupVertexFetchInterceptor();
+      ttsProvider = new GeminiTtsProvider(getBackendApiKey(), useVertexBackend());
     }
     return ttsProvider;
   };

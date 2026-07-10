@@ -3,6 +3,7 @@ import { AppError } from "../../shared/errors.ts";
 import { VoiceChatService } from "../../features/ai_chat/voice_chat.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
 import { resolveTimezone } from "../../shared/datetime.ts";
+import { AI_BACKEND_NAME } from "../../shared/config.ts";
 
 export class VoiceChatController {
   static async connect(c: Context): Promise<Response> {
@@ -65,7 +66,7 @@ export class VoiceChatController {
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
     const result = await voiceChatService.createEphemeralToken(systemInstruction, tools);
-    return c.json(result);
+    return c.json({ ...result, aiBackend: AI_BACKEND_NAME });
   }
 
   static async initSession(c: Context): Promise<Response> {

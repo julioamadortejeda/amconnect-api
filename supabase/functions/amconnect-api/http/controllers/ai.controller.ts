@@ -9,6 +9,7 @@ import { ConfirmPolicySchema } from "../../features/document_processing/confirm_
 import { UsageService } from "../../modules/subscription/usage.service.ts";
 import { StorageService } from "../../modules/storage/storage.service.ts";
 import { resolveTimezone } from "../../shared/datetime.ts";
+import { AI_BACKEND_NAME, AI_MODEL } from "../../shared/config.ts";
 import {
   AiChatSchema,
   AiIngestFileSchema,
@@ -28,7 +29,7 @@ export class AiController {
       const timezone = resolveTimezone(c.req.header("x-timezone"), c.req.header("x-timezone-offset"));
       const service: AiChatService = c.get("services").aiChatService;
       const response = await service.processMessage(message, agentId, sessionId, timezone, context, "chat");
-      return sendSuccess(c, response);
+      return sendSuccess(c, { ...response, aiBackend: AI_BACKEND_NAME });
     } catch (err) {
       if (err instanceof AiProviderError) {
         // Session already marked inside processMessage; only decrement usage
@@ -54,7 +55,7 @@ export class AiController {
       const timezone = resolveTimezone(c.req.header("x-timezone"), c.req.header("x-timezone-offset"));
       const service: ChatTtsService = c.get("services").chatTtsService;
       const response = await service.processMessage(message, agentId, sessionId, timezone, context);
-      return sendSuccess(c, response);
+      return sendSuccess(c, { ...response, aiBackend: AI_BACKEND_NAME });
     } catch (err) {
       if (err instanceof AiProviderError) {
         // Session already marked inside processMessage; only decrement usage
@@ -144,6 +145,7 @@ export class AiController {
     const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
       triggerMessage: "policy_ingestion",
       sessionType: "policy_ingestion",
+      modelName: AI_MODEL,
     });
     try {
       const ingestResult = await policyIngestionService.extract(agentId, sessionId, {
@@ -205,6 +207,7 @@ export class AiController {
     const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
       triggerMessage: "file_ingestion",
       sessionType: "knowledge_ingestion",
+      modelName: AI_MODEL,
     });
     try {
       const { noteId, responseMessage } = await knowledgeIngestionService.ingestFile(agentId, sessionId, {
@@ -240,6 +243,7 @@ export class AiController {
     const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
       triggerMessage: "text_ingestion",
       sessionType: "knowledge_ingestion",
+      modelName: AI_MODEL,
     });
     try {
       const { noteId, responseMessage } = await knowledgeIngestionService.ingestText(agentId, sessionId, {

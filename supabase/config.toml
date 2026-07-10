@@ -392,3 +392,8 @@ s3_region = "env(S3_REGION)"
 s3_access_key = "env(S3_ACCESS_KEY)"
 # Configures AWS_SECRET_ACCESS_KEY for S3 bucket
 s3_secret_key = "env(S3_SECRET_KEY)"
+
+[functions.amconnect-api]
+# El gateway NO valida JWT: la app manda JWT real (lo valida auth.middleware)
+# y el cron de notificaciones manda NOTIFICATION_SECRET (lo valida su endpoint).
+verify_jwt = false

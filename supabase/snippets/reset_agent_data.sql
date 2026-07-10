@@ -18,7 +18,7 @@
 
 do $$
 declare
-  p_agent_id uuid := 'e83559b7-1da5-4076-97ac-609b3dcb2212';
+  p_agent_id uuid := 'de071903-685a-4485-bcc6-0f28a4159edf';
 begin
 
   -- 1. Logs de error (FK SET NULL, borrar para limpiar completamente)

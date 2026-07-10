@@ -183,7 +183,7 @@ export class VoiceChatService {
         sessionId = await this.aiSessionService.createSession(agentId, {
           triggerMessage: "[voice_session]",
           sessionType: "voice",
-          modelName: this.aiProvider.model,
+          modelName: LIVE_AUDIO_MODEL,
         });
         console.log(`[VOICE] Session created: ${sessionId}`);
       }
@@ -337,7 +337,7 @@ export class VoiceChatService {
       sessionId = await this.aiSessionService.createSession(agentId, {
         triggerMessage: "[voice_session]",
         sessionType: "voice",
-        modelName: this.aiProvider.model,
+        modelName: LIVE_AUDIO_MODEL,
       });
       console.log(`[VOICE] REST Init - Session created: ${sessionId}`);
     }

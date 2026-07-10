@@ -8,7 +8,9 @@ import { AiError } from "../shared/errors.ts";
 // Interceptor global para redirección y autenticación OAuth2 en Vertex AI
 let isInterceptorSetup = false;
 
-function setupVertexFetchInterceptor() {
+// Exportado para que el DI lo instale también cuando solo se usa TTS en modo
+// vertex (el TTS no pasa por VertexAiProvider). Idempotente.
+export function setupVertexFetchInterceptor() {
   if (isInterceptorSetup) return;
   isInterceptorSetup = true;
 
@@ -123,7 +125,10 @@ export class VertexAiProvider extends GoogleGenAiProvider {
     _systemInstruction: string,
     _tools: Record<string, unknown>[],
   ): Promise<{ token: string; url: string; headers: Record<string, string> | null; expireTime: string; model: string }> {
-    const projectId = Deno.env.get("VERTEX_PROJECT_ID") ?? "";
+    const projectId = Deno.env.get("VERTEX_PROJECT_ID");
+    if (!projectId) {
+      throw new Error("VERTEX_PROJECT_ID no configurado — requerido para la voz por Vertex (fail closed).");
+    }
     // Región propia para Live API: los modelos live NO están en `global`
     // (donde sí vive el modelo de texto — VERTEX_LOCATION); verificado
     // 2026-07-08: setupComplete solo en us-central1.

@@ -1,11 +1,12 @@
 import type { IAiSessionRepository, TokenUsageRow, ChatMessageRow, PendingTaskRow } from "./ai_session.repository.ts";
-import { AI_MODEL } from "../../shared/config.ts";
 import { AppError } from "../../shared/errors.ts";
 
 export interface CreateSessionInput {
   triggerMessage: string;
   sessionType: "chat" | "chat_tts" | "knowledge_ingestion" | "policy_ingestion" | "voice";
-  modelName?: string | null;
+  // Obligatorio y sin fallback: cada caller declara el modelo que realmente
+  // usará (AI_MODEL, LIVE_AUDIO_MODEL...) — de esto dependen los costos.
+  modelName: string;
   embeddingModelName?: string | null;
 }
 
@@ -35,7 +36,7 @@ export class AiSessionService {
       triggerMessage: input.triggerMessage,
       history: [],
       type: input.sessionType,
-      modelName: input.modelName ?? AI_MODEL,
+      modelName: input.modelName,
       embeddingModelName: input.embeddingModelName,
     });
   }
@@ -143,7 +144,14 @@ export class AiSessionService {
     }));
 
     const sessionCtx = await this.repository.getSessionContext(sessionId).catch(() => null);
-    const modelName = sessionCtx?.modelName ?? "gemini-3.1-flash-lite";
+    // Sin fallback: costear tokens con el modelo equivocado es peor que fallar.
+    const modelName = sessionCtx?.modelName;
+    if (!modelName) {
+      throw new AppError(
+        "La sesión no tiene modelo registrado — no se puede costear el uso de tokens.",
+        500,
+      );
+    }
     const source = sessionCtx?.type === "voice" || sessionCtx?.type === "chat_voice" ? "chat_voice" : "chat_text";
 
     const tokenUsageRows: TokenUsageRow[] = [];

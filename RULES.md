@@ -36,6 +36,7 @@ Route → Controller → Service → Repository → Supabase
 - **Nunca** usar `SUPABASE_SERVICE_ROLE_KEY` en services. Única excepción: el endpoint interno de cron (`notifications/send-due`).
 - Si un insert necesita el `id` de vuelta y la tabla no tiene policy de SELECT (ej: `error_logs`), genera el UUID en código (`crypto.randomUUID()`) e insértalo — `insert().select()` falla con RLS sin SELECT.
 - Convención SQL: funciones sin prefijo (`search_contacts`), triggers `tg_`, funciones de trigger `tgfn_`.
+- **Config por entorno que leen funciones SQL (cron)**: la URL del proyecto y el `NOTIFICATION_SECRET` viven en **Vault** en producción (secrets `supabase_url` y `notification_secret`, creados con `vault.create_secret`) y en `app.settings.*` solo en local — en Supabase Cloud `ALTER DATABASE/ROLE ... SET app.settings.*` da 42501. NUNCA hardcodear estos valores en migraciones; el `notification_secret` de Vault debe coincidir con la env `NOTIFICATION_SECRET` de la Edge Function. Acceso siempre vía `get_supabase_url()` / `get_notification_secret()` (leen Vault → setting).
 - Códigos de catálogo (`code`, `name`) SIEMPRE en inglés (`ACTIVE`, `LIFE`, `PAYMENT`). La app traduce con `CatalogL10n`.
 
 ## 4. Prompts de IA
@@ -59,6 +60,40 @@ Route → Controller → Service → Repository → Supabase
 
 - **Prohibido** dejar `debugger;`, código comentado muerto o `console.log` de depuración. Logs operativos permitidos: `console.error`/`console.warn` con prefijo `[TAG]` (ej: `[VOICE]`).
 - **Prohibidos los secretos con fallback**: `Deno.env.get("X") ?? "valor-default"` para tokens/secrets NO — si falta la env var, fallar con error 500 (fail closed).
+- **Prohibidos los modelos con fallback**: los nombres de modelo (`GEMINI_MODEL`, `GEMINI_LIVE_MODEL`/`VERTEX_LIVE_MODEL`) se leen con `requireEnv` en `shared/config.ts` — sin defaults. Excepción: `EMBEDDING_MODEL` va hardcodeado a propósito (cambiarlo exige reindexar vectores). El DI valida al primer request que cada modelo exista `is_active` en `ai_models`; toda sesión declara `modelName` explícito (`CreateSessionInput` lo exige).
 - Lógica repetida en 2+ lugares → extraer a `shared/` (ej: cálculo de timezone/fecha local, ejecución de skills con validación).
 - `deno.json` siempre con `"lock": false`.
 - No usar RPCs de Postgres para lo que se resuelve en TypeScript.
+
+## 7. Configuración y Cambio de Proveedor/Modelo de IA
+
+- **Cambio de Backend (AI Studio vs Vertex AI)**:
+  - Controlado por la variable de entorno `AI_BACKEND` (`studio` o `vertex`).
+  - `AI_BACKEND=studio` (Google AI Studio): Requiere configurar `GEMINI_API_KEY`. Utiliza llamadas directas del SDK de Google GenAI sin interceptores.
+  - `AI_BACKEND=vertex` (Google Cloud Vertex AI): Requiere configurar `VERTEX_API_KEY` y `FIREBASE_SERVICE_ACCOUNT`. El proveedor intercepta automáticamente las peticiones de red para autenticar mediante OAuth2 usando la cuenta de servicio y reescribir las URLs al formato regionalizado de GCP.
+- **Cambio de Modelo de Texto**:
+  - Controlado por la variable de entorno `GEMINI_MODEL`.
+  - Sin default (fail closed): si no está definida, el boot truena con `[CONFIG] GEMINI_MODEL no está configurada`.
+  - Cualquier modelo nuevo que se desee usar debe estar previamente registrado y `is_active` en la tabla `ai_models` — el DI lo valida al primer request y rechaza con error claro si falta.
+
+### Mapa de modelos por flujo (verificado 2026-07-09)
+
+| Flujo | Modelo | Studio usa | Vertex usa |
+|---|---|---|---|
+| Chat texto / cerebro walkie / confirmación pólizas | `GEMINI_MODEL` (gemini-3.1-flash-lite) | Interactions API | generateContent (`global`) |
+| Clasificador de intención | `GEMINI_MODEL` | generateContent | generateContent (`global`) |
+| Extracción de documentos | `GEMINI_MODEL` | generateContent | generateContent (`global`) |
+| Embeddings / RAG | `EMBEDDING_MODEL` (const, gemini-embedding-2) | SDK embedContent | REST directo (región `us`) |
+| TTS walkie | `TTS_MODEL` (const, gemini-3.1-flash-tts-preview) | generateContent | generateContent (`global`) |
+| Voz Live | ⚠️ único que difiere: `GEMINI_LIVE_MODEL` vs `VERTEX_LIVE_MODEL` | token efímero v1alpha | OAuth WS (`us-central1`) |
+| STT walkie | ninguno (on-device) | — | — |
+
+**Reglas del mapa:** un solo modelo "pensante" para todo; embeddings/TTS fijos en código (cambiarlos tiene consecuencias — embeddings exige reindexar); la única diferencia de modelo entre backends es la voz Live; lo demás que cambia entre backends es transporte (API/auth/región), encapsulado en los providers — NO agregar condicionales por backend fuera de ellos. `ai_sessions.model_name` registra lo que realmente corrió. Vertex NO soporta Interactions API (verificado 2026-07-09; re-probar ~agosto).
+- **Aplicación de Cambios**:
+  - En desarrollo local, modifica las variables en `supabase/.env.local`. Para que Supabase recargue las nuevas variables de entorno, ejecuta `supabase functions serve` o reinicia el CLI con `supabase stop` y `supabase start`.
+  - En producción, actualiza las variables usando `supabase secrets set --env-file <archivo>` o desde el panel de control de Supabase.
+- **Cumplimiento Legal y Privacidad**:
+  - Cualquier cambio en la infraestructura, IA o persistencia de archivos debe respetar y mantener los requerimientos de la LFPDPPP detallados en [LFPDPPP_CHECKLIST.md](LFPDPPP_CHECKLIST.md) (ej. RLS en Storage, desactivación de logs de acceso a datos de Vertex en GCP, y ausencia de logs de prompts en texto plano).
+
+
+
