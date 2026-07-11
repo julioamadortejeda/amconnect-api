@@ -169,7 +169,7 @@ export const contactSkills: SkillDefinition[] = [
         finalNotes = appendNote(existing?.notes, args.notes as string);
       }
 
-      return await ctx.contactService.update(args.contact_id as string, {
+      const updated = await ctx.contactService.update(args.contact_id as string, {
         fullName: (args.full_name ?? args.name) as string | undefined,
         email: args.email as string | undefined,
         phone: args.phone as string | undefined,
@@ -180,6 +180,19 @@ export const contactSkills: SkillDefinition[] = [
         occupation: args.occupation as string | undefined,
         notes: finalNotes,
       });
+
+      if (!updated) return null;
+      return {
+        ...updated,
+        __skillMetadata: {
+          type: "contact_info",
+          contactId: updated.id,
+          fullName: updated.fullName,
+          email: updated.email,
+          phone: updated.phone,
+          isProspect: updated.isProspect,
+        },
+      };
     },
   },
   {

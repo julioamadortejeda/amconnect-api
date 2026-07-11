@@ -113,6 +113,7 @@ export const policySkills: SkillDefinition[] = [
     async execute({ query, policy_id }, ctx) {
       return await ctx.ragService.searchNotes(ctx.agentId, query as string, {
         policyId: policy_id as string | undefined,
+        threshold: 0.5,
       });
     },
   },
