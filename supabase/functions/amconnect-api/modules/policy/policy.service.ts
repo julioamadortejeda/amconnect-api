@@ -4,6 +4,7 @@ import { PolicyRepository } from "./policy.repository.ts";
 import { SupabaseRepository } from "../../core/base_repository.ts";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { objectToCamelCaseDeep, stripUndefined } from "../../shared/case_converter.ts";
+import { EmbeddingsService } from "../../features/rag/embeddings.service.ts";
 
 export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseDTO> {
   private participantRepo: SupabaseRepository<Record<string, unknown>>;
@@ -37,6 +38,10 @@ export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseD
       next_payment_date: data.nextPaymentDate ?? null,
       notes: data.notes ?? null,
       deductible: data.deductible ?? null,
+      coinsurance: data.coinsurance ?? null,
+      seniority_date: data.seniorityDate ?? null,
+      insured_item: data.insuredItem ?? null,
+      policy_version: data.policyVersion ?? null,
     };
   }
 
@@ -57,6 +62,10 @@ export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseD
       next_payment_date: data.nextPaymentDate,
       notes: data.notes,
       deductible: data.deductible,
+      coinsurance: data.coinsurance,
+      seniority_date: data.seniorityDate,
+      insured_item: data.insuredItem,
+      policy_version: data.policyVersion,
     });
   }
 
@@ -90,6 +99,22 @@ export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseD
   async getBeneficiaries(policyId: string) {
     const rows = await this.beneficiaryRepo.getByField("policy_id", policyId);
     return rows ? rows.map((r) => objectToCamelCaseDeep(r)) : null;
+  }
+
+  async addNote(
+    agentId: string,
+    policyId: string,
+    content: string,
+    embeddingsService: EmbeddingsService,
+  ): Promise<{ noteId: string }> {
+    // Lanza NotFoundError si la póliza no existe o no es del agente (RLS-scoped).
+    await this.getById(policyId);
+    return embeddingsService.saveDocument(agentId, {
+      content,
+      sourceType: "text",
+      policyId,
+      noteOrigin: "policy",
+    });
   }
 
   async getUpcomingExpirations(agentId: string, days = 30): Promise<PolicyResponseDTO[] | null> {

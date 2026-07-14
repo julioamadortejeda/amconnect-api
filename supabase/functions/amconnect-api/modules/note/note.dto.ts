@@ -15,6 +15,8 @@ export interface PolicyNoteRow {
   source_type: string;
   created_at: string;
   isObsolete: boolean;
+  content?: string | null;
+  summary?: string | null;
   document_metadata: { storage_path: string; file_name: string } | null;
 }
 

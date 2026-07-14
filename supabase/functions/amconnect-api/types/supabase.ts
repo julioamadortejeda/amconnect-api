@@ -898,6 +898,7 @@ export type Database = {
       policies: {
         Row: {
           agent_id: string
+          coinsurance: string | null
           contact_id: string
           created_at: string
           currency_id: string
@@ -905,15 +906,18 @@ export type Database = {
           deleted_at: string | null
           end_date: string | null
           id: string
+          insured_item: string | null
           is_active: boolean
           next_payment_date: string | null
           notes: string | null
           payment_frequency_id: string | null
           payment_method_id: string | null
           policy_number: string | null
+          policy_version: string | null
           premium: number | null
           product_id: string
           renewal_date: string | null
+          seniority_date: string | null
           start_date: string | null
           status_id: string
           sum_insured: number | null
@@ -921,6 +925,7 @@ export type Database = {
         }
         Insert: {
           agent_id: string
+          coinsurance?: string | null
           contact_id: string
           created_at?: string
           currency_id: string
@@ -928,15 +933,18 @@ export type Database = {
           deleted_at?: string | null
           end_date?: string | null
           id?: string
+          insured_item?: string | null
           is_active?: boolean
           next_payment_date?: string | null
           notes?: string | null
           payment_frequency_id?: string | null
           payment_method_id?: string | null
           policy_number?: string | null
+          policy_version?: string | null
           premium?: number | null
           product_id: string
           renewal_date?: string | null
+          seniority_date?: string | null
           start_date?: string | null
           status_id: string
           sum_insured?: number | null
@@ -944,6 +952,7 @@ export type Database = {
         }
         Update: {
           agent_id?: string
+          coinsurance?: string | null
           contact_id?: string
           created_at?: string
           currency_id?: string
@@ -951,15 +960,18 @@ export type Database = {
           deleted_at?: string | null
           end_date?: string | null
           id?: string
+          insured_item?: string | null
           is_active?: boolean
           next_payment_date?: string | null
           notes?: string | null
           payment_frequency_id?: string | null
           payment_method_id?: string | null
           policy_number?: string | null
+          policy_version?: string | null
           premium?: number | null
           product_id?: string
           renewal_date?: string | null
+          seniority_date?: string | null
           start_date?: string | null
           status_id?: string
           sum_insured?: number | null
@@ -1569,6 +1581,7 @@ export type Database = {
       }
       get_notification_secret: { Args: never; Returns: string }
       get_supabase_url: { Args: never; Returns: string }
+      get_vault_secret: { Args: { p_name: string }; Returns: string }
       increment_monthly_usage: {
         Args: { p_agent_id: string; p_field: string }
         Returns: Json

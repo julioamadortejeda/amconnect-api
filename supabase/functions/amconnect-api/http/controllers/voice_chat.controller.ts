@@ -77,6 +77,7 @@ export class VoiceChatController {
       body.timezoneOffset ?? c.req.header("x-timezone-offset"),
     );
     const resumeSessionId = body.sessionId ?? c.req.header("sessionId") ?? undefined;
+    const context = body.context ?? null;
 
     console.log(`[VOICE] initSession - body: ${JSON.stringify(body)} resumeSessionId: ${resumeSessionId}`);
 
@@ -84,7 +85,7 @@ export class VoiceChatController {
     await usageService.checkChatQuotaOnly(agentId);
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
-    const config = await voiceChatService.initSession(agentId, timezone, resumeSessionId);
+    const config = await voiceChatService.initSession(agentId, timezone, resumeSessionId, context);
 
     return c.json(config);
   }

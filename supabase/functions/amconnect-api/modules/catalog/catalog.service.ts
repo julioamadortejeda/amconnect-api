@@ -1,7 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BaseService } from "../../core/base_service.ts";
 import { SupabaseRepository } from "../../core/base_repository.ts";
-import { objectToCamelCaseDeep, objectToSnakeCase } from "../../shared/case_converter.ts";
+import { objectToCamelCaseDeep, objectToSnakeCase, toTitleCase } from "../../shared/case_converter.ts";
 
 // ─── Catálogo global — solo lectura ──────────────────────────────────────────
 
@@ -29,11 +29,19 @@ function makeAgentCatalogService(supabase: SupabaseClient, tableName: string, ag
     }
 
     protected override prepareForCreate(data: Partial<Record<string, unknown>>): Record<string, unknown> {
-      return { ...objectToSnakeCase(data as Record<string, unknown>), agent_id: agentId };
+      const payload = { ...data };
+      if (typeof payload.name === "string") {
+        payload.name = toTitleCase(payload.name);
+      }
+      return { ...objectToSnakeCase(payload as Record<string, unknown>), agent_id: agentId };
     }
 
     protected override prepareForUpdate(_id: string, data: Partial<Record<string, unknown>>): Record<string, unknown> {
-      return objectToSnakeCase(data as Record<string, unknown>);
+      const payload = { ...data };
+      if (typeof payload.name === "string") {
+        payload.name = toTitleCase(payload.name);
+      }
+      return objectToSnakeCase(payload as Record<string, unknown>);
     }
 
     override async search(query: string, _threshold?: number): Promise<Record<string, unknown>[] | null> {

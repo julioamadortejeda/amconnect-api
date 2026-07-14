@@ -19,6 +19,10 @@ export const PolicyRequestSchema = z.object({
   nextPaymentDate: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   deductible: z.string().optional().nullable(),
+  coinsurance: z.string().optional().nullable(),
+  seniorityDate: z.string().optional().nullable(),
+  insuredItem: z.string().optional().nullable(),
+  policyVersion: z.string().optional().nullable(),
 });
 
 export type PolicyRequestDTO = z.infer<typeof PolicyRequestSchema>;
@@ -41,6 +45,10 @@ export interface PolicyResponseDTO {
   nextPaymentDate: string | null;
   notes: string | null;
   deductible: string | null;
+  coinsurance: string | null;
+  seniorityDate: string | null;
+  insuredItem: string | null;
+  policyVersion: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -64,6 +72,13 @@ export const PolicyParticipantSchema = z.object({
   relationship: z.string().optional().nullable(),
 });
 export type PolicyParticipantDTO = z.infer<typeof PolicyParticipantSchema>;
+
+// ─── Notas manuales ───────────────────────────────────────────────────────────
+
+export const PolicyNoteCreateSchema = z.object({
+  content: z.string().min(1, "El campo 'content' es requerido."),
+});
+export type PolicyNoteCreateDTO = z.infer<typeof PolicyNoteCreateSchema>;
 
 // ─── Beneficiarios ────────────────────────────────────────────────────────────
 

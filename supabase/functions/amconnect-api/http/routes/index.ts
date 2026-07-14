@@ -73,6 +73,7 @@ apiRouter.post("/policies", PolicyController.create);
 apiRouter.patch("/policies/:id", PolicyController.update);
 apiRouter.delete("/policies/:id", PolicyController.remove);
 apiRouter.get("/policies/:id/notes", PolicyController.getNotes);
+apiRouter.post("/policies/:id/notes", PolicyController.addNote);
 apiRouter.post("/policies/:id/participants", PolicyController.addParticipant);
 apiRouter.post("/policies/:id/beneficiaries", PolicyController.addBeneficiary);
 apiRouter.delete("/notes/:id", PolicyController.deleteNote);

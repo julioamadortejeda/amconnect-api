@@ -14,6 +14,11 @@ const slimPolicy = (p: PolicyResponseDTO) => ({
   renewalDate: p.renewalDate,
   nextPaymentDate: p.nextPaymentDate,
   notes: p.notes,
+  deductible: p.deductible,
+  coinsurance: p.coinsurance,
+  seniorityDate: p.seniorityDate,
+  insuredItem: p.insuredItem,
+  policyVersion: p.policyVersion,
   product: p.product,
   status: p.status,
 });
@@ -96,6 +101,11 @@ export const policySkills: SkillDefinition[] = [
           renewalDate: policy.renewalDate,
           nextPaymentDate: policy.nextPaymentDate,
           statusName: policyAny.status?.name ?? "",
+          deductible: policy.deductible,
+          coinsurance: policy.coinsurance,
+          seniorityDate: policy.seniorityDate,
+          insuredItem: policy.insuredItem,
+          policyVersion: policy.policyVersion,
         },
       };
     },
@@ -137,6 +147,11 @@ export const policySkills: SkillDefinition[] = [
         payment_frequency: z.string().optional().describe("Payment frequency (e.g., 'Anual', 'Mensual', 'Semestral', 'Trimestral'). Defaults to 'Anual'"),
         payment_method: z.string().optional().describe("Payment method (e.g., 'Domiciliación', 'Transferencia Bancaria', 'Tarjeta de Crédito')"),
         notes: z.string().optional().describe("Additional notes"),
+        deductible: z.string().optional().describe("Deductible (amount or percentage, e.g. '10%' or '$5,000')"),
+        coinsurance: z.string().optional().describe("Coinsurance percentage (e.g. '10%'), common on GMM policies"),
+        seniority_date: z.string().optional().describe("Recognized seniority date (antigüedad reconocida), YYYY-MM-DD — common on GMM/Life policies, distinct from start_date"),
+        insured_item: z.string().optional().describe("Short label of the insured asset for Auto/Hogar/Mascotas policies (e.g. 'Suzuki Swift 2021 · ABC-123'). Leave empty for policies insuring a person."),
+        policy_version: z.string().optional().describe("Policy version or endorsement number"),
       }),
     },
     async execute(args, ctx) {
@@ -167,6 +182,11 @@ export const policySkills: SkillDefinition[] = [
         renewalDate: params.renewal_date,
         nextPaymentDate: params.next_payment_date,
         notes: params.notes,
+        deductible: params.deductible,
+        coinsurance: params.coinsurance,
+        seniorityDate: params.seniority_date,
+        insuredItem: params.insured_item,
+        policyVersion: params.policy_version,
       });
 
       return policy ? slimPolicy(policy) : null;
@@ -191,6 +211,11 @@ export const policySkills: SkillDefinition[] = [
         payment_frequency: z.string().optional().describe("New payment frequency"),
         payment_method: z.string().optional().describe("New payment method"),
         notes: z.string().optional(),
+        deductible: z.string().optional().describe("Deductible (amount or percentage, e.g. '10%' or '$5,000')"),
+        coinsurance: z.string().optional().describe("Coinsurance percentage (e.g. '10%'), common on GMM policies"),
+        seniority_date: z.string().optional().describe("Recognized seniority date (antigüedad reconocida), YYYY-MM-DD"),
+        insured_item: z.string().optional().describe("Short label of the insured asset (Auto/Hogar/Mascotas)"),
+        policy_version: z.string().optional().describe("Policy version or endorsement number"),
       }),
     },
     async execute(args, ctx) {
@@ -201,6 +226,9 @@ export const policySkills: SkillDefinition[] = [
       delete updates.currency;
       delete updates.payment_frequency;
       delete updates.payment_method;
+      if (params.seniority_date !== undefined) { updates.seniorityDate = params.seniority_date; delete updates.seniority_date; }
+      if (params.insured_item !== undefined) { updates.insuredItem = params.insured_item; delete updates.insured_item; }
+      if (params.policy_version !== undefined) { updates.policyVersion = params.policy_version; delete updates.policy_version; }
 
       if (params.status) {
         updates.statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "VIGENTE" });

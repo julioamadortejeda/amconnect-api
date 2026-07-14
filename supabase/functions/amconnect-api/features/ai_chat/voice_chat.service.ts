@@ -328,11 +328,25 @@ export class VoiceChatService {
     }
   }
 
-  async initSession(agentId: string, timezone: string, resumeSessionId?: string) {
+  async initSession(agentId: string, timezone: string, resumeSessionId?: string, context?: any) {
     let sessionId = "";
+    let historyText = "";
     if (resumeSessionId) {
       sessionId = resumeSessionId;
       console.log(`[VOICE] REST Init - Resuming session: ${sessionId}`);
+      const session = await this.aiSessionService.getSessionContext(sessionId).catch(() => null);
+      if (session?.history && session.history.length > 0) {
+        historyText = "\n\n[CONVERSATION HISTORY]\n";
+        for (const turn of session.history as any[]) {
+          const role = turn.role === "user" ? "User" : turn.role === "model" ? "Model" : "System";
+          const parts = turn.parts || [];
+          const textParts = parts.map((p: any) => p.text || "").join(" ").trim();
+          if (textParts) {
+            historyText += `${role}: ${textParts}\n`;
+          }
+        }
+        historyText += "[END OF CONVERSATION HISTORY]\n";
+      }
     } else {
       sessionId = await this.aiSessionService.createSession(agentId, {
         triggerMessage: "[voice_session]",
@@ -342,8 +356,13 @@ export class VoiceChatService {
       console.log(`[VOICE] REST Init - Session created: ${sessionId}`);
     }
 
+    let contextText = "";
+    if (context) {
+      contextText = `\n\nActive screen context (${context.type}${context.id ? ` ID: ${context.id}` : ""}):\n${JSON.stringify(context.data, null, 2)}`;
+    }
+
     const systemInstruction =
-      await this.promptService.getPrompt("ai_chat_system") + buildVoiceContext(timezone);
+      await this.promptService.getPrompt("ai_chat_system") + buildVoiceContext(timezone) + contextText + historyText;
 
     const activeSkills = getSkillsByDomains(ALL_DOMAINS);
     const tools = [{

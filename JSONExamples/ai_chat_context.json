@@ -1,0 +1,52 @@
+{
+  "_about": "Ejemplos reales del payload AiChatContext (amconnect-app/lib/features/chat/data/chat_context.dart) que la app Flutter envía al backend al abrir el chat IA. Cada entrada es un caso distinto de contexto precargado.",
+  "examples": [
+    {
+      "scenario": "contact_with_policy_and_mixed_notes",
+      "description": "Chat abierto desde el detalle de un cliente (Julio Cesar Amador Tejeda) con 1 póliza activa y notas de ambos orígenes: 1 nota 'knowledge' (ligada al contacto) + 2 notas 'policy' (ligadas a la póliza), una de ellas sin summary de IA (source_type pdf) por lo que cae al fallback _truncateContent.",
+      "source": "contactAiContextProvider (clients_provider.dart) -> AiChatContext.fromContact",
+      "payload": {
+        "type": "contact",
+        "id": "375fdaa2-9d95-4ce9-a3a7-4fbfb11a51b5",
+        "data": {
+          "fullName": "JULIO CESAR AMADOR TEJEDA",
+          "policies": [
+            {
+              "id": "dbe7a990-9bfb-4fc9-bc3d-1709fdc0b0db",
+              "policyNumber": "GM0000582449(N)",
+              "carrier": "Seguros Monterrey New York Life,S.A. De C.V.",
+              "branch": "Gastos Medicos Mayores",
+              "product": "ALFA MEDICAL INTEGRO",
+              "premium": 3615.29,
+              "currency": "MXN",
+              "status": "ACTIVE",
+              "startDate": "2024-11-08",
+              "endDate": "2025-11-08",
+              "renewalDate": "2025-11-08"
+            }
+          ],
+          "notes": [
+            {
+              "id": "0fa8e7aa-087c-4712-8f2e-640eeeb8b51f",
+              "summary": "Julio está interesado en contratar un Plan Personal de Retiro (PPR) en un plazo de 6 meses.",
+              "sourceType": "text",
+              "createdAt": "2026-07-13T01:21:32.555983+00:00"
+            },
+            {
+              "id": "7370f162-85a5-446b-a2f2-a39f07e47fc6",
+              "summary": "El cliente necesita añadir cobertura de viaje a su póliza actual para un próximo viaje a Japón programado dentro de dos meses.",
+              "sourceType": "text",
+              "createdAt": "2026-07-13T01:22:22.130313+00:00"
+            },
+            {
+              "id": "99991585-99ea-424d-a476-dd81eee541cf",
+              "summary": "This is an Alfa Medical Integro individual major medical expense policy issued by Seguros Monterrey New York Life, S.A. de C.V. for Julio Cesar Amador Tejeda (DOB 1991-05-23). The policy is active for the coverage period…",
+              "sourceType": "pdf",
+              "createdAt": "2026-07-13T01:17:01.094577+00:00"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -117,7 +117,7 @@ export class KnowledgeIngestionService {
         contactId: contactId ?? null,
         policyId: policyId ?? null,
         documentMetadataId: docMeta?.id ?? null,
-        noteOrigin: 'knowledge',
+        noteOrigin: policyId ? 'policy' : 'knowledge',
         summary: extraction.summary,
       });
 
@@ -204,7 +204,7 @@ export class KnowledgeIngestionService {
         sourceType,
         contactId,
         policyId,
-        noteOrigin: 'knowledge',
+        noteOrigin: policyId ? 'policy' : 'knowledge',
         summary: aiResult.data.summary,
       });
 

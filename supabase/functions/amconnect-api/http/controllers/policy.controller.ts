@@ -1,7 +1,7 @@
 import { Context } from "hono";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { PolicyService } from "../../modules/policy/policy.service.ts";
-import { PolicyRequestSchema, PolicyParticipantSchema, BeneficiarySchema } from "../../modules/policy/policy.dto.ts";
+import { PolicyRequestSchema, PolicyParticipantSchema, BeneficiarySchema, PolicyNoteCreateSchema } from "../../modules/policy/policy.dto.ts";
 import { parsePagination } from "../../shared/pagination.ts";
 import { NoteService } from "../../modules/note/note.service.ts";
 import { AppError } from "../../shared/errors.ts";
@@ -63,6 +63,15 @@ export class PolicyController {
     const body = BeneficiarySchema.parse(await c.req.json());
     const service: PolicyService = c.get("services").policyService;
     const data = await service.addBeneficiary(body as never);
+    return sendSuccess(c, data, 201);
+  }
+
+  static async addNote(c: Context) {
+    const agentId: string = c.get("agent_id");
+    const policyId = c.req.param("id") as string;
+    const { content } = PolicyNoteCreateSchema.parse(await c.req.json());
+    const { policyService, embeddingsService } = c.get("services");
+    const data = await (policyService as PolicyService).addNote(agentId, policyId, content, embeddingsService);
     return sendSuccess(c, data, 201);
   }
 

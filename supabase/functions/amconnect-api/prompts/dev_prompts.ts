@@ -84,7 +84,8 @@ Analyze the attached document and extract ALL relevant information following the
 - The 'coverages' field must include all main coverages with their insured amounts.
 - The 'summary' field must be a natural prose paragraph in English describing the complete policy, optimized for semantic search.
 - POLICY NUMBER: copy it EXACTLY as printed in the document, including any suffixes such as (N), (R), (E), or version numbers. Do NOT strip or normalize the policy number. Example: if the document shows "GM0000582449(N)", extract "GM0000582449(N)" — not "GM0000582449".
-- MOVEMENT TYPE: use the 'movementType' field to classify the document type (NUEVA, RENOVACION, ENDOSO, CANCELACION) based on context clues in the document — do NOT infer this from the policy number suffix.`,
+- MOVEMENT TYPE: use the 'movementType' field to classify the document type (NUEVA, RENOVACION, ENDOSO, CANCELACION) based on context clues in the document — do NOT infer this from the policy number suffix.
+- DATES — do not confuse these three, they are frequently printed close together but mean different things: 'issueDate' is when THIS document/carátula was generated (resets every renewal); 'startDate' is when coverage begins for the current period; 'seniorityDate' is the recognized seniority/antigüedad (common on GMM and Life) that does NOT reset on renewal and determines waiting periods and pre-existing condition coverage — only fill it if the document explicitly prints an "antigüedad" or "fecha de antigüedad" field separate from issue/start date.`,
 
   knowledge_pdf_system: `You are a document processing assistant for an insurance advisor.
 The advisor's preferred language is {{advisor_language}}.

@@ -60,6 +60,10 @@ export const policyIngestionSkills: SkillDefinition[] = [
         payment_frequency: z.string().optional().nullable(), paymentFrequency: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
         deductible: z.string().optional().nullable(), global_deductible: z.string().optional().nullable(), globalDeductible: z.string().optional().nullable(),
+        coinsurance: z.string().optional().nullable(), global_coinsurance: z.string().optional().nullable(), globalCoinsurance: z.string().optional().nullable(),
+        seniority_date: z.string().optional().nullable(), seniorityDate: z.string().optional().nullable(),
+        insured_item: z.string().optional().nullable(), insuredItem: z.string().optional().nullable(),
+        policy_version: z.string().optional().nullable(), policyVersion: z.string().optional().nullable(),
         beneficiaries: z.array(BeneficiarySchema).optional().default([]),
       }),
     },
@@ -163,6 +167,10 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
     nextPaymentDate: nextPaymentDate ?? null,
     notes: args.notes ?? null,
     deductible: args.deductible ?? args.global_deductible ?? args.globalDeductible ?? null,
+    coinsurance: args.coinsurance ?? args.global_coinsurance ?? args.globalCoinsurance ?? null,
+    seniorityDate: field(args, "seniority_date", "seniorityDate") ?? null,
+    insuredItem: field(args, "insured_item", "insuredItem") ?? null,
+    policyVersion: field(args, "policy_version", "policyVersion") ?? null,
   });
 
   if (!policy) throw new Error("Could not create policy.");
@@ -256,6 +264,7 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
   const carrierName = extraction.carrierName;
   const branchName = extraction.branchName;
   const productName = extraction.productName;
+  const holderName = extraction.holderName;
   const currency = extraction.currency ?? "MXN";
   const paymentFreq = extraction.paymentFrequency;
 
@@ -296,6 +305,10 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
     nextPaymentDate: extraction.nextPaymentDate ?? undefined,
     notes: extraction.notes ?? undefined,
     deductible: extraction.globalDeductible ?? undefined,
+    coinsurance: extraction.globalCoinsurance ?? undefined,
+    seniorityDate: extraction.seniorityDate ?? undefined,
+    insuredItem: extraction.insuredItem ?? undefined,
+    policyVersion: extraction.policyVersion ?? undefined,
   });
 
   if (!updated) throw new Error("Could not update policy.");
@@ -344,6 +357,10 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
       type: "policy_updated",
       policyId: existingPolicyId,
       policyNumber: updated.policyNumber,
+      carrierName,
+      branchName,
+      holderName,
+      fieldCount: diff.length,
       changesApplied: diff.length,
       remainingDifferences: finalDiff.length,
     },

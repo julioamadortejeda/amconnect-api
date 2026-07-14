@@ -1,6 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SupabaseRepository } from "../../core/base_repository.ts";
-import { handleSupabaseError } from "../../shared/errors.ts";
+import { ConflictError, handleSupabaseError, NotFoundError } from "../../shared/errors.ts";
 import { NoteResponseDTO, PolicyNoteRow, RecentNoteRow } from "./note.dto.ts";
 
 export type { NoteResponseDTO, PolicyNoteRow, RecentNoteRow };
@@ -29,7 +29,7 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
   }
 
   async getByPolicyId(policyId: string): Promise<PolicyNoteRow[]> {
-    const select = "id, source_type, created_at, document_metadata(storage_path, file_name)";
+    const select = "id, source_type, content, summary, created_at, document_metadata(storage_path, file_name)";
 
     const [{ data: active }, { data: obsolete }] = await Promise.all([
       this.supabase.from("agent_notes").select(select)
@@ -46,6 +46,8 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
       source_type: r.source_type as string,
       created_at: r.created_at as string,
       isObsolete,
+      content: r.content as string | null,
+      summary: r.summary as string | null,
       document_metadata: r.document_metadata as PolicyNoteRow["document_metadata"],
     });
 
@@ -71,14 +73,36 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
   }
 
   async deleteNote(agentId: string, noteId: string): Promise<void> {
-    await this.supabase
+    const { data: note, error: fetchError } = await this.supabase
       .from("agent_notes")
-      .update({ discard_reason: "user_deleted" })
+      .select("id, is_active, discard_reason")
       .eq("id", noteId)
       .eq("agent_id", agentId)
-      .eq("is_active", false)
       .eq("note_origin", "policy")
-      .eq("discard_reason", "policy_updated");
+      .maybeSingle();
+
+    if (fetchError) handleSupabaseError(fetchError, "Error al buscar la nota.");
+    if (!note) throw new NotFoundError("Nota no encontrada.");
+
+    if (note.is_active) {
+      // Nota activa (creada a mano por el asesor) — soft-delete estándar.
+      await this.supabase
+        .from("agent_notes")
+        .update({ is_active: false, discard_reason: "user_deleted" })
+        .eq("id", noteId);
+      return;
+    }
+
+    if (note.discard_reason === "policy_updated") {
+      // Versión obsoleta tras re-ingesta de PDF — el asesor la limpia manualmente.
+      await this.supabase
+        .from("agent_notes")
+        .update({ discard_reason: "user_deleted" })
+        .eq("id", noteId);
+      return;
+    }
+
+    throw new ConflictError("Esta nota ya fue eliminada.");
   }
 
   async getNotesSummary(): Promise<Record<string, number>> {

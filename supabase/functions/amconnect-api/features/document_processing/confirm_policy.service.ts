@@ -24,6 +24,10 @@ export const ConfirmPolicySchema = z.object({
   nextPaymentDate: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   deductible: z.string().optional().nullable(),
+  coinsurance: z.string().optional().nullable(),
+  seniorityDate: z.string().optional().nullable(),
+  insuredItem: z.string().optional().nullable(),
+  policyVersion: z.string().optional().nullable(),
   beneficiaries: z.array(z.object({
     fullName: z.string(),
     relationship: z.string().optional().nullable(),
@@ -68,6 +72,10 @@ export class ConfirmPolicyService {
       nextPaymentDate: data.nextPaymentDate ?? null,
       notes: data.notes ?? null,
       deductible: data.deductible ?? null,
+      coinsurance: data.coinsurance ?? null,
+      seniorityDate: data.seniorityDate ?? null,
+      insuredItem: data.insuredItem ?? null,
+      policyVersion: data.policyVersion ?? null,
     });
 
     if (!policy) throw new Error("No se pudo crear la póliza.");

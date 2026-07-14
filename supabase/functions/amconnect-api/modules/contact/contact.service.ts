@@ -1,7 +1,7 @@
 import { BaseService } from "../../core/base_service.ts";
 import { ContactRequestDTO, ContactResponseDTO } from "./contact.dto.ts";
 import { ContactRepository } from "./contact.repository.ts";
-import { objectToCamelCaseDeep, stripUndefined } from "../../shared/case_converter.ts";
+import { objectToCamelCaseDeep, stripUndefined, toTitleCase } from "../../shared/case_converter.ts";
 
 export class ContactService extends BaseService<ContactRequestDTO, ContactResponseDTO> {
   private contactRepo: ContactRepository;
@@ -16,9 +16,10 @@ export class ContactService extends BaseService<ContactRequestDTO, ContactRespon
   }
 
   protected override prepareForCreate(data: Partial<ContactRequestDTO>): Record<string, unknown> {
+    const fullName = typeof data.fullName === "string" ? toTitleCase(data.fullName) : data.fullName;
     return {
       agent_id: data.agentId,
-      full_name: data.fullName,
+      full_name: fullName,
       email: data.email ?? null,
       phone: data.phone ?? null,
       birthdate: data.birthdate ?? null,
@@ -34,8 +35,9 @@ export class ContactService extends BaseService<ContactRequestDTO, ContactRespon
   }
 
   protected override prepareForUpdate(_id: string, data: Partial<ContactRequestDTO>): Record<string, unknown> {
+    const fullName = typeof data.fullName === "string" ? toTitleCase(data.fullName) : undefined;
     return stripUndefined({
-      full_name: data.fullName,
+      full_name: fullName,
       email: data.email,
       phone: data.phone,
       birthdate: data.birthdate,
