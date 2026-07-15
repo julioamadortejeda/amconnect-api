@@ -28,6 +28,9 @@ export const policyIngestionSkills: SkillDefinition[] = [
         if (newNoteId) {
           await embeddingsService.softDeleteNoteById(agentId, newNoteId, 'user_rejected');
         }
+        // Decisión resuelta — el /cancel posterior no debe volver a procesar
+        // esta nota (le pisaría el discard_reason con 'session_cancelled').
+        await aiSessionService.updateMetadata(sessionId, { ...meta, status: 'update_discarded' });
         return { cancelled: true, message: "Update discarded by advisor. Existing policy remains unchanged." };
       }
       try {
@@ -58,6 +61,7 @@ export const policyIngestionSkills: SkillDefinition[] = [
         renewal_date: z.string().optional().nullable(),  renewalDate: z.string().optional().nullable(),
         next_payment_date: z.string().optional().nullable(), nextPaymentDate: z.string().optional().nullable(),
         payment_frequency: z.string().optional().nullable(), paymentFrequency: z.string().optional().nullable(),
+        payment_method: z.string().optional().nullable(), paymentMethod: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
         deductible: z.string().optional().nullable(), global_deductible: z.string().optional().nullable(), globalDeductible: z.string().optional().nullable(),
         coinsurance: z.string().optional().nullable(), global_coinsurance: z.string().optional().nullable(), globalCoinsurance: z.string().optional().nullable(),
@@ -103,6 +107,7 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
   const renewalDate     = field(args, "renewal_date", "renewalDate");
   const nextPaymentDate = field(args, "next_payment_date", "nextPaymentDate");
   const paymentFreq     = field(args, "payment_frequency", "paymentFrequency");
+  const paymentMeth     = field(args, "payment_method", "paymentMethod");
   const beneficiaries   = args.beneficiaries ?? [];
 
   if (!carrierName || !branchName || !holderName) {
@@ -139,11 +144,12 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
   const contactId = await findOrCreateContact(ctx, holderName, holderRfc ?? null);
 
   // ─── Resolver catálogos globales ──────────────────────────────────────────
-  const [statusRow, currencyRow, paymentFrequencyId] = await Promise.all([
+  const [statusRow, currencyRow, paymentFrequencyId, paymentMethodId] = await Promise.all([
     catalogServices.policyStatusService.getByCode("ACTIVE"),
     catalogServices.currencyService.getByCode(currency === "USD" ? "USD" : "MXN"),
     paymentFreq ? resolveCatalogId(catalogServices.paymentFrequencyService, paymentFreq, { key: "name", value: "Anual" }) : Promise.resolve(null),
-  ]) as [{ id: string } | null, { id: string } | null, string | null];
+    paymentMeth ? resolveCatalogId(catalogServices.paymentMethodService, paymentMeth, { key: "code", value: "CREDIT_CARD" }) : Promise.resolve(null),
+  ]) as [{ id: string } | null, { id: string } | null, string | null, string | null];
 
   if (!statusRow?.id) throw new Error("Status ACTIVE not found in catalog.");
   if (!currencyRow?.id) throw new Error(`Currency ${currency} not found in catalog.`);
@@ -158,6 +164,7 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
     statusId: statusRow.id,
     currencyId: currencyRow.id,
     paymentFrequencyId: paymentFrequencyId || null,
+    paymentMethodId: paymentMethodId || null,
     policyNumber: policyNumber ?? null,
     premium: args.premium ?? null,
     sumInsured: args.sum_insured ?? args.sumInsured ?? null,
@@ -267,6 +274,7 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
   const holderName = extraction.holderName;
   const currency = extraction.currency ?? "MXN";
   const paymentFreq = extraction.paymentFrequency;
+  const paymentMeth = extraction.paymentMethod;
 
   if (!carrierName || !branchName) {
     return { error: "Missing carrier or branch in extraction data." };
@@ -282,11 +290,12 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
     { carrierId, branchId },
   );
 
-  const [statusRow, currencyRow, paymentFrequencyId] = await Promise.all([
+  const [statusRow, currencyRow, paymentFrequencyId, paymentMethodId] = await Promise.all([
     catalogServices.policyStatusService.getByCode("ACTIVE"),
     catalogServices.currencyService.getByCode(currency === "USD" ? "USD" : "MXN"),
     paymentFreq ? resolveCatalogId(catalogServices.paymentFrequencyService, paymentFreq, { key: "name", value: "Anual" }) : Promise.resolve(null),
-  ]) as [{ id: string } | null, { id: string } | null, string | null];
+    paymentMeth ? resolveCatalogId(catalogServices.paymentMethodService, paymentMeth, { key: "code", value: "CREDIT_CARD" }) : Promise.resolve(null),
+  ]) as [{ id: string } | null, { id: string } | null, string | null, string | null];
 
   if (!statusRow?.id) throw new Error("Status ACTIVE not found in catalog.");
   if (!currencyRow?.id) throw new Error(`Currency ${currency} not found in catalog.`);
@@ -296,6 +305,7 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
     statusId: statusRow.id,
     currencyId: currencyRow.id,
     paymentFrequencyId: paymentFrequencyId ?? null,
+    paymentMethodId: paymentMethodId ?? null,
     policyNumber: extraction.policyNumber ?? undefined,
     premium: extraction.premium ?? undefined,
     sumInsured: extraction.sumInsured ?? undefined,
@@ -318,6 +328,12 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
   if (newDocumentMetadataId) {
     await embeddingsService.updateNoteLinks(agentId, newDocumentMetadataId, updated.contactId, existingPolicyId);
   }
+
+  // La decisión pendiente quedó resuelta: si el cliente llama /cancel después
+  // (limpieza normal al cerrar el sheet o resetear el chat), el endpoint no
+  // debe tratar la sesión como abandonada ni soft-borrar la nota recién
+  // confirmada (updateMetadata REEMPLAZA la metadata — preservar el resto).
+  await aiSessionService.updateMetadata(sessionId, { ...meta, status: 'update_applied' });
 
   // Create changelog note
   const changelogContent = buildChangelogContent(

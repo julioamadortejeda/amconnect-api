@@ -26,11 +26,13 @@ function normalizeNumericText(v: Scalar): string | null {
   return digitsOnly === '' ? n : digitsOnly;
 }
 
-// Campos de catálogo: comparamos por nombre/code en mayúsculas — la BD y el
-// vocabulario de extracción de la IA usan los mismos códigos en inglés.
+// Campos de catálogo: la póliza expandida trae el NAME ("Credit Card") y la
+// extracción trae el CODE ("CREDIT_CARD") — mismo concepto, texto distinto.
+// Normalizamos a una clave canónica (mayúsculas, solo alfanumérico) para que
+// name y code del mismo item comparen iguales: ambos → "CREDITCARD".
 function normalizeCatalogText(v: Scalar): string | null {
   const n = normalize(v);
-  return n === null ? null : n.toUpperCase();
+  return n === null ? null : n.toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
 // Traducciones para mostrarle al asesor un code de catálogo tipo "CREDIT_CARD"
@@ -38,12 +40,14 @@ function normalizeCatalogText(v: Scalar): string | null {
 // la IA ya sale en español, así que un code en inglés se ve fuera de lugar.
 // Mismas etiquetas que CatalogL10n en la app (amconnect-app/lib/core/utils/catalog_l10n.dart)
 // para no tener dos traducciones distintas del mismo code.
+// Claves en forma canónica (ver normalizeCatalogText) para que tanto el code
+// ("CREDIT_CARD") como el name de BD ("Credit Card") encuentren su traducción.
 const PAYMENT_METHOD_ES: Record<string, string> = {
-  DIRECT_DEBIT: 'Domiciliación',
-  BANK_TRANSFER: 'Transferencia Bancaria',
+  DIRECTDEBIT: 'Domiciliación',
+  BANKTRANSFER: 'Transferencia Bancaria',
   CHECK: 'Cheque',
   CASH: 'Efectivo',
-  CREDIT_CARD: 'Tarjeta de Crédito',
+  CREDITCARD: 'Tarjeta de Crédito',
 };
 
 const PAYMENT_FREQUENCY_ES: Record<string, string> = {
@@ -65,7 +69,7 @@ function translateCatalogText(dictionary: Record<string, string>) {
   return (v: Scalar): string | null => {
     const n = normalize(v);
     if (n === null) return null;
-    return dictionary[n.toUpperCase()] ?? n;
+    return dictionary[normalizeCatalogText(n)!] ?? n;
   };
 }
 

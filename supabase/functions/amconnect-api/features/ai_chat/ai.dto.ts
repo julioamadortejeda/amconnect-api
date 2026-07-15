@@ -61,3 +61,23 @@ export const AiProcessDocumentRequestSchema = z.object({
 });
 
 export type AiProcessDocumentRequestDTO = z.infer<typeof AiProcessDocumentRequestSchema>;
+
+// Esquema Zod para validar y tipar el mensaje de contenido de cliente (texto/media) para Gemini Live
+export const LiveClientContentMessageSchema = z.object({
+  clientContent: z.object({
+    turns: z.array(
+      z.object({
+        role: z.literal("user"),
+        parts: z.array(
+          z.object({
+            text: z.string(),
+          })
+        ),
+      })
+    ),
+    turnComplete: z.boolean(),
+  }),
+});
+
+export type LiveClientContentMessage = z.infer<typeof LiveClientContentMessageSchema>;
+

@@ -25,6 +25,10 @@ export interface ChatMessageInput {
   totalTokens: number;
   cachedTokens?: number;
   interactionId?: string | null;
+  textPromptTokens?: number;
+  audioPromptTokens?: number;
+  textCompletionTokens?: number;
+  audioCompletionTokens?: number;
 }
 
 export class AiSessionService {
@@ -165,6 +169,10 @@ export class AiSessionService {
           promptTokens: m.promptTokens,
           completionTokens: m.completionTokens,
           cachedTokens: m.cachedTokens ?? 0,
+          textPromptTokens: m.textPromptTokens,
+          audioPromptTokens: m.audioPromptTokens,
+          textCompletionTokens: m.textCompletionTokens,
+          audioCompletionTokens: m.audioCompletionTokens,
         });
       }
     }

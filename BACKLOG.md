@@ -162,6 +162,41 @@ Estado: `[ ]` pendiente · `[~]` en progreso · `[x]` resuelto · `[-]` descarta
 
 ---
 
+## 🟡 Voice/Live Chat (Optimización y Mejores Prácticas)
+
+### V1 — Configuración de Idioma Nativo y Voz Preestablecida
+**Archivos:** `amconnect-app/amconnect/lib/features/chat/providers/voice_chat_provider.dart`
+**Problema:** El cliente no configuraba explícitamente el código de idioma ni la voz en el setup del WebSocket de Gemini Live API, lo que podía provocar respuestas en inglés o con acentos no consistentes.
+**Fix aplicado:** Se agregaron `speechConfig` con la voz `Puck` y se configuró `languageCodes: ['es-419']` en `inputAudioTranscription` y `outputAudioTranscription` dentro del `setupMessage` de la app.
+**Estado:** `[x]`
+
+### V2 — Reanudación Nativa de Sesión (Session Resumption)
+**Archivos:** `amconnect-app/amconnect/lib/features/chat/providers/voice_chat_provider.dart`, `backend/supabase/functions/amconnect-api`
+**Problema:** En caso de desconexiones del socket, el cliente hace una reconexión completa y el backend reinyecta todo el historial de chat de la base de datos de Supabase en formato de texto plano dentro de la instrucción de sistema, lo cual incrementa el consumo de tokens y los costos de facturación por turno.
+**Fix sugerido:** Implementar la reanudación nativa utilizando `SessionResumptionConfig` en el setup, almacenar el `session_resumption_update` en la app cliente ante eventos de red y presentarlo en reconexiones para que el contexto sea retenido internamente por Gemini sin costo.
+**Estado:** `[ ]`
+
+---
+
+## 🟡 Nuevos Requerimientos de Negocio (Backend)
+
+### R1 — Histórico de Pólizas (Renovaciones anuales)
+**Archivos:** `backend/supabase/functions/amconnect-api`
+**Problema:** Soportar un histórico de versiones de pólizas anuales para un mismo bien (e.g. auto, gastos médicos mayores) vinculando las renovaciones mediante una relación parent/previous_policy_id en la base de datos y exponiendo los métodos para consultar la línea de tiempo.
+**Estado:** `[ ]`
+
+### R2 — Manejo de Asistentes para Agentes
+**Archivos:** `backend/supabase/functions/amconnect-api`
+**Problema:** Implementar perfiles de asistente vinculados a las cuentas de los asesores de seguros (agentes), permitiendo compartir el acceso a la cartera de clientes y pólizas bajo roles y permisos específicos.
+**Estado:** `[ ]`
+
+### R3 — Chat IA con Capacidades de Seguimiento de Recordatorios
+**Archivos:** `features/ai_chat/skills/reminder.skills.ts`, `features/ai_chat/ai_chat.service.ts`
+**Problema:** Habilitar al chat IA para buscar comentarios e historial de recordatorios (e.g. "¿sabes si ya atendí el tema del PPR de Juan?") para poder responder con precisión si un tema ya fue resuelto basándose en las notas de seguimiento del recordatorio.
+**Estado:** `[ ]`
+
+---
+
 ## 🔵 Futuro / integración de pagos
 
 ### F1 — `subscription_status` se actualiza de forma lazy

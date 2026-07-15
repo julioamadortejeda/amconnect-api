@@ -1,3 +1,5 @@
+import { LiveClientContentMessage, LiveClientContentMessageSchema } from "../features/ai_chat/ai.dto.ts";
+
 const LIVE_API_URL =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 
@@ -186,6 +188,38 @@ export class GeminiLiveProvider {
       console.log(`[VOICE] Usage metadata: prompt=${tokens.promptTokens} completion=${tokens.completionTokens} total=${tokens.totalTokens}`);
       this.callbacks.onUsageMetadata(tokens);
     }
+  }
+
+  sendText(text: string): void {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+
+    const payload: LiveClientContentMessage = {
+      clientContent: {
+        turns: [
+          {
+            role: "user",
+            parts: [{ text }],
+          },
+        ],
+        turnComplete: true,
+      },
+    };
+
+    // Validar con Zod para garantizar la integridad
+    const parsed = LiveClientContentMessageSchema.parse(payload);
+    
+    // Mapear a snake_case para la API cruda del WebSocket
+    const rawMsg = {
+      client_content: {
+        turns: parsed.clientContent.turns.map((t: { role: "user"; parts: { text: string }[] }) => ({
+          role: t.role,
+          parts: t.parts.map((p: { text: string }) => ({ text: p.text }))
+        })),
+        turn_complete: parsed.clientContent.turnComplete
+      }
+    };
+    
+    this.ws.send(JSON.stringify(rawMsg));
   }
 
   sendAudio(base64Pcm: string): void {

@@ -198,8 +198,10 @@ export class VoiceChatService {
     this.send(clientSocket, { type: "ready", session_id: sessionId });
 
     let systemInstruction: string;
+    let dynamicContext: string;
     try {
-      systemInstruction = await this.promptService.getPrompt("ai_chat_system") + buildVoiceContext(timezone);
+      systemInstruction = await this.promptService.getPrompt("ai_chat_system");
+      dynamicContext = buildVoiceContext(timezone);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to load prompt";
       console.error("[VOICE] getPrompt error:", msg);
@@ -236,6 +238,9 @@ export class VoiceChatService {
     geminiLive = new GeminiLiveProvider(this.aiProvider.apiKey!, this.aiProvider.model, {
       onSetupComplete: () => {
         console.log(`[VOICE] Gemini setup complete for session ${sessionId}`);
+        if (dynamicContext) {
+          geminiLive?.sendText(dynamicContext);
+        }
         this.send(clientSocket, { type: "gemini_ready" });
       },
 
@@ -361,8 +366,8 @@ export class VoiceChatService {
       contextText = `\n\nActive screen context (${context.type}${context.id ? ` ID: ${context.id}` : ""}):\n${JSON.stringify(context.data, null, 2)}`;
     }
 
-    const systemInstruction =
-      await this.promptService.getPrompt("ai_chat_system") + buildVoiceContext(timezone) + contextText + historyText;
+    const systemInstruction = await this.promptService.getPrompt("ai_chat_system");
+    const dynamicContext = buildVoiceContext(timezone) + contextText + historyText;
 
     const activeSkills = getSkillsByDomains(ALL_DOMAINS);
     const tools = [{
@@ -379,6 +384,7 @@ export class VoiceChatService {
     return {
       sessionId,
       systemInstruction,
+      dynamicContext,
       tools,
     };
   }
@@ -412,6 +418,12 @@ export class VoiceChatService {
     completionTokens: number,
     totalTokens: number,
     toolCalls: VoiceToolCallLog[] = [],
+    modalityTokens?: {
+      textPromptTokens?: number;
+      audioPromptTokens?: number;
+      textCompletionTokens?: number;
+      audioCompletionTokens?: number;
+    },
   ) {
     console.log(`[VOICE] REST SaveRound - saving round for session ${sessionId} - prompt=${promptTokens} completion=${completionTokens} toolCalls=${toolCalls.length}`);
 
@@ -422,15 +434,19 @@ export class VoiceChatService {
     const session = await this.aiSessionService.getSessionContext(sessionId).catch(() => null);
     const historyDb: unknown[] = session?.history ? [...(session.history as unknown[])] : [];
 
-    const hasModelText = !!modelText;
+    const shouldPushModelMessage = !!modelText || completionTokens > 0;
 
     if (userText) {
       messages.push({
         role: "user",
         content: userText,
-        promptTokens: hasModelText ? 0 : promptTokens,
+        promptTokens: shouldPushModelMessage ? 0 : promptTokens,
         completionTokens: 0,
-        totalTokens: hasModelText ? 0 : promptTokens,
+        totalTokens: shouldPushModelMessage ? 0 : promptTokens,
+        textPromptTokens: shouldPushModelMessage ? 0 : modalityTokens?.textPromptTokens,
+        audioPromptTokens: shouldPushModelMessage ? 0 : modalityTokens?.audioPromptTokens,
+        textCompletionTokens: 0,
+        audioCompletionTokens: 0,
       });
       historyDb.push({
         role: "user",
@@ -454,18 +470,24 @@ export class VoiceChatService {
       });
     }
 
-    if (modelText) {
+    if (shouldPushModelMessage) {
       messages.push({
         role: "model",
         content: modelText,
         promptTokens: promptTokens,
         completionTokens: completionTokens,
         totalTokens: promptTokens + completionTokens,
+        textPromptTokens: modalityTokens?.textPromptTokens,
+        audioPromptTokens: modalityTokens?.audioPromptTokens,
+        textCompletionTokens: modalityTokens?.textCompletionTokens,
+        audioCompletionTokens: modalityTokens?.audioCompletionTokens,
       });
-      historyDb.push({
-        role: "model",
-        parts: [{ text: modelText }],
-      });
+      if (modelText) {
+        historyDb.push({
+          role: "model",
+          parts: [{ text: modelText }],
+        });
+      }
     }
 
     let durationSeconds: number | undefined;

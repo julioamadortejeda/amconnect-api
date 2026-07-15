@@ -101,8 +101,14 @@ Cada responsabilidad transversal tiene su propio servicio inyectable — no lóg
 - **Evitar lockfiles versión 5**: Para evitar errores de bootstrap en el runtime de Supabase Edge Runtime, `deno.json` debe tener siempre `"lock": false`.
 - **Inyección de PromptService**: Se inyecta a través del contenedor DI de Hono (`di/index.ts`) en todos los servicios y proveedores de IA que dependan de plantillas de prompts (ej: `AiChatService`, `GeminiProvider`, `KnowledgeIngestionService`, `PolicyIngestionService` y `DocumentProcessorService`).
 
-## Cambios Recientes
+## Gemini Live API & Token Tracking
 
+*   **Tasas de Conversión de Audio**: El audio de entrada/salida se convierte a tokens de forma nativa. La tasa de conversión estándar es de **32 tokens por segundo** (o **25 tokens por segundo** en sesiones activas de Live API por WebSocket).
+*   **Modelo de Facturación Acumulativo**: La Live API cobra por **turno** la totalidad de los tokens en la ventana de contexto de la sesión. Esto significa que cada nuevo turno vuelve a procesar y facturar todo el historial de la conversación (audios anteriores del usuario e IA) guardado en el contexto.
+*   **Doble Facturación por Transcripción**: Si se activa la transcripción de audio a texto (`inputAudioTranscription` o `outputAudioTranscription`), se cobran los tokens de texto generados a tarifas estándar de texto de salida **además** del costo del token de audio nativo.
+*   **Tiempo de Recepción de usageMetadata**: En el canal de WebSocket, el conteo final de `completion_tokens` y `total_tokens` (que depende del procesamiento completo del audio generado) puede llegar en un paquete `usageMetadata` independiente y retrasado **después** de emitirse el evento `turnComplete`. El backend y la app deben evitar limpiar o guardar contadores inmediatamente en `turnComplete`; se debe usar un margen o delay de buffer (ej. 400ms) para no perder los últimos tokens del turno.
+
+## Cambios Recientes
 - **Chat de Texto y Voz:** El chat de texto y los ajustes del chat de voz (con las correcciones del nuevo formato de audio `realtimeInput.audio` para evitar la desconexión del WebSocket en Gemini 3.1 Live API) están listos y validados (detalles en [walkthrough.md](file:///Users/julio/.gemini/antigravity/brain/a411ae05-c358-412b-93b2-578d9f685c96/walkthrough.md)).
 
 

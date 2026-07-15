@@ -44,6 +44,10 @@ export interface TokenUsageRow {
   promptTokens: number;
   completionTokens: number;
   cachedTokens?: number;
+  textPromptTokens?: number;
+  audioPromptTokens?: number;
+  textCompletionTokens?: number;
+  audioCompletionTokens?: number;
 }
 
 export interface PendingTaskRow {
@@ -92,6 +96,10 @@ export class AiSessionRepository implements IAiSessionRepository {
         completion_tokens: r.completionTokens,
         total_tokens: r.promptTokens + r.completionTokens,
         cached_tokens: r.cachedTokens ?? 0,
+        text_prompt_tokens: r.textPromptTokens ?? (r.source === "chat_voice" ? 0 : r.promptTokens),
+        audio_prompt_tokens: r.audioPromptTokens ?? (r.source === "chat_voice" ? r.promptTokens : 0),
+        text_completion_tokens: r.textCompletionTokens ?? (r.source === "chat_voice" ? 0 : r.completionTokens),
+        audio_completion_tokens: r.audioCompletionTokens ?? (r.source === "chat_voice" ? r.completionTokens : 0),
       })),
     );
     if (error) {

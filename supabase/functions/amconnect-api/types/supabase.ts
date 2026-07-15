@@ -1487,6 +1487,8 @@ export type Database = {
       tokens_usage: {
         Row: {
           agent_id: string
+          audio_completion_tokens: number
+          audio_prompt_tokens: number
           cached_tokens: number
           completion_tokens: number
           created_at: string
@@ -1497,10 +1499,14 @@ export type Database = {
           prompt_tokens: number
           session_id: string | null
           source: string
+          text_completion_tokens: number
+          text_prompt_tokens: number
           total_tokens: number
         }
         Insert: {
           agent_id: string
+          audio_completion_tokens?: number
+          audio_prompt_tokens?: number
           cached_tokens?: number
           completion_tokens?: number
           created_at?: string
@@ -1511,10 +1517,14 @@ export type Database = {
           prompt_tokens?: number
           session_id?: string | null
           source: string
+          text_completion_tokens?: number
+          text_prompt_tokens?: number
           total_tokens?: number
         }
         Update: {
           agent_id?: string
+          audio_completion_tokens?: number
+          audio_prompt_tokens?: number
           cached_tokens?: number
           completion_tokens?: number
           created_at?: string
@@ -1525,6 +1535,8 @@ export type Database = {
           prompt_tokens?: number
           session_id?: string | null
           source?: string
+          text_completion_tokens?: number
+          text_prompt_tokens?: number
           total_tokens?: number
         }
         Relationships: [
