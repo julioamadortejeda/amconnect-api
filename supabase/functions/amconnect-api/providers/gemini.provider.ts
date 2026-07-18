@@ -37,6 +37,15 @@ export class GeminiProvider extends GoogleGenAiProvider {
           model: `models/${model}`,
           config: {
             responseModalities: [Modality.AUDIO],
+            // Fija la voz aquí, NO en el `setup` que manda el cliente:
+            // liveConnectConstraints.config bloquea toda la LiveConnectConfig
+            // de la sesión — cualquier config que el cliente mande en su
+            // propio `setup` (incluyendo speechConfig) se ignora en silencio
+            // una vez que esto está seteado. Sin esta línea, Gemini elegía
+            // una voz distinta en cada sesión nueva.
+            speechConfig: {
+              voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } },
+            },
             systemInstruction: { parts: [{ text: systemInstruction }] },
             tools: sdkTools,
             inputAudioTranscription: {},

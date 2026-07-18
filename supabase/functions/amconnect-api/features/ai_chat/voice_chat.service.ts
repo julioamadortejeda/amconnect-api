@@ -200,7 +200,7 @@ export class VoiceChatService {
     let systemInstruction: string;
     let dynamicContext: string;
     try {
-      systemInstruction = await this.promptService.getPrompt("ai_chat_system");
+      systemInstruction = await this.promptService.getPrompt("voice_chat_system");
       dynamicContext = buildVoiceContext(timezone);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to load prompt";
@@ -366,7 +366,7 @@ export class VoiceChatService {
       contextText = `\n\nActive screen context (${context.type}${context.id ? ` ID: ${context.id}` : ""}):\n${JSON.stringify(context.data, null, 2)}`;
     }
 
-    const systemInstruction = await this.promptService.getPrompt("ai_chat_system");
+    const systemInstruction = await this.promptService.getPrompt("voice_chat_system");
     const dynamicContext = buildVoiceContext(timezone) + contextText + historyText;
 
     const activeSkills = getSkillsByDomains(ALL_DOMAINS);
