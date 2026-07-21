@@ -6,7 +6,7 @@ export const PolicyExtractionSchema = z.object({
   policyVersion: z.string().nullable().describe("Policy version or endorsement number, ONLY when printed as its OWN separate field in the carátula (e.g. 'Versión: 3', 'No. de Endoso: 004512'). Do NOT duplicate the (N)/(R)/(E) suffix here if it is already part of policyNumber — that suffix stays embedded in policyNumber per its own instructions. Null if there is no distinct version/endorsement field."),
   carrierName: z.string().nullable().describe("Insurance carrier name"),
   productName: z.string().nullable().describe("Product or commercial plan name"),
-  branchName: z.string().nullable().describe("Insurance branch: Life, Health, Auto, Property, Annuity, Investment, etc."),
+  branchName: z.string().nullable().describe("The literal insurance branch name exactly as printed in the document (e.g., Gastos Médicos Mayores, Daños, Autos, Vida, Health, Life, etc.)."),
   status: z.string().nullable().describe("Current policy state: ACTIVE, CANCELLED, SUSPENDED, LAPSED"),
   movementType: z.string().nullable().describe("Document movement type: NUEVA, RENOVACION, ENDOSO, CANCELACION"),
 
