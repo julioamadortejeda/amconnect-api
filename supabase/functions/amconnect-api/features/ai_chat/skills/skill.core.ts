@@ -5,8 +5,10 @@ import { ReminderService } from "../../../modules/reminder/reminder.service.ts";
 import { ReminderGenerationService } from "../../../modules/reminder/reminder_generation.service.ts";
 import { RagService } from "../../rag/rag.service.ts";
 import { EmbeddingsService } from "../../rag/embeddings.service.ts";
+import { KnowledgeIngestionService } from "../../document_processing/knowledge_ingestion.service.ts";
 import { AiSessionService } from "../ai_session.service.ts";
 import { CatalogServices } from "../../../modules/catalog/catalog.service.ts";
+import { UsageService } from "../../../modules/subscription/usage.service.ts";
 
 export interface SkillContext {
   agentId: string;
@@ -14,6 +16,8 @@ export interface SkillContext {
   timezone: string;
   timezoneOffset: string;
   contactService: ContactService;
+  knowledgeIngestionService: KnowledgeIngestionService;
+  usageService: UsageService;
   policyService: PolicyService;
   reminderService: ReminderService;
   reminderGenerationService: ReminderGenerationService;

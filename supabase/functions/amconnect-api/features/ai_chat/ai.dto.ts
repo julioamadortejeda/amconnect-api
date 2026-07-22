@@ -51,6 +51,11 @@ export const AiIngestTextSchema = z.object({
   contactId: z.string().uuid().optional().nullable(),
   policyId: z.string().uuid().optional().nullable(),
   makeGeneral: z.boolean().optional().nullable(),
+  // true SOLO desde el botón "Agregar nota" del perfil de cliente — distingue
+  // esa acción del pegado de texto general en Feed (mismo endpoint, mismo
+  // shape) para que el umbral de cuota (QUICK_NOTE_MAX_LENGTH) no aplique
+  // también a ingestas de Feed con contactId.
+  isClientNote: z.boolean().optional(),
 });
 
 export type AiIngestTextDTO = z.infer<typeof AiIngestTextSchema>;

@@ -151,6 +151,8 @@ supabase migration up
 - Catálogo pequeño/global → skill `get_<tipo>` que devuelve todos los registros (~7-20)
 - Catálogo grande o por agente → skill `search_<tipo>(query)` con búsqueda pg_trgm
 
+**Notas rápidas del asesor (contactos):** viven en `agent_notes` (mismo pipeline que la ingesta de documentos/texto), no en una tabla aparte — evita que el asesor perciba dos conceptos de "notas" distintos y las hace buscables por RAG. La skill `add_note_to_client` (y el `notes` opcional de `create_contact`) llaman a `KnowledgeIngestionService.ingestText`/`ingestRawContent`. Ahí, si `content.length <= 300` caracteres (`QUICK_NOTE_MAX_LENGTH` en `knowledge_ingestion.service.ts`), se salta la llamada de IA que genera `summary`/`responseMessage` — el texto ya es lo bastante corto para no necesitar resumen, se embebe directo (un solo chunk, sin costo/latencia extra de generación de texto).
+
 **Convenciones SQL:**
 - Funciones standalone sin prefijo: `search_contacts`
 - Triggers: `tg_agents_after_insert`

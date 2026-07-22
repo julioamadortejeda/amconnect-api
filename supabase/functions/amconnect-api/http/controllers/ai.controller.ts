@@ -6,6 +6,7 @@ import { AiChatService } from "../../features/ai_chat/ai_chat.service.ts";
 import { ChatTtsService } from "../../features/ai_chat/chat_tts.service.ts";
 import { AiSessionService } from "../../features/ai_chat/ai_session.service.ts";
 import { ConfirmPolicySchema } from "../../features/document_processing/confirm_policy.service.ts";
+import { QUICK_NOTE_MAX_LENGTH } from "../../features/document_processing/knowledge_ingestion.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
 import { StorageService } from "../../modules/storage/storage.service.ts";
 import { resolveTimezone } from "../../shared/datetime.ts";
@@ -227,7 +228,6 @@ export class AiController {
   static async ingestText(c: Context) {
     const agentId: string = c.get("agent_id");
     const usageService = c.get("usage_service") as UsageService;
-    await usageService.checkAndIncrementIngestion(agentId);
 
     const body = await c.req.json();
     const parsed = AiIngestTextSchema.safeParse(body);
@@ -235,7 +235,15 @@ export class AiController {
       const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
       throw new AppError(`Datos inválidos: ${issues}`, 400);
     }
-    const { content, sourceType, contactId, policyId, makeGeneral } = parsed.data;
+    const { content, sourceType, contactId, policyId, makeGeneral, isClientNote } = parsed.data;
+
+    // Solo las notas rápidas de cliente (isClientNote) se libran de la cuota
+    // cuando el texto es corto (ver QUICK_NOTE_MAX_LENGTH) — el pegado de
+    // texto general en Feed siempre consume cuota, sin importar el tamaño.
+    const chargedIngestion = !(isClientNote && content.length <= QUICK_NOTE_MAX_LENGTH);
+    if (chargedIngestion) {
+      await usageService.checkAndIncrementIngestion(agentId);
+    }
 
     const advisorLocale = c.req.header('Accept-Language')?.split(',')[0]?.split(';')[0]?.trim() ?? 'es';
 
@@ -255,7 +263,7 @@ export class AiController {
         message: responseMessage,
       }, 201);
     } catch (err) {
-      await AiController.compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId);
+      await AiController.compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId, chargedIngestion);
       throw err;
     }
   }
@@ -311,18 +319,19 @@ export class AiController {
     usageService: UsageService,
     agentId: string,
     sessionId: string,
+    chargedIngestion: boolean = true,
   ): Promise<void> {
     if (err instanceof AiProviderError) {
       await Promise.all([
         aiSessionService.markSessionProviderError(sessionId, err instanceof Error ? err.message : ""),
-        usageService.decrementIngestion(agentId),
+        chargedIngestion ? usageService.decrementIngestion(agentId) : Promise.resolve(),
       ]);
     } else if (err instanceof AiInvokedError) {
       await aiSessionService.markSessionFailed(sessionId, err.message);
     } else {
       await Promise.all([
         aiSessionService.deleteSession(sessionId),
-        usageService.decrementIngestion(agentId),
+        chargedIngestion ? usageService.decrementIngestion(agentId) : Promise.resolve(),
       ]);
     }
   }

@@ -23,6 +23,13 @@ const TextMetadataSchema = z.object({
 
 // FILE_PROMPTS moved to database
 
+// Textos cortos (notas rápidas del asesor, ej. add_note_to_client) no
+// necesitan que la IA les genere una etiqueta — el texto ya es lo bastante
+// corto para leerse tal cual. Las skills de contacto usan este mismo umbral
+// para decidir si la nota consume cuota de ingesta (ver contact.skills.ts).
+// Documentado también en README.md.
+export const QUICK_NOTE_MAX_LENGTH = 300;
+
 const MIME_TO_SOURCE: Record<string, NoteSourceType> = {
   "application/pdf": "pdf",
 };
@@ -180,32 +187,44 @@ export class KnowledgeIngestionService {
     makeGeneral: boolean | null = false,
     advisorLocale: string = 'es',
   ): Promise<KnowledgeIngestResult> {
-    const isLong = content.length > 4000;
-    const excerpt = isLong ? content.slice(0, 4000) : content;
-    const lengthNote = isLong
-      ? `\n\n[Note: This is an excerpt of a longer text (${content.length} total characters). Generate a label and message that reflect the overall content based on this excerpt.]`
-      : "";
-
     const rawLocale = advisorLocale.split(/[-_]/)[0].toLowerCase();
-    const cleanLangName = rawLocale === 'en' ? 'English' : 'Spanish';
-
-    const promptTemplate = await this.promptService.getPrompt("knowledge_text_metadata_system");
-    const prompt = promptTemplate
-      .replace("{excerpt}", excerpt)
-      .replace("{lengthNote}", lengthNote)
-      .replaceAll('{{advisor_language}}', cleanLangName);
+    const isQuickNote = content.length <= QUICK_NOTE_MAX_LENGTH;
 
     let aiResult: { data: z.infer<typeof TextMetadataSchema>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } };
     let docResult: { noteId: string; embeddingTotalTokens: number; embeddingCount: number };
     try {
-      aiResult = await this.aiProvider.generateStructuredData(prompt, TextMetadataSchema);
+      if (isQuickNote) {
+        // Texto ya lo bastante corto para leerse tal cual — sin llamada de IA.
+        aiResult = {
+          data: {
+            summary: content,
+            responseMessage: rawLocale === 'en' ? 'Note saved.' : 'Nota guardada.',
+          },
+        };
+      } else {
+        const isLong = content.length > 4000;
+        const excerpt = isLong ? content.slice(0, 4000) : content;
+        const lengthNote = isLong
+          ? `\n\n[Note: This is an excerpt of a longer text (${content.length} total characters). Generate a label and message that reflect the overall content based on this excerpt.]`
+          : "";
+        const cleanLangName = rawLocale === 'en' ? 'English' : 'Spanish';
+
+        const promptTemplate = await this.promptService.getPrompt("knowledge_text_metadata_system");
+        const prompt = promptTemplate
+          .replace("{excerpt}", excerpt)
+          .replace("{lengthNote}", lengthNote)
+          .replaceAll('{{advisor_language}}', cleanLangName);
+
+        aiResult = await this.aiProvider.generateStructuredData(prompt, TextMetadataSchema);
+      }
+
       docResult = await this.embeddingsService.saveDocument(agentId, {
         content,
         sourceType,
         contactId,
         policyId,
         noteOrigin: policyId ? 'policy' : 'knowledge',
-        summary: aiResult.data.summary,
+        summary: isQuickNote ? null : aiResult.data.summary,
       });
 
       // Si se marcó como conocimiento general y tiene asociación a un cliente/póliza, guardamos copia general
@@ -216,7 +235,7 @@ export class KnowledgeIngestionService {
           contactId: null,
           policyId: null,
           noteOrigin: 'knowledge',
-          summary: aiResult.data.summary,
+          summary: isQuickNote ? null : aiResult.data.summary,
         });
         docResult.embeddingTotalTokens += genResult.embeddingTotalTokens;
         docResult.embeddingCount += genResult.embeddingCount;

@@ -196,6 +196,8 @@ export const injectServices = async (c: Context, next: Next) => {
         getGeminiProvider(),
         {
           contactService,
+          knowledgeIngestionService: getKnowledgeIngestionService(),
+          usageService,
           policyService,
           reminderService,
           reminderGenerationService,
@@ -223,6 +225,8 @@ export const injectServices = async (c: Context, next: Next) => {
         getGeminiProvider(),
         {
           contactService,
+          knowledgeIngestionService: getKnowledgeIngestionService(),
+          usageService,
           policyService,
           reminderService,
           reminderGenerationService,

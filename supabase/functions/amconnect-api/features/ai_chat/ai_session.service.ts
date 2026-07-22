@@ -53,33 +53,36 @@ export class AiSessionService {
     extractionUsage: UsageTokens | undefined,
     embeddingModelName: string,
     embeddingTotalTokens: number,
-    embeddingCount: number,
+    _embeddingCount: number,
     noteId?: string | null,
   ): Promise<void> {
-    const rows: TokenUsageRow[] = [
-      {
+    const rows: TokenUsageRow[] = [];
+    // Sin extractionUsage no hubo llamada de IA que resumir (ej. nota rápida
+    // que se saltó generateStructuredData) — no insertar una fila en ceros.
+    if (extractionUsage) {
+      rows.push({
         agentId,
         sessionId,
         documentMetadataId: docMetaId,
         noteId: noteId ?? null,
         source: "extraction",
         modelName: extractionModelName,
-        promptTokens: extractionUsage?.promptTokens ?? 0,
-        completionTokens: extractionUsage?.completionTokens ?? 0,
-        cachedTokens: extractionUsage?.cachedTokens ?? 0,
-      },
-      {
-        agentId,
-        sessionId,
-        documentMetadataId: docMetaId,
-        noteId: noteId ?? null,
-        source: "embedding",
-        modelName: embeddingModelName,
-        promptTokens: 0,
-        completionTokens: 0,
-        cachedTokens: 0,
-      },
-    ];
+        promptTokens: extractionUsage.promptTokens,
+        completionTokens: extractionUsage.completionTokens,
+        cachedTokens: extractionUsage.cachedTokens ?? 0,
+      });
+    }
+    rows.push({
+      agentId,
+      sessionId,
+      documentMetadataId: docMetaId,
+      noteId: noteId ?? null,
+      source: "embedding",
+      modelName: embeddingModelName,
+      promptTokens: embeddingTotalTokens,
+      completionTokens: 0,
+      cachedTokens: 0,
+    });
 
     await this.repository.logTokenUsage(rows);
     await this.repository.updateSession(sessionId, {
@@ -112,7 +115,7 @@ export class AiSessionService {
     docMetaId: string | null,
     embeddingModelName: string,
     embeddingTotalTokens: number,
-    embeddingCount: number,
+    _embeddingCount: number,
   ): Promise<void> {
     await this.repository.logTokenUsage({
       agentId,
@@ -120,7 +123,7 @@ export class AiSessionService {
       documentMetadataId: docMetaId,
       source: "embedding",
       modelName: embeddingModelName,
-      promptTokens: 0,
+      promptTokens: embeddingTotalTokens,
       completionTokens: 0,
       cachedTokens: 0,
     });

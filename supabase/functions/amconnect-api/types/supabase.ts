@@ -638,7 +638,6 @@ export type Database = {
           id: string
           is_active: boolean
           is_prospect: boolean
-          notes: string | null
           occupation: string | null
           phone: string | null
           referred_by_id: string | null
@@ -658,7 +657,6 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_prospect?: boolean
-          notes?: string | null
           occupation?: string | null
           phone?: string | null
           referred_by_id?: string | null
@@ -678,7 +676,6 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_prospect?: boolean
-          notes?: string | null
           occupation?: string | null
           phone?: string | null
           referred_by_id?: string | null

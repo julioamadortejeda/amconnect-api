@@ -10,7 +10,6 @@ export const ContactRequestSchema = z.object({
   curp: z.string().optional().nullable(),
   address: z.string().optional().nullable(),
   occupation: z.string().optional().nullable(),
-  notes: z.string().optional().nullable(),
   referredById: z.string().uuid().optional().nullable(),
   externalReferrerSource: z.string().optional().nullable(),
   isProspect: z.boolean().optional(),
@@ -29,7 +28,6 @@ export interface ContactResponseDTO {
   curp: string | null;
   address: string | null;
   occupation: string | null;
-  notes: string | null;
   referredById: string | null;
   externalReferrerSource: string | null;
   isProspect: boolean;
