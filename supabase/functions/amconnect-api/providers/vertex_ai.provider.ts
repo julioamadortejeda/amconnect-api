@@ -111,13 +111,14 @@ export class VertexAiProvider extends GoogleGenAiProvider {
     systemInstruction?: string,
     _previousInteractionId?: string,
     history?: AiMessage[],
+    forceTextOnly?: boolean,
   ): Promise<AiGenerationResult & { interactionId?: string }> {
     if (!history?.length) {
       throw new AiError(
         "VertexAiProvider.processInteraction requiere el historial completo (Vertex no soporta el Interactions API).",
       );
     }
-    return await this.processUserRequest(history, tools, systemInstruction);
+    return await this.processUserRequest(history, tools, systemInstruction, forceTextOnly);
   }
 
   override async createEphemeralToken(

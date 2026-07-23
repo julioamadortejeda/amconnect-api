@@ -155,13 +155,16 @@ export class AiChatService {
     try {
     while (loops < MAX_LOOPS) {
       loops++;
-      const currentTools = forceNextTurnToGenerateText ? [] : tools;
+      // Siempre mandamos `tools` completo (aunque forceNextTurnToGenerateText esté activo)
+      // para no cambiar el prefix system_instruction+tools entre turnos y no perder el
+      // implicit caching de Gemini — el bloqueo de function calls se hace vía forceTextOnly.
       const result = await this.aiProvider.processInteraction(
         nextInteractionInput,
-        currentTools,
+        tools,
         systemInstruction,
         lastInteractionId,
         history,
+        forceNextTurnToGenerateText,
       );
 
       if (result.interactionId) {
@@ -270,6 +273,7 @@ export class AiChatService {
           promptTokens: loopUsage.promptTokens,
           completionTokens: loopUsage.completionTokens,
           totalTokens: loopUsage.totalTokens,
+          cachedTokens: loopUsage.cachedTokens,
           interactionId: lastInteractionId,
         },
       ],

@@ -40,7 +40,7 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "get_reminder_types",
-      description: "Retrieves all available reminder types (e.g., PAYMENT, RENEWAL, FOLLOW_UP, etc.) with their IDs, codes, and names. Call this tool whenever the user asks what types of reminders they can create, or when you need the type_id to create or update a reminder.",
+      description: "Retrieves all available reminder types with their IDs, codes, and names. Call this tool BEFORE create_reminder or create_reminder_for_client whenever you don't already know the correct type_id/code from earlier in this same conversation — do not guess or default to OTHER without checking the actual catalog first, since new types may exist beyond what you already know.",
       schema: z.object({}),
     },
     async execute(_args, ctx) {
@@ -55,7 +55,7 @@ export const reminderSkills: SkillDefinition[] = [
       schema: z.object({
         type_id: z.string().optional().describe("UUID of the reminder type (obtained from get_reminder_types)"),
         reminder_type_id: z.string().optional().describe("Alternative name for type_id (UUID of the reminder type)"),
-        reminder_type_name_or_code: z.string().optional().describe("Code or name of the reminder type. Call get_reminder_types to see all available types and their codes. Infer the best match from the user's message. Defaults to OTHER if omitted."),
+        reminder_type_name_or_code: z.string().optional().describe("Code or name of the reminder type, matched against the real catalog. Call get_reminder_types first if you don't already know the codes from earlier in this conversation, then pick the code that best matches the user's message (e.g. 'dar seguimiento' -> a follow-up type). Only fall back to a generic/OTHER type after checking the catalog and finding no better match."),
         title: z.string().optional()
           .describe("A very short, summarized title of the reminder (e.g., 'Llamar a Julio', 'Ir a junta'). If not provided, generate a concise short title matching this style based on the user request."),
         description: z.string().optional()
@@ -251,7 +251,7 @@ export const reminderSkills: SkillDefinition[] = [
         due_date: z.string({ required_error: "Due date in ISO 8601 format with the advisor's local offset (e.g., 2026-06-02T15:00:00-06:00)" }).describe("Due date and time with offset (e.g., YYYY-MM-DDTHH:mm:ss-06:00)"),
         description: z.string().optional()
           .describe("Detailed description or notes for the reminder. You must always intelligently generate a suitable description summarizing the context/purpose of the reminder based on what the user requested if they did not provide one."),
-        reminder_type_name_or_code: z.string().optional().describe("Code or name of the reminder type. Call get_reminder_types to see all available types and their codes. Infer the best match from the user's message. Defaults to OTHER if omitted."),
+        reminder_type_name_or_code: z.string().optional().describe("Code or name of the reminder type, matched against the real catalog. Call get_reminder_types first if you don't already know the codes from earlier in this conversation, then pick the code that best matches the user's message (e.g. 'dar seguimiento' -> a follow-up type). Only fall back to a generic/OTHER type after checking the catalog and finding no better match."),
         comment: z.string().optional().describe("Optional initial comment"),
       }),
     },

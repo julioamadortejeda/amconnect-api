@@ -43,6 +43,10 @@ export interface IAiProvider {
     history: AiMessage[],
     tools: Record<string, unknown>[],
     systemInstruction?: string,
+    // Fuerza que el modelo responda solo texto sin declarar function calls,
+    // sin quitar `tools` del request (así no se rompe el implicit caching
+    // del prefix system_instruction+tools entre turnos).
+    forceTextOnly?: boolean,
   ): Promise<AiGenerationResult>;
 
   processInteraction(
@@ -54,6 +58,8 @@ export interface IAiProvider {
     // necesita (usa previousInteractionId), pero Vertex no soporta interactions
     // y su implementación delega a generateContent, que sí requiere historial.
     history?: AiMessage[],
+    // Ver nota en processUserRequest — mismo propósito (preservar cache).
+    forceTextOnly?: boolean,
   ): Promise<AiGenerationResult & { interactionId?: string }>;
 
 

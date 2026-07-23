@@ -38,6 +38,7 @@ export class GoogleGenAiProvider implements IAiProvider {
     history: AiMessage[],
     tools: Record<string, unknown>[],
     systemInstruction?: string,
+    forceTextOnly?: boolean,
   ): Promise<AiGenerationResult> {
     // deno-lint-ignore no-explicit-any
     let response: any;
@@ -45,8 +46,19 @@ export class GoogleGenAiProvider implements IAiProvider {
       response = await this.ai.models.generateContent({
         model: this.model,
         contents: history as never,
-        config: { tools: tools as never, systemInstruction },
+        config: {
+          tools: tools as never,
+          systemInstruction,
+          // Function calling de skills (crear contacto, recordatorio, etc.) no necesita
+          // razonamiento profundo — MINIMAL recorta latencia por turno sin afectar la
+          // calidad de la extracción de parámetros (mismo nivel que ya usa la voz).
+          thinkingConfig: { thinkingLevel: "MINIMAL" },
+          // Con forceTextOnly mantenemos `tools` en el request (para no romper el
+          // cache implícito del prefix) y solo deshabilitamos que el modelo las use.
+          ...(forceTextOnly ? { toolConfig: { functionCallingConfig: { mode: "NONE" } } } : {}),
+        } as never,
       });
+      console.log("[GoogleGenAI.generateContent Usage]:", JSON.stringify(response.usageMetadata || {}));
     } catch (e) {
       wrapGeminiError(e, "processUserRequest");
     }
@@ -85,6 +97,7 @@ export class GoogleGenAiProvider implements IAiProvider {
     systemInstruction?: string,
     previousInteractionId?: string,
     _history?: AiMessage[],
+    forceTextOnly?: boolean,
   ): Promise<AiGenerationResult & { interactionId?: string }> {
     // deno-lint-ignore no-explicit-any
     let response: any;
@@ -119,8 +132,19 @@ export class GoogleGenAiProvider implements IAiProvider {
         system_instruction: systemInstruction,
         previous_interaction_id: previousInteractionId,
         input: messageOrSteps as any,
+        generation_config: {
+          // Function calling de skills no necesita razonamiento profundo — minimal
+          // recorta segundos de latencia por turno (mismo nivel que ya usa la voz).
+          thinking_level: "minimal",
+          // Con forceTextOnly mantenemos `tools` en el request (mismo prefix que los
+          // turnos anteriores) y solo bloqueamos que el modelo las use — así el
+          // implicit caching de Gemini sigue reconociendo el prefix system_instruction+tools
+          // en vez de perder el cache hit por mandar tools:[] (ver ai_chat.service.ts).
+          ...(forceTextOnly ? { tool_choice: "none" } : {}),
+        },
       };
       response = await this.ai.interactions.create(params);
+      console.log("[GoogleGenAI.interactions.create Usage]:", JSON.stringify(response.usage || {}));
     } catch (e) {
       wrapGeminiError(e, "processInteraction");
     }
