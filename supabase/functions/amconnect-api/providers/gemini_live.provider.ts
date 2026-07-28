@@ -57,7 +57,7 @@ export class GeminiLiveProvider {
               start_of_speech_sensitivity: "START_SENSITIVITY_HIGH",
               end_of_speech_sensitivity: "END_SENSITIVITY_LOW",
               prefix_padding_ms: 200,
-              silence_duration_ms: 500,
+              silence_duration_ms: 1800,
             },
           },
           input_audio_transcription: {},
