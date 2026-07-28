@@ -157,7 +157,7 @@ export const policySkills: SkillDefinition[] = [
     async execute(args, ctx) {
       const params = args as any;
       await assertNoDuplicatePolicyNumber(ctx.policyService, ctx.agentId, params.policy_number);
-      const statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "VIGENTE" });
+      const statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "ACTIVE" });
       const currencyId = await resolveCatalogId(ctx.catalogServices.currencyService, params.currency, { key: "code", value: "MXN" });
       const paymentFrequencyId = params.payment_frequency 
         ? await resolveCatalogId(ctx.catalogServices.paymentFrequencyService, params.payment_frequency, { key: "name", value: "Anual" })
@@ -231,7 +231,7 @@ export const policySkills: SkillDefinition[] = [
       if (params.policy_version !== undefined) { updates.policyVersion = params.policy_version; delete updates.policy_version; }
 
       if (params.status) {
-        updates.statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "VIGENTE" });
+        updates.statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "ACTIVE" });
       }
       if (params.currency) {
         updates.currencyId = await resolveCatalogId(ctx.catalogServices.currencyService, params.currency, { key: "code", value: "MXN" });

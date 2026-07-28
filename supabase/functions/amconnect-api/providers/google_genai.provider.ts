@@ -213,8 +213,20 @@ export class GoogleGenAiProvider implements IAiProvider {
       wrapGeminiError(e, "generateStructuredData");
     }
 
-    const text = response.text ?? "{}";
-    const parsed = JSON.parse(text);
+    if (!response.text) {
+      // Gemini devolvió un candidate vacío (bloqueo de seguridad, corte por
+      // longitud, PDF ilegible, etc.) — sin este chequeo caía a "{}" y el
+      // Zod de RawExtractionSchema tronaba con "summary/content/
+      // responseMessage: Required", un error que no dice nada del problema
+      // real. Mismo patrón defensivo que ya usa processUserRequest arriba.
+      const blockReason = response.promptFeedback?.blockReason;
+      const finishReason = response.candidates?.[0]?.finishReason;
+      throw new AiError(
+        `El modelo no devolvió contenido.${blockReason ? ` Bloqueado: ${blockReason}.` : ""}${finishReason && finishReason !== "STOP" ? ` finishReason: ${finishReason}.` : ""}`,
+      );
+    }
+
+    const parsed = JSON.parse(response.text);
 
     return {
       data: schema.parse(parsed),

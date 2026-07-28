@@ -1,4 +1,4 @@
-import { ConflictError } from "./errors.ts";
+import { ConflictError, ValidationError } from "./errors.ts";
 
 export function daysFromNowRange(days: number): { from: string; to: string } {
   return {
@@ -42,6 +42,9 @@ export async function resolveCatalogId(
     if (byNameExact) return byNameExact.id as string;
     const byNamePartial = items.find((item) => String(item.name).toLowerCase().includes(q));
     if (byNamePartial) return byNamePartial.id as string;
+
+    const options = items.map((item) => item.name ? `${item.code} (${item.name})` : item.code).filter(Boolean).join(", ");
+    throw new ValidationError(`No se encontró '${queryText}' en el catálogo. Opciones válidas: ${options}.`);
   }
 
   const byDefault = items.find((item) => String(item[defaultField.key]).toLowerCase() === defaultField.value.toLowerCase());
