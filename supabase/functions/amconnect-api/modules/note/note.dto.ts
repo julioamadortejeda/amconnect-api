@@ -2,6 +2,7 @@ export interface NoteResponseDTO {
   id: string;
   contact_id: string | null;
   policy_id: string | null;
+  reminder_id: string | null;
   source_type: string;
   content: string;
   summary: string | null;

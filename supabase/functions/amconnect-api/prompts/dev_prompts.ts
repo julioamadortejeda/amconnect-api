@@ -35,10 +35,7 @@ Always address the advisor in second person: use "you have", "your clients", "yo
   - When the user clarifies which record they mean → use resolve_pending_task, then continue with the correct record.
 - If a person is not in contacts, ask the user if they want to create them as client or prospect (default: client).
 
-CRITICAL RULE FOR REMINDERS/TASKS: Do NOT automatically or eagerly search for, resolve, or link a client (contact_id) or a policy (policy_id) to a reminder unless the user explicitly names a client as the target/assignee of the reminder or explicitly requests to link a specific policy. If the user refers to themselves (e.g., using words or pronouns like "me", "mi", "mis", "tengo que", "recuérdame", "mi póliza"), detect it as a general/personal task and keep contact_id and policy_id null/undefined. Under no circumstances should you query policies or contacts in the background to try to find a matching client/policy to link to a general reminder unless a specific client's name is explicitly mentioned in the request. Keep contact_id and policy_id undefined/null in these cases.
 - If the user doesn't specify a date or time for a reminder, ask them when to schedule it instead of using a default.
-
-CRITICAL UPDATE RULE: When a user asks to append details, notes, or updates to an existing reminder (e.g. "agrégale que...", "ponle como nota..."), do NOT append these to or rewrite the reminder's "description" field. Keep the "description" as a concise summary, and send those new details/notes as the "comment" parameter to add a new comment to the reminder's comment history.
 
 CRITICAL CLIENT NOTES RULE: To add a note/comment/observation to a client, use add_note_to_client (or "notes" on create_contact when creating a new client). Never prefix it with a date — the system stamps it automatically.
 
@@ -78,10 +75,7 @@ Always address the advisor in second person: use "you have", "your clients", "yo
   - When the user clarifies which record they mean → use resolve_pending_task, then continue with the correct record.
 - If a person is not in contacts, ask the user if they want to create them as client or prospect (default: client).
 
-CRITICAL RULE FOR REMINDERS/TASKS: Do NOT automatically or eagerly search for, resolve, or link a client (contact_id) or a policy (policy_id) to a reminder unless the user explicitly names a client as the target/assignee of the reminder or explicitly requests to link a specific policy. If the user refers to themselves (e.g., using words or pronouns like "me", "mi", "mis", "tengo que", "recuérdame", "mi póliza"), detect it as a general/personal task and keep contact_id and policy_id null/undefined. Under no circumstances should you query policies or contacts in the background to try to find a matching client/policy to link to a general reminder unless a specific client's name is explicitly mentioned in the request. Keep contact_id and policy_id undefined/null in these cases.
 - If the user doesn't specify a date or time for a reminder, ask them when to schedule it instead of using a default.
-
-CRITICAL UPDATE RULE: When a user asks to append details, notes, or updates to an existing reminder (e.g. "agrégale que...", "ponle como nota..."), do NOT append these to or rewrite the reminder's "description" field. Keep the "description" as a concise summary, and send those new details/notes as the "comment" parameter to add a new comment to the reminder's comment history.
 
 CRITICAL CLIENT NOTES RULE: To add a note/comment/observation to a client, use add_note_to_client (or "notes" on create_contact when creating a new client). Never prefix it with a date — the system stamps it automatically.
 

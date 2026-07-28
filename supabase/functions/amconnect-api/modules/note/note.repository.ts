@@ -6,7 +6,7 @@ import { NoteResponseDTO, PolicyNoteRow, RecentNoteRow } from "./note.dto.ts";
 export type { NoteResponseDTO, PolicyNoteRow, RecentNoteRow };
 
 const NOTE_SELECT = `
-  id, contact_id, policy_id, source_type, content, summary, note_origin, created_at,
+  id, contact_id, policy_id, reminder_id, source_type, content, summary, note_origin, created_at,
   document_metadata(storage_path, file_name)
 `.trim();
 
@@ -25,6 +25,18 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
       .order("created_at", { ascending: false });
 
     if (error) handleSupabaseError(error, "Error al obtener notas del contacto");
+    return (data ?? []) as unknown as NoteResponseDTO[];
+  }
+
+  async getByReminderId(reminderId: string): Promise<NoteResponseDTO[]> {
+    const { data, error } = await this.supabase
+      .from("agent_notes")
+      .select(NOTE_SELECT)
+      .eq("reminder_id", reminderId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
+
+    if (error) handleSupabaseError(error, "Error al obtener notas del recordatorio");
     return (data ?? []) as unknown as NoteResponseDTO[];
   }
 

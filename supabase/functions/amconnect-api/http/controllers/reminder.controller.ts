@@ -2,6 +2,7 @@ import { Context } from "hono";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { ReminderService } from "../../modules/reminder/reminder.service.ts";
 import { ReminderRequestSchema } from "../../modules/reminder/reminder.dto.ts";
+import { NoteService } from "../../modules/note/note.service.ts";
 import { parsePagination } from "../../shared/pagination.ts";
 import { daysFromNowRange } from "../../shared/utils.ts";
 
@@ -54,5 +55,11 @@ export class ReminderController {
     const service: ReminderService = c.get("services").reminderService;
     const data = await service.delete(c.req.param("id") as string);
     return sendSuccess(c, data);
+  }
+
+  static async getNotes(c: Context) {
+    const service: NoteService = c.get("services").noteService;
+    const notes = await service.getByReminderId(c.req.param("id") as string);
+    return sendSuccess(c, { data: notes });
   }
 }

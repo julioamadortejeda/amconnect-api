@@ -20,6 +20,36 @@ import { UsageService } from "../../modules/subscription/usage.service.ts";
 
 const ALL_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog", "knowledge"];
 
+// Catalog CRUD de aseguradoras/ramos/productos (~786 tokens, 11% del payload de
+// tools) es un flujo administrativo poco realista por voz — se mantiene solo
+// lectura (search_carrier, search_branch, get_products, search_product) para
+// no perder la capacidad de consulta. La Live API re-factura este payload
+// completo en CADA turno de la sesión (billing acumulativo), así que este
+// recorte aplica a toda la sesión, no solo a un turno.
+const VOICE_EXCLUDED_SKILLS = [
+  "create_carrier",
+  "update_carrier",
+  "create_branch",
+  "update_branch",
+  "create_product",
+  "update_product",
+];
+
+function buildVoiceTools(): { function_declarations: FunctionDeclaration[] }[] {
+  const activeSkills = getSkillsByDomains(ALL_DOMAINS)
+    .filter((s) => !VOICE_EXCLUDED_SKILLS.includes(s.declaration.name));
+  return [{
+    function_declarations: activeSkills.map((s) => {
+      const { $schema: _, ...parameters } = zodToJsonSchema(s.declaration.schema) as Record<string, unknown>;
+      return {
+        name: s.declaration.name,
+        description: s.declaration.description,
+        parameters: cleanSchema(parameters),
+      };
+    }),
+  }];
+}
+
 export interface VoiceToolCallLog {
   name: string;
   args?: Record<string, unknown>;
@@ -210,18 +240,8 @@ export class VoiceChatService {
       return;
     }
 
-    const activeSkills = getSkillsByDomains(ALL_DOMAINS);
-    const tools = [{
-      function_declarations: activeSkills.map((s) => {
-        const { $schema: _, ...parameters } = zodToJsonSchema(s.declaration.schema) as Record<string, unknown>;
-        return {
-          name: s.declaration.name,
-          description: s.declaration.description,
-          parameters: cleanSchema(parameters),
-        };
-      }),
-    }];
-    console.log(`[VOICE] Skills loaded: ${activeSkills.length} (domains: ${ALL_DOMAINS.join(", ")})`);
+    const tools = buildVoiceTools();
+    console.log(`[VOICE] Skills loaded: ${tools[0].function_declarations.length} (domains: ${ALL_DOMAINS.join(", ")}, excluded: ${VOICE_EXCLUDED_SKILLS.join(", ")})`);
 
     const timezoneOffset = calcTimezoneOffset(timezone);
     const ctx: SkillContext = {
@@ -369,17 +389,7 @@ export class VoiceChatService {
     const systemInstruction = await this.promptService.getPrompt("voice_chat_system");
     const dynamicContext = buildVoiceContext(timezone) + contextText + historyText;
 
-    const activeSkills = getSkillsByDomains(ALL_DOMAINS);
-    const tools = [{
-      function_declarations: activeSkills.map((s) => {
-        const { $schema: _, ...parameters } = zodToJsonSchema(s.declaration.schema) as Record<string, unknown>;
-        return {
-          name: s.declaration.name,
-          description: s.declaration.description,
-          parameters: cleanSchema(parameters),
-        };
-      }),
-    }];
+    const tools = buildVoiceTools();
 
     return {
       sessionId,

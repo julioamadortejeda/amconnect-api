@@ -38,6 +38,7 @@ export const AiIngestFileSchema = z.object({
   mimeType: z.string().min(1, "El campo 'mimeType' es requerido."),
   contactId: z.string().uuid().optional().nullable(),
   policyId: z.string().uuid().optional().nullable(),
+  reminderId: z.string().uuid().optional().nullable(),
   makeGeneral: z.boolean().optional().nullable(),
 });
 
@@ -50,6 +51,7 @@ export const AiIngestTextSchema = z.object({
   }),
   contactId: z.string().uuid().optional().nullable(),
   policyId: z.string().uuid().optional().nullable(),
+  reminderId: z.string().uuid().optional().nullable(),
   makeGeneral: z.boolean().optional().nullable(),
   // true SOLO desde el botón "Agregar nota" del perfil de cliente — distingue
   // esa acción del pegado de texto general en Feed (mismo endpoint, mismo

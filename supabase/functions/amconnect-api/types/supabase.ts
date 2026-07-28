@@ -158,6 +158,7 @@ export type Database = {
           is_active: boolean
           note_origin: string
           policy_id: string | null
+          reminder_id: string | null
           source_type: string
           summary: string | null
         }
@@ -172,6 +173,7 @@ export type Database = {
           is_active?: boolean
           note_origin?: string
           policy_id?: string | null
+          reminder_id?: string | null
           source_type: string
           summary?: string | null
         }
@@ -186,6 +188,7 @@ export type Database = {
           is_active?: boolean
           note_origin?: string
           policy_id?: string | null
+          reminder_id?: string | null
           source_type?: string
           summary?: string | null
         }
@@ -216,6 +219,13 @@ export type Database = {
             columns: ["policy_id"]
             isOneToOne: false
             referencedRelation: "policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agent_notes_reminder_id_fkey"
+            columns: ["reminder_id"]
+            isOneToOne: false
+            referencedRelation: "reminders"
             referencedColumns: ["id"]
           },
         ]

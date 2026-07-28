@@ -197,6 +197,28 @@ Estado: `[ ]` pendiente · `[~]` en progreso · `[x]` resuelto · `[-]` descarta
 
 ---
 
+## 🟡 Chat IA — Latencia y costo de tokens (revisión 2026-07-23)
+
+### T1 — Implicit caching se perdía en el último turno del loop de function calling
+**Archivos:** `providers/google_genai.provider.ts`, `providers/vertex_ai.provider.ts`, `core/ai_provider.interface.ts`, `features/ai_chat/ai_chat.service.ts`
+**Problema:** Para forzar que el modelo respondiera solo texto tras resolver todos los function calls, `ai_chat.service.ts` mandaba `tools: []` en el último turno del loop. Esto cambiaba el prefix `system_instruction+tools` respecto a los turnos anteriores y le hacía perder a Gemini el cache implícito justo en ese turno — confirmado en logs: `total_cached_tokens` caía a 0 en la última llamada aunque los turnos previos sí cacheaban miles de tokens (ej. 4004-4013).
+**Fix aplicado:** `tools` se manda completo en todos los turnos; el bloqueo de function calls se hace con `generation_config.tool_choice: "none"` (Interactions API) / `toolConfig.functionCallingConfig.mode: "NONE"` (`generateContent`, usado por Vertex vía herencia). Nuevo parámetro `forceTextOnly` propagado en `IAiProvider.processInteraction`/`processUserRequest`.
+**Estado:** `[x]`
+
+### T2 — `cachedTokens` nunca se guardaba en `tokens_usage`
+**Archivos:** `features/ai_chat/ai_chat.service.ts:267-274`
+**Problema:** El objeto del mensaje `role: "model"` que arma `saveChatRound` no incluía el campo `cachedTokens` — el repository sí sabía mapearlo a la columna `cached_tokens` (`ai_session.repository.ts:98`), pero al llegar `undefined` siempre insertaba 0 vía `?? 0`, aunque `loopUsage.cachedTokens` sí se calculaba bien en memoria y el cache sí ocurría (y se cobraba más barato) en Gemini.
+**Fix aplicado:** Agregado `cachedTokens: loopUsage.cachedTokens` al objeto insertado.
+**Estado:** `[x]`
+
+### T3 — Chat de texto sin `thinking_level` — ~40s por turno de skills
+**Archivos:** `providers/google_genai.provider.ts`
+**Problema:** Solo la voz (`gemini_live.provider.ts`) configuraba `thinking_level: MINIMAL`. El chat de texto usaba el thinking por defecto del modelo, generando 174-835 thought tokens por turno observados en logs — tiempo real de cómputo, no solo costo, para una tarea de extracción de parámetros de function calling que no necesita razonamiento profundo.
+**Fix aplicado:** `thinking_level: "minimal"` (Interactions API) / `thinkingConfig.thinkingLevel: "MINIMAL"` (`generateContent`) agregado a ambos métodos de `GoogleGenAiProvider` (heredado por `VertexAiProvider`). Verificado en logs: `total_thought_tokens` bajó a 0 y el tiempo total de una ronda de 3-4 turnos bajó de ~40s a ~4s.
+**Estado:** `[x]`
+
+---
+
 ## 🔵 Futuro / integración de pagos
 
 ### F1 — `subscription_status` se actualiza de forma lazy

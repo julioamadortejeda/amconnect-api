@@ -40,6 +40,7 @@ export interface KnowledgeIngestFileInput {
   mimeType: string;
   contactId?: string | null;
   policyId?: string | null;
+  reminderId?: string | null;
   makeGeneral?: boolean | null;
   advisorLocale?: string;
 }
@@ -49,6 +50,7 @@ export interface KnowledgeIngestTextInput {
   sourceType: "whatsapp" | "text";
   contactId?: string | null;
   policyId?: string | null;
+  reminderId?: string | null;
   makeGeneral?: boolean | null;
   advisorLocale?: string;
 }
@@ -70,7 +72,7 @@ export class KnowledgeIngestionService {
   ) {}
 
   async ingestFile(agentId: string, sessionId: string, input: KnowledgeIngestFileInput): Promise<KnowledgeIngestResult> {
-    const { storagePath, fileName, mimeType, contactId, policyId, makeGeneral, advisorLocale = 'es' } = input;
+    const { storagePath, fileName, mimeType, contactId, policyId, reminderId, makeGeneral, advisorLocale = 'es' } = input;
 
     // Download throws AppError (pre-AI) — controller will deleteSession on catch
     const base64 = await this.storageService.downloadAsBase64("policies", storagePath);
@@ -123,13 +125,14 @@ export class KnowledgeIngestionService {
         sourceType,
         contactId: contactId ?? null,
         policyId: policyId ?? null,
+        reminderId: reminderId ?? null,
         documentMetadataId: docMeta?.id ?? null,
         noteOrigin: policyId ? 'policy' : 'knowledge',
         summary: extraction.summary,
       });
 
-      // Si se marcó como conocimiento general y tiene asociación a un cliente/póliza, guardamos copia general
-      if (makeGeneral && (contactId || policyId)) {
+      // Si se marcó como conocimiento general y tiene asociación a un cliente/póliza/recordatorio, guardamos copia general
+      if (makeGeneral && (contactId || policyId || reminderId)) {
         const genResult = await this.embeddingsService.saveDocument(agentId, {
           content: extraction.content,
           sourceType,
@@ -173,8 +176,8 @@ export class KnowledgeIngestionService {
   }
 
   async ingestText(agentId: string, sessionId: string, input: KnowledgeIngestTextInput): Promise<KnowledgeIngestResult> {
-    const { content, sourceType, contactId, policyId, makeGeneral, advisorLocale = 'es' } = input;
-    return await this.ingestRawContent(agentId, sessionId, content, sourceType, contactId ?? null, policyId ?? null, makeGeneral, advisorLocale);
+    const { content, sourceType, contactId, policyId, reminderId, makeGeneral, advisorLocale = 'es' } = input;
+    return await this.ingestRawContent(agentId, sessionId, content, sourceType, contactId ?? null, policyId ?? null, reminderId ?? null, makeGeneral, advisorLocale);
   }
 
   private async ingestRawContent(
@@ -184,6 +187,7 @@ export class KnowledgeIngestionService {
     sourceType: NoteSourceType,
     contactId: string | null,
     policyId: string | null,
+    reminderId: string | null,
     makeGeneral: boolean | null = false,
     advisorLocale: string = 'es',
   ): Promise<KnowledgeIngestResult> {
@@ -223,12 +227,13 @@ export class KnowledgeIngestionService {
         sourceType,
         contactId,
         policyId,
+        reminderId,
         noteOrigin: policyId ? 'policy' : 'knowledge',
         summary: isQuickNote ? null : aiResult.data.summary,
       });
 
-      // Si se marcó como conocimiento general y tiene asociación a un cliente/póliza, guardamos copia general
-      if (makeGeneral && (contactId || policyId)) {
+      // Si se marcó como conocimiento general y tiene asociación a un cliente/póliza/recordatorio, guardamos copia general
+      if (makeGeneral && (contactId || policyId || reminderId)) {
         const genResult = await this.embeddingsService.saveDocument(agentId, {
           content,
           sourceType,

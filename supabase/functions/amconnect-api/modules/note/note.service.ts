@@ -16,6 +16,10 @@ export class NoteService {
     return this.repository.getByPolicyId(policyId);
   }
 
+  getByReminderId(reminderId: string): Promise<NoteResponseDTO[]> {
+    return this.repository.getByReminderId(reminderId);
+  }
+
   getRecent(limit = 20): Promise<RecentNoteRow[]> {
     return this.repository.getRecent(limit);
   }

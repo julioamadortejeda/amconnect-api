@@ -86,6 +86,7 @@ apiRouter.post("/reminders", ReminderController.create);
 apiRouter.patch("/reminders/:id", ReminderController.update);
 apiRouter.patch("/reminders/:id/done", ReminderController.markDone);
 apiRouter.delete("/reminders/:id", ReminderController.remove);
+apiRouter.get("/reminders/:id/notes", ReminderController.getNotes);
 
 // ─── Catálogos por agente (CRUD) ──────────────────────────────────────────────
 apiRouter.get("/catalog/carriers", CarrierController.getAll);
