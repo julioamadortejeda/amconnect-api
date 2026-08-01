@@ -39,6 +39,7 @@ apiRouter.post("/ai/ingest-policy", AiController.ingestPolicy);
 apiRouter.post("/ai/chat", AiController.chat);
 apiRouter.post("/ai/chat/tts", AiController.chatTts);
 apiRouter.post("/ai/sessions/:sessionId/cancel", AiController.cancelSession);
+apiRouter.post("/ai/sessions/:sessionId/resolve-contact-mismatch", AiController.resolveContactMismatch);
 apiRouter.get("/ai/sessions/:sessionId/cost", AiController.getSessionCost);
 apiRouter.get("/ai/upload-url", AiController.getUploadUrl);
 apiRouter.post("/ai/ingest", AiController.ingest);
@@ -48,6 +49,7 @@ apiRouter.post("/ai/rag-search", AiController.ragSearch);
 apiRouter.get("/ai/voice", VoiceChatController.connect);
 apiRouter.post("/ai/voice/token", VoiceChatController.getToken);
 apiRouter.post("/ai/voice/init", VoiceChatController.initSession);
+apiRouter.post("/ai/voice/init-session", VoiceChatController.initSessionWithToken);
 apiRouter.post("/ai/voice/execute-tool", VoiceChatController.executeTool);
 apiRouter.post("/ai/voice/save-round", VoiceChatController.saveRound);
 // Deprecado — mantener por compatibilidad, redirige internamente a ingest

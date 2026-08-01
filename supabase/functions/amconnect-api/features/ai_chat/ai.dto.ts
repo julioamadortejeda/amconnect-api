@@ -32,6 +32,12 @@ export const AiIngestPolicySchema = z.object({
 
 export type AiIngestPolicyDTO = z.infer<typeof AiIngestPolicySchema>;
 
+export const AiResolveContactMismatchSchema = z.object({
+  assignToScreenContact: z.boolean(),
+});
+
+export type AiResolveContactMismatchDTO = z.infer<typeof AiResolveContactMismatchSchema>;
+
 export const AiIngestFileSchema = z.object({
   storagePath: z.string().min(1, "El campo 'storagePath' es requerido."),
   fileName: z.string().min(1, "El campo 'fileName' es requerido."),

@@ -17,6 +17,7 @@ import {
   AiIngestPolicySchema,
   AiIngestTextSchema,
   AiProcessDocumentRequestSchema,
+  AiResolveContactMismatchSchema,
 } from "../../features/ai_chat/ai.dto.ts";
 export class AiController {
   static async chat(c: Context) {
@@ -153,6 +154,16 @@ export class AiController {
         storagePath, fileName, mimeType, contactId,
       });
 
+      if (ingestResult.status === 'contact_mismatch') {
+        // No arrancamos el chat de confirmación todavía — se pausa hasta que
+        // el asesor resuelva vía /resolve-contact-mismatch (sin costo de IA extra).
+        return sendSuccess(c, {
+          sessionId,
+          status: 'contact_mismatch',
+          contactMismatch: ingestResult.contactMismatch,
+        }, 201);
+      }
+
       let text: string;
       if (ingestResult.status === 'duplicate_detected') {
         const response = await aiChatService.startPolicyUpdateSession(
@@ -184,6 +195,37 @@ export class AiController {
       await AiController.compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId);
       throw err;
     }
+  }
+
+  // Resuelve la pregunta sí/no de contact_mismatch (ver policyIngestionService.extract).
+  // No es un turno de chat con el modelo — es una decisión determinística sobre la
+  // misma sesión ya creada por ingestPolicy. Tras persistirla, arranca el chat de
+  // confirmación normal (mismo call que el camino sin conflicto).
+  static async resolveContactMismatch(c: Context) {
+    const sessionId = c.req.param("sessionId");
+    if (!sessionId) throw new AppError("El parámetro 'sessionId' es requerido.", 400);
+
+    const agentId: string = c.get("agent_id");
+    const parsed = AiResolveContactMismatchSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      throw new AppError(`Datos inválidos: ${issues}`, 400);
+    }
+
+    const { policyIngestionService, aiChatService } = c.get("services");
+    const { extraction, documentMetadataId } = await policyIngestionService.resolveContactMismatch(
+      agentId, sessionId, parsed.data.assignToScreenContact,
+    );
+
+    const response = await aiChatService.startPolicySession(sessionId, agentId, extraction, documentMetadataId);
+
+    return sendSuccess(c, {
+      sessionId,
+      message: response.text,
+      documentMetadataId: documentMetadataId || null,
+      extraction,
+      isDuplicate: false,
+    });
   }
 
   static async ingest(c: Context) {

@@ -273,6 +273,7 @@ export const injectServices = async (c: Context, next: Next) => {
         policyService,
         catalogServices,
         promptService,
+        contactService,
       );
     }
     return policyIngestionService;

@@ -90,6 +90,36 @@ export class VoiceChatController {
     return c.json(config);
   }
 
+  static async initSessionWithToken(c: Context): Promise<Response> {
+    const agentId = c.get("agent_id") as string;
+    const body = await c.req.json().catch(() => ({}));
+    const timezone = resolveTimezone(
+      body.timezone ?? c.req.header("x-timezone"),
+      body.timezoneOffset ?? c.req.header("x-timezone-offset"),
+    );
+    const resumeSessionId = body.sessionId ?? c.req.header("sessionId") ?? undefined;
+    const context = body.context ?? null;
+
+    console.log(`[VOICE] initSessionWithToken - body: ${JSON.stringify(body)} resumeSessionId: ${resumeSessionId}`);
+
+    const usageService = c.get("usage_service") as UsageService;
+    await usageService.checkChatQuotaOnly(agentId);
+
+    const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
+    const config = await voiceChatService.initSession(agentId, timezone, resumeSessionId, context);
+
+    const tokenData = await voiceChatService.createEphemeralToken(
+      config.systemInstruction,
+      config.tools,
+    );
+
+    return c.json({
+      ...config,
+      ...tokenData,
+      aiBackend: AI_BACKEND_NAME,
+    });
+  }
+
   static async executeTool(c: Context): Promise<Response> {
     const agentId = c.get("agent_id") as string;
     const body = await c.req.json();

@@ -118,9 +118,12 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
   // originalmente si el asesor lo corrigió en el chat antes de confirmar).
   await assertNoDuplicatePolicyNumber(policyService, agentId, policyNumber);
 
-  // ─── Leer documentMetadataId de la sesión ────────────────────────────────
+  // ─── Leer metadata de la sesión ───────────────────────────────────────────
   const sessionMetadata = await aiSessionService.getSessionMetadata(sessionId);
   const documentMetadataId = sessionMetadata?.documentMetadataId as string | null ?? null;
+  const finalContactId = sessionMetadata?.finalContactId as string | null ?? null;
+  const contactMismatchAssignedToScreen = sessionMetadata?.contactMismatchAssignedToScreen === true;
+  const mismatchDetectedContactName = sessionMetadata?.detectedContactName as string | null ?? null;
 
   // ─── Resolver carrier ─────────────────────────────────────────────────────
   const carrierId = await findOrCreateCatalogItem(
@@ -141,7 +144,10 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
   );
 
   // ─── Resolver contacto ───────────────────────────────────────────────────
-  const contactId = await findOrCreateContact(ctx, holderName, holderRfc ?? null);
+  // `finalContactId` viene de la pantalla de origen (ver policy_ingestion.service.ts
+  // extract()/resolveContactMismatch()) — si está presente, ya fue decidido
+  // (con o sin conflicto detectado) y no se vuelve a resolver por nombre/RFC.
+  const contactId = finalContactId ?? await findOrCreateContact(ctx, holderName, holderRfc ?? null);
 
   // ─── Resolver catálogos globales ──────────────────────────────────────────
   const [statusRow, currencyRow, paymentFrequencyId, paymentMethodId] = await Promise.all([
@@ -181,6 +187,28 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
   });
 
   if (!policy) throw new Error("Could not create policy.");
+
+  // ─── Nota de trazabilidad si el asesor forzó la asignación a otro contacto ─
+  if (contactMismatchAssignedToScreen && mismatchDetectedContactName) {
+    const mismatchNoteContent =
+      `This policy (${carrierName}${policyNumber ? ` #${policyNumber}` : ""}) was extracted from a document ` +
+      `that identified "${mismatchDetectedContactName}" as the policyholder. The advisor chose to assign it to ` +
+      `this client anyway on ${new Date().toISOString().slice(0, 10)}.`;
+    const { embeddingTotalTokens: mismatchNoteEmbTokens, embeddingCount: mismatchNoteEmbCount } =
+      await embeddingsService.saveDocument(agentId, {
+        content: mismatchNoteContent,
+        sourceType: 'text',
+        contactId,
+        policyId: policy.id,
+        noteOrigin: 'policy',
+      });
+    await aiSessionService.trackEmbeddingUsageOnly(
+      agentId, sessionId, null,
+      embeddingsService.embeddingModelName,
+      mismatchNoteEmbTokens,
+      mismatchNoteEmbCount,
+    );
+  }
 
   // ─── Agregar beneficiarios ────────────────────────────────────────────────
   if (beneficiaries.length > 0) {
@@ -242,13 +270,8 @@ async function findOrCreateCatalogItem(service: any, name: string, extra: Record
 async function findOrCreateContact(ctx: SkillContext, fullName: string, rfc: string | null): Promise<string> {
   const { agentId, contactService } = ctx;
 
-  if (rfc) {
-    const byRfc = await contactService.getByField("rfc", rfc, 1);
-    if (byRfc?.[0]?.id) return byRfc[0].id;
-  }
-
-  const similar = await contactService.findSimilarContact(agentId, fullName);
-  if (similar?.[0]?.id) return similar[0].id;
+  const match = await contactService.findMatchingContact(agentId, fullName, rfc);
+  if (match) return match.id;
 
   const created = await contactService.create({ agentId, fullName, rfc });
   if (!created?.id) throw new Error(`Could not create contact: ${fullName}`);

@@ -230,7 +230,7 @@ export class AiChatService {
         });
       }
 
-      history.push({ role: AiRole.FUNCTION as never, parts: functionResults as never[] });
+      history.push({ role: AiRole.USER, parts: functionResults as never[] });
 
       // Configurar el input para el siguiente turno de la Interactions API como el listado de steps de respuesta
       nextInteractionInput = functionResponseSteps;
