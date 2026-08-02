@@ -22,6 +22,7 @@ const REMINDER_SELECT = `
   type:reminder_types(id, name, code),
   status:reminder_statuses(id, name, code),
   comments:reminder_comments(id, reminder_id, agent_id, content, created_at),
+  notes:agent_notes(id, content, summary, source_type, created_at, document_metadata(file_name, storage_path)),
   contact:contacts(id, full_name),
   policy:policies(id, policy_number)
 `.trim();

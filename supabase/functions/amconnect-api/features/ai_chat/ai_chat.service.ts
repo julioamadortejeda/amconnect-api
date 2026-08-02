@@ -207,7 +207,7 @@ export class AiChatService {
         const response = execution.response;
 
         // Si la base de conocimiento o notas de contacto/póliza devuelven vacío, forzamos que en el siguiente turno genere texto directo
-        if (call.name === "search_knowledge" || call.name === "search_contact_notes" || call.name === "search_policy_notes") {
+        if (call.name === "search_knowledge" || call.name === "search_contact_notes" || call.name === "search_policy_notes" || call.name === "search_reminder_notes") {
           if (Array.isArray(response) && response.length === 0) {
             forceNextTurnToGenerateText = true;
           }

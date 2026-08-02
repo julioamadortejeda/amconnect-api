@@ -6,6 +6,7 @@ export interface NoteMatch {
   content: string;
   contactId: string | null;
   policyId: string | null;
+  reminderId?: string | null;
   similarity: number;
   sourceType: string;
   createdAt: string;
@@ -14,6 +15,7 @@ export interface NoteMatch {
 export interface SearchNoteChunksOptions {
   contactId?: string;
   policyId?: string;
+  reminderId?: string;
 }
 
 export interface IRagRepository {
@@ -46,6 +48,7 @@ export class RagRepository implements IRagRepository {
 
     if (options?.contactId) query = query.eq("contact_id", options.contactId);
     if (options?.policyId) query = query.eq("policy_id", options.policyId);
+    if (options?.reminderId) query = query.eq("reminder_id", options.reminderId);
 
     // deno-lint-ignore no-explicit-any
     const { data, error } = await (query as any);
@@ -61,6 +64,7 @@ export class RagRepository implements IRagRepository {
       content: r.content as string,
       contactId: r.contact_id as string | null,
       policyId: r.policy_id as string | null,
+      reminderId: r.reminder_id as string | null,
       similarity: r.similarity as number,
       sourceType: r.source_type as string,
       createdAt: r.created_at as string,

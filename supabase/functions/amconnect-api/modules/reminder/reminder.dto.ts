@@ -23,6 +23,15 @@ export interface ReminderCommentDTO {
   createdAt: string;
 }
 
+export interface ReminderNoteDTO {
+  id: string;
+  content: string | null;
+  summary: string | null;
+  source_type: string;
+  created_at: string;
+  document_metadata?: { file_name: string | null; storage_path: string | null } | null;
+}
+
 export interface ReminderResponseDTO {
   id: string;
   agentId: string;
@@ -34,6 +43,7 @@ export interface ReminderResponseDTO {
   dueDate: string;
   statusId: string;
   comments?: ReminderCommentDTO[];
+  notes?: ReminderNoteDTO[];
   notifiedAt: string | null;
   createdAt: string;
   updatedAt: string;

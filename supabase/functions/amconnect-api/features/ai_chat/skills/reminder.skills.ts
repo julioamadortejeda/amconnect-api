@@ -14,6 +14,14 @@ const slimReminder = (r: ReminderResponseDTO, ctx: SkillContext) => ({
   statusId: r.statusId,
   status: r.status,
   comments: r.comments?.map((c) => ({ ...c, createdAt: utcToLocalIso(c.createdAt, ctx.timezone) })),
+  notes: r.notes?.map((n) => ({
+    id: n.id,
+    sourceType: n.source_type,
+    summary: n.summary,
+    content: n.content,
+    fileName: n.document_metadata?.file_name,
+    createdAt: utcToLocalIso(n.created_at, ctx.timezone),
+  })),
   contactId: r.contactId,
   policyId: r.policyId,
   type: r.type,
@@ -304,6 +312,24 @@ export const reminderSkills: SkillDefinition[] = [
           clientName: contacts[0].fullName,
         },
       };
+    },
+  },
+  {
+    domain: "reminder",
+    declaration: {
+      name: "search_reminder_notes",
+      description: "Searches for notes or attached files/documents belonging to a specific reminder or to all reminders. Use when the user asks a question about notes, attachments, quotes, or details of a specific reminder or meeting.",
+      schema: z.object({
+        query: z.string({ required_error: "The question or topic to search for in reminder notes/attachments is required" })
+          .describe("Question or topic to search for in reminder notes/attachments"),
+        reminder_id: z.string().optional().describe("UUID of the reminder (optional, for filtering search within a specific reminder's attachments)"),
+      }),
+    },
+    async execute({ query, reminder_id }, ctx) {
+      return await ctx.ragService.searchNotes(ctx.agentId, query as string, {
+        reminderId: reminder_id as string | undefined,
+        threshold: 0.5,
+      });
     },
   },
 ];
