@@ -13,7 +13,6 @@ app.onError(globalErrorHandler);
 const allowedOrigin = Deno.env.get("ALLOWED_ORIGIN");
 app.use("*", async (c, next) => {
   if (c.req.header("Upgrade")?.toLowerCase() === "websocket") {
-    console.log(`[HTTP] WebSocket request detected on ${c.req.path} — bypassing CORS middleware`);
     await next();
     return;
   }

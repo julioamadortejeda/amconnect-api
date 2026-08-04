@@ -53,7 +53,11 @@ Route → Controller → Service → Repository → Supabase
 - IDs de catálogo por discovery, nunca enum hardcodeado:
   - Catálogo chico/global → skill `get_<tipo>` (fetch all).
   - Catálogo grande/por agente → skill `search_<tipo>(query)` con `SupabaseRepository.search()` (pg_trgm).
-- Búsqueda vectorial (RAG): `threshold: 0.5` explícito siempre (el default de `RagService.searchNotes` es 0.7).
+- Búsqueda vectorial (RAG): `threshold` explícito siempre, **diferenciado por tipo de skill** (el default de `RagService.searchNotes` es 0.7):
+  - `search_contact_notes` / `search_policy_notes` / `search_reminder_notes` (búsqueda ACOTADA a un contacto/póliza/recordatorio ya conocido) → `threshold: 0.65`.
+  - `search_knowledge` (búsqueda AMPLIA sin acotar, último recurso de la cascada BD→RAG→notas) → `threshold: 0.5`, más permisivo a propósito.
+  *(Historial 2026-08-04: originalmente los 4 usaban 0.5. Se subieron los 3 acotados a 0.65 porque adjuntaban notas poco relevantes al `attachment_list` — ej. el documento de otra póliza colándose en una pregunta específica de un cliente. Pero subir también `search_knowledge` rompió la promesa de "nunca responder que no encontró sin agotar la búsqueda": una consulta genérica sin contacto ("¿subí algún currículum?") dejó de encontrar un documento que sí existía, porque esa skill es el último recurso de la cascada y no tiene contexto acotado que ayude a la similitud — se revirtió a 0.5 el mismo día.)*
+- **`attachment_list` — filtro autoritativo por citación, no por score (2026-08-04):** medido con embeddings reales, el modelo de embeddings NO discrimina bien para queries cortas/genéricas — documentos totalmente ajenos pueden quedar a ~0.05 de similitud del documento correcto, dentro de cualquier threshold o margen relativo razonable. Por eso el filtro real de qué adjuntar es que el **modelo cite explícitamente** las notas que usó: instrucción `RAG SOURCE CITATION RULE` en el prompt (`ai_chat_system`) le exige agregar un marcador `[[cite:noteId]]` junto a cada hecho tomado de una nota RAG. `ai_chat.service.ts` extrae esos marcadores (`extractCitations`), los limpia del texto antes de guardarlo/mostrarlo, y usa `citedNoteIds` para filtrar `ragAttachments` — solo se listan las notas citadas. El score/threshold/`ATTACHMENT_RELEVANCE_GAP` siguen controlando qué **entra en la búsqueda** (recall); la citación controla qué se **adjunta** (precisión). Si el modelo no cita nada en un turno (no usó RAG, o no cumplió la instrucción), se conserva el set filtrado por relevancia relativa como resguardo — no se oculta todo de golpe.
 - Flujos ambiguos: `save_pending_task` / `resolve_pending_task` (`ai_pending_tasks`).
 
 ## 6. Código limpio
@@ -80,15 +84,15 @@ Route → Controller → Service → Repository → Supabase
 
 | Flujo | Modelo | Studio usa | Vertex usa |
 |---|---|---|---|
-| Chat texto / cerebro walkie / confirmación pólizas | `GEMINI_MODEL` (gemini-3.1-flash-lite) | Interactions API | generateContent (`global`) |
+| Chat texto / confirmación pólizas | `GEMINI_MODEL` (gemini-3.1-flash-lite) | Interactions API | generateContent (`global`) |
 | Clasificador de intención | `GEMINI_MODEL` | generateContent | generateContent (`global`) |
 | Extracción de documentos | `GEMINI_MODEL` | generateContent | generateContent (`global`) |
 | Embeddings / RAG | `EMBEDDING_MODEL` (const, gemini-embedding-2) | SDK embedContent | REST directo (región `us`) |
-| TTS walkie | `TTS_MODEL` (const, gemini-3.1-flash-tts-preview) | generateContent | generateContent (`global`) |
 | Voz Live | ⚠️ único que difiere: `GEMINI_LIVE_MODEL` vs `VERTEX_LIVE_MODEL` | token efímero v1alpha | OAuth WS (`us-central1`) |
-| STT walkie | ninguno (on-device) | — | — |
 
-**Reglas del mapa:** un solo modelo "pensante" para todo; embeddings/TTS fijos en código (cambiarlos tiene consecuencias — embeddings exige reindexar); la única diferencia de modelo entre backends es la voz Live; lo demás que cambia entre backends es transporte (API/auth/región), encapsulado en los providers — NO agregar condicionales por backend fuera de ellos. `ai_sessions.model_name` registra lo que realmente corrió. Vertex NO soporta Interactions API (verificado 2026-07-09; re-probar ~agosto).
+**Reglas del mapa:** un solo modelo "pensante" para todo; embeddings fijos en código (cambiarlo exige reindexar vectores); la única diferencia de modelo entre backends es la voz Live; lo demás que cambia entre backends es transporte (API/auth/región), encapsulado en los providers — NO agregar condicionales por backend fuera de ellos. `ai_sessions.model_name` registra lo que realmente corrió. Vertex NO soporta Interactions API (verificado 2026-07-09; re-probar ~agosto).
+
+> **Nota (2026-08-02) — feature "walkie" (press-to-talk) y TTS server-side ELIMINADOS.** Se retiraron el endpoint `POST /ai/chat/tts`, `ChatTtsService`, `GeminiTtsProvider`, `TTS_MODEL`, `shared/audio.ts` y el write-path de tokens TTS. Eso cubría las antiguas filas **cerebro walkie / TTS walkie / STT walkie** (el "walkie" era en realidad el flujo `chat_tts`, no un flujo aparte). **Razón:** capacidad sin cliente vivo tras consolidar el chat en la feature `assistant/` de Flutter (la UI `chat_tts/` se borró); la voz real del producto usa el flujo **Voz Live**. Las columnas `tts_*` de `ai_sessions` se conservan **solo-lectura** para el reporte de costos histórico. La voz Live queda como el único flujo de voz.
 - **Aplicación de Cambios**:
   - En desarrollo local, modifica las variables en `supabase/.env.local`. Para que Supabase recargue las nuevas variables de entorno, ejecuta `supabase functions serve` o reinicia el CLI con `supabase stop` y `supabase start`.
   - En producción, actualiza las variables usando `supabase secrets set --env-file <archivo>` o desde el panel de control de Supabase.

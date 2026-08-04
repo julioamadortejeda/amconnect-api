@@ -26,7 +26,7 @@ export class VoiceChatController {
     // Keep the V8 isolate alive in Supabase Edge Runtime until the WebSocket closes or errors
     const socketClosedPromise = new Promise<void>((resolve) => {
       socket.addEventListener("close", (evt) => {
-        console.log(`[VOICE] client socket closed: code=${evt.code} reason="${evt.reason}"`);
+        console.warn(`[VOICE] client socket closed: code=${evt.code} reason="${evt.reason}"`);
         resolve();
       });
       socket.addEventListener("error", (err) => {
@@ -36,7 +36,6 @@ export class VoiceChatController {
     });
     // @ts-ignore: EdgeRuntime is a global variable provided by Supabase Edge Runtime
     if (typeof EdgeRuntime !== "undefined") {
-      console.log("[VOICE] EdgeRuntime is defined. Calling EdgeRuntime.waitUntil.");
       // @ts-ignore
       EdgeRuntime.waitUntil(socketClosedPromise);
     } else {
@@ -79,7 +78,9 @@ export class VoiceChatController {
     const resumeSessionId = body.sessionId ?? c.req.header("sessionId") ?? undefined;
     const context = body.context ?? null;
 
-    console.log(`[VOICE] initSession - body: ${JSON.stringify(body)} resumeSessionId: ${resumeSessionId}`);
+    // LFPDPPP: no volcar el body completo (puede traer datos personales de la
+    // pantalla activa); solo el id de sesión a reanudar para trazabilidad.
+    console.warn(`[VOICE] initSession — resume=${resumeSessionId ?? "none"}`);
 
     const usageService = c.get("usage_service") as UsageService;
     await usageService.checkChatQuotaOnly(agentId);
@@ -100,7 +101,8 @@ export class VoiceChatController {
     const resumeSessionId = body.sessionId ?? c.req.header("sessionId") ?? undefined;
     const context = body.context ?? null;
 
-    console.log(`[VOICE] initSessionWithToken - body: ${JSON.stringify(body)} resumeSessionId: ${resumeSessionId}`);
+    // LFPDPPP: no volcar el body completo; solo el id de sesión a reanudar.
+    console.warn(`[VOICE] initSessionWithToken — resume=${resumeSessionId ?? "none"}`);
 
     const usageService = c.get("usage_service") as UsageService;
     await usageService.checkChatQuotaOnly(agentId);

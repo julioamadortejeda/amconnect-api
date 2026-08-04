@@ -6,11 +6,10 @@ import {
   StartSensitivity,
   type ToolListUnion,
 } from "@google/genai";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { GoogleGenAiProvider } from "../../providers/google_genai.provider.ts";
 import { GeminiLiveProvider } from "../../providers/gemini_live.provider.ts";
 import { LIVE_AUDIO_MODEL } from "../../shared/config.ts";
-import { getSkillsByDomains } from "./skills/index.ts";
+import { buildToolDeclarations } from "../../shared/tool_declarations.ts";
 import { executeSkill } from "./skills/skill_executor.ts";
 import { SkillContext } from "./skills/skill.core.ts";
 import { buildLocalDateTime, calcTimezoneOffset } from "../../shared/datetime.ts";
@@ -36,16 +35,10 @@ const VOICE_EXCLUDED_SKILLS = [
 ];
 
 function buildVoiceTools(): { function_declarations: FunctionDeclaration[] }[] {
-  const activeSkills = getSkillsByDomains(ALL_DOMAINS)
-    .filter((s) => !VOICE_EXCLUDED_SKILLS.includes(s.declaration.name));
   return [{
-    function_declarations: activeSkills.map((s) => {
-      const { $schema: _, ...parameters } = zodToJsonSchema(s.declaration.schema) as Record<string, unknown>;
-      return {
-        name: s.declaration.name,
-        description: s.declaration.description,
-        parameters: cleanSchema(parameters),
-      };
+    function_declarations: buildToolDeclarations(ALL_DOMAINS, {
+      exclude: VOICE_EXCLUDED_SKILLS,
+      clean: true,
     }),
   }];
 }
@@ -71,19 +64,10 @@ type VoiceTurn =
 // it has no way to know — mirrors AiChatService's contextLines.
 function buildVoiceContext(timezone: string): string {
   const { localIso, offsetStr } = buildLocalDateTime(timezone);
-  return `\n\n[CONTEXT] Current date/time: ${localIso} | Timezone offset: ${offsetStr}\n\nCRITICAL VOICE MODE RULE: You must detect the language the user is speaking in and respond in that exact same language (e.g. speak in Spanish if the user speaks to you in Spanish, speak in English if the user speaks to you in English). Do not default to English when the user speaks in Spanish.`;
-}
-
-// deno-lint-ignore no-explicit-any
-function cleanSchema(obj: any): any {
-  if (obj === null || typeof obj !== "object") return obj;
-  if (Array.isArray(obj)) return obj.map(cleanSchema);
-  const cleaned: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (key === "additionalProperties") continue;
-    cleaned[key] = cleanSchema(value);
-  }
-  return cleaned;
+  // Solo el contexto DINÁMICO (fecha/hora/offset) se inyecta en código. La regla
+  // ESTÁTICA de idioma vive en el prompt `voice_chat_system` (BD/dev_prompts) —
+  // RULES §4 prohíbe concatenar instrucciones de comportamiento en TypeScript.
+  return `\n\n[CONTEXT] Current date/time: ${localIso} | Timezone offset: ${offsetStr}`;
 }
 
 export class VoiceChatService {
@@ -96,7 +80,7 @@ export class VoiceChatService {
   ) {}
 
   async startSession(agentId: string, timezone: string, clientSocket: WebSocket, resumeSessionId?: string): Promise<void> {
-    console.log(`[VOICE] Starting session — agent=${agentId} timezone=${timezone}${resumeSessionId ? ` resume=${resumeSessionId}` : ""}`);
+    console.warn(`[VOICE] Starting session — agent=${agentId} timezone=${timezone}${resumeSessionId ? ` resume=${resumeSessionId}` : ""}`);
 
     // ── Late-bound state (filled after async init, referenced via closure) ──
     let geminiLive: GeminiLiveProvider | null = null;
@@ -122,7 +106,7 @@ export class VoiceChatService {
       flushed = true;
       pushPendingUserTurn();
       if (pendingModelTranscript) turns.push({ kind: "text", role: "model", text: pendingModelTranscript });
-      console.log(`[VOICE] Flushing session ${sessionId} — turns=${turns.length} tokens=${JSON.stringify(accTokens)}`);
+      console.warn(`[VOICE] Flushing session ${sessionId} — turns=${turns.length} tokens=${JSON.stringify(accTokens)}`);
       try {
         const session = await this.aiSessionService.getSessionContext(sessionId).catch(() => null);
         const existingHistory = session?.history ? (session.history as unknown[]) : [];
@@ -154,7 +138,7 @@ export class VoiceChatService {
         }
 
         await this.aiSessionService.saveChatRound(agentId, sessionId, historyDb, messages, accTokens, null, durationSeconds, true);
-        console.log(`[VOICE] Session ${sessionId} saved to DB - duration=${durationSeconds}s`);
+        console.warn(`[VOICE] Session ${sessionId} saved to DB - duration=${durationSeconds}s`);
       } catch (e) {
         console.error("[VOICE] Error saving session to DB:", e);
       }
@@ -167,7 +151,7 @@ export class VoiceChatService {
 
     // Enforce 10 minutes maximum duration limit to release server resources
     const maxDurationTimer = setTimeout(() => {
-      console.log(`[VOICE] Enforcing maximum session duration of 10 minutes for ${sessionId}`);
+      console.warn(`[VOICE] Enforcing maximum session duration of 10 minutes for ${sessionId}`);
       geminiLive?.close();
       try {
         clientSocket.close(1000, "Maximum session duration reached");
@@ -180,10 +164,9 @@ export class VoiceChatService {
         if (msg.type === "audio" && typeof msg.data === "string") {
           geminiLive?.sendAudio(msg.data);
         } else if (msg.type === "end") {
-          console.log(`[VOICE] Flutter requested session end for ${sessionId}`);
           geminiLive?.close();
         } else {
-          console.log(`[VOICE] << Unknown Flutter message type: ${msg.type}`);
+          console.warn(`[VOICE] << Unknown Flutter message type: ${msg.type}`);
         }
       } catch (e) {
         console.error("[VOICE] Failed to parse Flutter message:", e);
@@ -192,7 +175,7 @@ export class VoiceChatService {
 
     clientSocket.onclose = async () => {
       clearTimeout(maxDurationTimer);
-      console.log(`[VOICE] Flutter disconnected — session ${sessionId}`);
+      console.warn(`[VOICE] Flutter disconnected — session ${sessionId}`);
       geminiLive?.close();
       await flushSession();
     };
@@ -208,14 +191,14 @@ export class VoiceChatService {
     try {
       if (resumeSessionId) {
         sessionId = resumeSessionId;
-        console.log(`[VOICE] Resuming session: ${sessionId}`);
+        console.warn(`[VOICE] Resuming session: ${sessionId}`);
       } else {
         sessionId = await this.aiSessionService.createSession(agentId, {
           triggerMessage: "[voice_session]",
           sessionType: "voice",
           modelName: LIVE_AUDIO_MODEL,
         });
-        console.log(`[VOICE] Session created: ${sessionId}`);
+        console.warn(`[VOICE] Session created: ${sessionId}`);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to create session";
@@ -241,7 +224,7 @@ export class VoiceChatService {
     }
 
     const tools = buildVoiceTools();
-    console.log(`[VOICE] Skills loaded: ${tools[0].function_declarations.length} (domains: ${ALL_DOMAINS.join(", ")}, excluded: ${VOICE_EXCLUDED_SKILLS.join(", ")})`);
+    console.warn(`[VOICE] Skills loaded: ${tools[0].function_declarations.length} (domains: ${ALL_DOMAINS.join(", ")}, excluded: ${VOICE_EXCLUDED_SKILLS.join(", ")})`);
 
     const timezoneOffset = calcTimezoneOffset(timezone);
     const ctx: SkillContext = {
@@ -257,7 +240,6 @@ export class VoiceChatService {
 
     geminiLive = new GeminiLiveProvider(this.aiProvider.apiKey!, this.aiProvider.model, {
       onSetupComplete: () => {
-        console.log(`[VOICE] Gemini setup complete for session ${sessionId}`);
         if (dynamicContext) {
           geminiLive?.sendText(dynamicContext);
         }
@@ -279,7 +261,8 @@ export class VoiceChatService {
       },
 
       onInterrupted: () => {
-        console.log(`[VOICE] Barge-in — discarding partial model transcript: "${pendingModelTranscript.slice(0, 60)}"`);
+        // LFPDPPP: no loguear el contenido del transcript descartado.
+        console.warn("[VOICE] Barge-in — discarding partial model transcript");
         pendingModelTranscript = "";
         this.send(clientSocket, { type: "interrupted" });
       },
@@ -290,7 +273,6 @@ export class VoiceChatService {
           turns.push({ kind: "text", role: "model", text: pendingModelTranscript });
           pendingModelTranscript = "";
         }
-        console.log(`[VOICE] Turn complete — accumulated ${turns.length} turns so far`);
 
         try {
           await this.usageService.checkAndIncrementChat(agentId);
@@ -306,14 +288,15 @@ export class VoiceChatService {
       },
 
       onToolCall: async (call) => {
-        console.log(`[VOICE] Executing skill: "${call.name}" args=${JSON.stringify(call.args).slice(0, 200)}`);
+        // LFPDPPP: solo el NOMBRE de la skill para trazabilidad — nunca args ni
+        // resultados, que contienen datos personales del asesor/cliente.
+        console.warn(`[VOICE] Executing skill: "${call.name}"`);
         this.send(clientSocket, { type: "skill_call", name: call.name });
 
         pushPendingUserTurn();
         turns.push({ kind: "function_call", name: call.name, args: call.args });
 
         const execution = await executeSkill(call.name, call.args, ctx);
-        console.log(`[VOICE] Skill "${call.name}" result: ${JSON.stringify(execution.response).slice(0, 200)}`);
         turns.push({ kind: "function_result", name: call.name, response: execution.response });
         geminiLive?.sendToolResponse(call.id, call.name, execution.response);
       },
@@ -326,7 +309,6 @@ export class VoiceChatService {
         accTokens.promptTokens = Math.max(accTokens.promptTokens, usage.promptTokens);
         accTokens.completionTokens = Math.max(accTokens.completionTokens, usage.completionTokens);
         accTokens.totalTokens = Math.max(accTokens.totalTokens, usage.totalTokens);
-        console.log(`[VOICE] Accumulated tokens: ${JSON.stringify(accTokens)}`);
       },
 
       onClose: async (_code, _reason) => {
@@ -358,7 +340,7 @@ export class VoiceChatService {
     let historyText = "";
     if (resumeSessionId) {
       sessionId = resumeSessionId;
-      console.log(`[VOICE] REST Init - Resuming session: ${sessionId}`);
+      console.warn(`[VOICE] REST Init - Resuming session: ${sessionId}`);
       const session = await this.aiSessionService.getSessionContext(sessionId).catch(() => null);
       if (session?.history && session.history.length > 0) {
         historyText = "\n\n[CONVERSATION HISTORY]\n";
@@ -378,7 +360,7 @@ export class VoiceChatService {
         sessionType: "voice",
         modelName: LIVE_AUDIO_MODEL,
       });
-      console.log(`[VOICE] REST Init - Session created: ${sessionId}`);
+      console.warn(`[VOICE] REST Init - Session created: ${sessionId}`);
     }
 
     let contextText = "";
@@ -400,7 +382,7 @@ export class VoiceChatService {
   }
 
   async executeTool(agentId: string, sessionId: string, timezone: string, toolName: string, args: Record<string, unknown>) {
-    console.log(`[VOICE] REST Execute - executing skill: "${toolName}" for session ${sessionId}`);
+    console.warn(`[VOICE] REST Execute - executing skill: "${toolName}" for session ${sessionId}`);
 
     const timezoneOffset = calcTimezoneOffset(timezone);
     const ctx: SkillContext = {
@@ -435,7 +417,7 @@ export class VoiceChatService {
       audioCompletionTokens?: number;
     },
   ) {
-    console.log(`[VOICE] REST SaveRound - saving round for session ${sessionId} - prompt=${promptTokens} completion=${completionTokens} toolCalls=${toolCalls.length}`);
+    console.warn(`[VOICE] REST SaveRound - saving round for session ${sessionId} - prompt=${promptTokens} completion=${completionTokens} toolCalls=${toolCalls.length}`);
 
     // deno-lint-ignore no-explicit-any
     const messages: any[] = [];
@@ -508,7 +490,7 @@ export class VoiceChatService {
     const accTokens = { promptTokens, completionTokens, totalTokens };
     try {
       await this.aiSessionService.saveChatRound(agentId, sessionId, historyDb, messages, accTokens, null, durationSeconds, false);
-      console.log(`[VOICE] Round saved successfully for ${sessionId} - duration=${durationSeconds}s`);
+      console.warn(`[VOICE] Round saved successfully for ${sessionId} - duration=${durationSeconds}s`);
       
       // Also increment usage in DB
       await this.usageService.checkAndIncrementChat(agentId);

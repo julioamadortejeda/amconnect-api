@@ -58,7 +58,6 @@ export class GoogleGenAiProvider implements IAiProvider {
           ...(forceTextOnly ? { toolConfig: { functionCallingConfig: { mode: "NONE" } } } : {}),
         } as never,
       });
-      console.log("[GoogleGenAI.generateContent Usage]:", JSON.stringify(response.usageMetadata || {}));
     } catch (e) {
       wrapGeminiError(e, "processUserRequest");
     }
@@ -144,7 +143,6 @@ export class GoogleGenAiProvider implements IAiProvider {
         },
       };
       response = await this.ai.interactions.create(params);
-      console.log("[GoogleGenAI.interactions.create Usage]:", JSON.stringify(response.usage || {}));
     } catch (e) {
       wrapGeminiError(e, "processInteraction");
     }

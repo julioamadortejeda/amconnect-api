@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { BatchEmbeddingResult, EmbeddingResult, IEmbeddingProvider } from "../core/embedding_provider.interface.ts";
 import { AiError } from "../shared/errors.ts";
 import { getGoogleCloudAccessToken } from "../shared/google_oauth.ts";
-import { EMBEDDING_MODEL } from "../shared/config.ts";
+import { EMBEDDING_MODEL, requireEnv } from "../shared/config.ts";
 
 export class GeminiEmbeddingProvider implements IEmbeddingProvider {
   private ai: GoogleGenAI;
@@ -28,7 +28,7 @@ export class GeminiEmbeddingProvider implements IEmbeddingProvider {
     if (this.useVertex) {
       try {
         const token = await getGoogleCloudAccessToken();
-        const projectId = Deno.env.get("VERTEX_PROJECT_ID") || "amconnect-jacatsoft";
+        const projectId = requireEnv("VERTEX_PROJECT_ID");
         const url = `https://aiplatform.us.rep.googleapis.com/v1/projects/${projectId}/locations/us/publishers/google/models/gemini-embedding-2:embedContent`;
         
         const res = await fetch(url, {

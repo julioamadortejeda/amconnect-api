@@ -328,7 +328,7 @@ export const reminderSkills: SkillDefinition[] = [
     async execute({ query, reminder_id }, ctx) {
       return await ctx.ragService.searchNotes(ctx.agentId, query as string, {
         reminderId: reminder_id as string | undefined,
-        threshold: 0.5,
+        threshold: 0.65,
       });
     },
   },

@@ -3,7 +3,7 @@ import { AppError } from "../../shared/errors.ts";
 
 export interface CreateSessionInput {
   triggerMessage: string;
-  sessionType: "chat" | "chat_tts" | "knowledge_ingestion" | "policy_ingestion" | "voice";
+  sessionType: "chat" | "knowledge_ingestion" | "policy_ingestion" | "voice";
   // Obligatorio y sin fallback: cada caller declara el modelo que realmente
   // usará (AI_MODEL, LIVE_AUDIO_MODEL...) — de esto dependen los costos.
   modelName: string;
@@ -209,17 +209,6 @@ export class AiSessionService {
     ]);
 
     return nextTokens;
-  }
-
-  /** Acumula el uso de TTS de un turno en la sesión — mismo patrón read-then-add-write que saveChatRound. */
-  async addTtsUsage(sessionId: string, modelName: string, deltaUsage: UsageTokens): Promise<void> {
-    const current = await this.repository.getSessionTtsTokens(sessionId);
-    await this.repository.updateSession(sessionId, {
-      ttsModelName: modelName,
-      ttsPromptTokens: current.promptTokens + deltaUsage.promptTokens,
-      ttsCompletionTokens: current.completionTokens + deltaUsage.completionTokens,
-      ttsTotalTokens: current.totalTokens + deltaUsage.totalTokens,
-    });
   }
 
   async updateMetadata(sessionId: string, metadata: Record<string, unknown>): Promise<void> {

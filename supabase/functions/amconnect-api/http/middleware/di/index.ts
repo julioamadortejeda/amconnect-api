@@ -22,18 +22,15 @@ import { StorageService } from "../../../modules/storage/storage.service.ts";
 import { StorageRepository } from "../../../modules/storage/storage.repository.ts";
 import { GoogleGenAiProvider } from "../../../providers/google_genai.provider.ts";
 import { GeminiProvider } from "../../../providers/gemini.provider.ts";
-import { GeminiTtsProvider } from "../../../providers/gemini_tts.provider.ts";
 import { VoiceChatService } from "../../../features/ai_chat/voice_chat.service.ts";
 import { EMBEDDING_MODEL, LIVE_AUDIO_MODEL } from "../../../shared/config.ts";
-import { TTS_MODEL } from "../../../providers/gemini_tts.provider.ts";
-import { setupVertexFetchInterceptor, VertexAiProvider } from "../../../providers/vertex_ai.provider.ts";
+import { VertexAiProvider } from "../../../providers/vertex_ai.provider.ts";
 import { GeminiEmbeddingProvider } from "../../../providers/gemini_embedding.provider.ts";
 import { EmbeddingsService } from "../../../features/rag/embeddings.service.ts";
 import { EmbeddingsRepository } from "../../../features/rag/embeddings.repository.ts";
 import { RagService } from "../../../features/rag/rag.service.ts";
 import { RagRepository } from "../../../features/rag/rag.repository.ts";
 import { AiChatService } from "../../../features/ai_chat/ai_chat.service.ts";
-import { ChatTtsService } from "../../../features/ai_chat/chat_tts.service.ts";
 import { AiSessionService } from "../../../features/ai_chat/ai_session.service.ts";
 import { AiSessionRepository } from "../../../features/ai_chat/ai_session.repository.ts";
 import { TextSplitter } from "../../../shared/text_splitter.ts";
@@ -83,7 +80,7 @@ function buildAiProvider(promptService?: PromptService): GoogleGenAiProvider {
 let modelCatalogChecked = false;
 async function checkModelCatalog(supabase: SupabaseClient): Promise<void> {
   if (modelCatalogChecked) return;
-  const required = [...new Set([AI_MODEL, LIVE_AUDIO_MODEL, TTS_MODEL, EMBEDDING_MODEL])];
+  const required = [...new Set([AI_MODEL, LIVE_AUDIO_MODEL, EMBEDDING_MODEL])];
   const { data, error } = await supabase
     .from("ai_models")
     .select("model_name")
@@ -140,29 +137,16 @@ export const injectServices = async (c: Context, next: Next) => {
   let embeddingsService: EmbeddingsService | undefined;
   let ragService: RagService | undefined;
   let aiChatService: AiChatService | undefined;
-  let chatTtsService: ChatTtsService | undefined;
   let voiceChatService: VoiceChatService | undefined;
   let docProvider: GoogleGenAiProvider | undefined;
   let documentProcessorService: DocumentProcessorService | undefined;
   let knowledgeIngestionService: KnowledgeIngestionService | undefined;
   let policyIngestionService: PolicyIngestionService | undefined;
   let confirmPolicyService: ConfirmPolicyService | undefined;
-  let ttsProvider: GeminiTtsProvider | undefined;
 
   const getGeminiProvider = () => {
     if (!geminiProvider) geminiProvider = buildAiProvider(promptService);
     return geminiProvider;
-  };
-
-  // TTS del chat de voz turn-based: sigue AI_BACKEND como todo lo demás. En
-  // vertex necesita el interceptor de fetch instalado (OAuth + URL con
-  // proyecto) por si el TTS se usa antes de construir el VertexAiProvider.
-  const getTtsProvider = () => {
-    if (!ttsProvider) {
-      if (useVertexBackend()) setupVertexFetchInterceptor();
-      ttsProvider = new GeminiTtsProvider(getBackendApiKey(), useVertexBackend());
-    }
-    return ttsProvider;
   };
 
   const getEmbeddingProvider = () => {
@@ -210,13 +194,6 @@ export const injectServices = async (c: Context, next: Next) => {
       );
     }
     return aiChatService;
-  };
-
-  const getChatTtsService = () => {
-    if (!chatTtsService) {
-      chatTtsService = new ChatTtsService(getAiChatService(), getTtsProvider(), aiSessionService);
-    }
-    return chatTtsService;
   };
 
   const getVoiceChatService = () => {
@@ -309,9 +286,6 @@ export const injectServices = async (c: Context, next: Next) => {
     },
     get aiChatService() {
       return getAiChatService();
-    },
-    get chatTtsService() {
-      return getChatTtsService();
     },
     get documentProcessorService() {
       return getDocumentProcessorService();

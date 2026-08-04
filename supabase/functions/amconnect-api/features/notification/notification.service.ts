@@ -46,7 +46,6 @@ export class NotificationService {
     if (serviceAccountJson) {
       try {
         this.serviceAccount = JSON.parse(serviceAccountJson);
-        console.log("[NotificationService] Firebase Service Account loaded successfully.");
       } catch (err) {
         console.error("[NotificationService] Error parsing service account JSON:", err);
       }
@@ -108,7 +107,6 @@ export class NotificationService {
     // 1. Obtener los tokens activos del agente
     const deviceTokens = await this.deviceTokenRepo.findByAgentId(agentId);
     if (!deviceTokens || deviceTokens.length === 0) {
-      console.log(`[NotificationService.sendPushToAgent] No active device tokens found for agent: ${agentId}`);
       return;
     }
 
@@ -130,7 +128,6 @@ export class NotificationService {
     // 3. Enviar peticiones concurrentes
     const sendPromises = deviceTokens.map(async (deviceRow) => {
       const token = deviceRow.token as string;
-      const platform = deviceRow.platform as string;
 
       try {
         const messageBody = {
@@ -170,11 +167,9 @@ export class NotificationService {
 
           // Si el token es inválido o ya no está registrado, lo eliminamos de la BD
           if (status === 404 || status === 400 || errCode === "UNREGISTERED" || errCode === "INVALID_ARGUMENT") {
-            console.log(`[NotificationService] Deleting unregistered/invalid token: ${token.substring(0, 10)}...`);
+            console.warn(`[NotificationService] Deleting unregistered/invalid token: ${token.substring(0, 10)}...`);
             await this.deviceTokenRepo.deleteByToken(token);
           }
-        } else {
-          console.log(`[NotificationService] Push sent successfully to ${platform} device token.`);
         }
       } catch (err) {
         console.error(`[NotificationService] Exception sending push to token ${token.substring(0, 10)}...:`, err);
@@ -190,8 +185,6 @@ export class NotificationService {
     if (reminders.length === 0) {
       return { success: true, processed: 0, notified: 0 };
     }
-
-    console.log(`[NotificationService] Found ${reminders.length} due reminders to notify.`);
 
     let notifiedCount = 0;
 

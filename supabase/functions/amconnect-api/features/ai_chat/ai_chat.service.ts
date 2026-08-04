@@ -1,8 +1,7 @@
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface.ts";
 import { AiSessionService } from "./ai_session.service.ts";
 import { AiError, AiProviderError } from "../../shared/errors.ts";
-import { getSkillsByDomains } from "./skills/index.ts";
+import { buildToolDeclarations } from "../../shared/tool_declarations.ts";
 import { executeSkill } from "./skills/skill_executor.ts";
 import { SkillContext } from "./skills/skill.core.ts";
 import { buildLocalDateTime, DEFAULT_TIMEZONE } from "../../shared/datetime.ts";
@@ -13,6 +12,40 @@ import { AiChatContext } from "./ai.dto.ts";
 const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog", "knowledge"];
 const POLICY_INGESTION_DOMAINS = ["policy_ingestion"];
 const MAX_LOOPS = 6;
+
+// Skills de búsqueda vectorial que devuelven NoteMatch[]: sus resultados pueden
+// traer documentos adjuntos que alimentan el attachment_list (botón "abrir
+// archivo") aunque la nota se haya encontrado por similitud y no por pantalla.
+const RAG_SEARCH_SKILLS = ["search_knowledge", "search_contact_notes", "search_policy_notes", "search_reminder_notes"];
+
+// Margen de relevancia para adjuntos: dentro de una misma búsqueda, solo se
+// adjuntan resultados cuya similitud esté a lo sumo esta distancia por debajo
+// del mejor match. Evita adjuntar documentos que apenas cruzaron el threshold
+// absoluto pero no tienen relación real con la pregunta (ej. una póliza de
+// otro ramo apareciendo junto al documento realmente citado en la respuesta),
+// mientras conserva múltiples adjuntos cuando genuinamente son parecidos entre
+// sí (ej. varios documentos de un mismo cliente en una pregunta de resumen).
+const ATTACHMENT_RELEVANCE_GAP = 0.15;
+
+// Marcador inline que el modelo agrega junto a cada hecho tomado de una nota
+// RAG ([[cite:noteId]], instrucción en RAG SOURCE CITATION RULE del prompt).
+// Es el filtro AUTORITATIVO de qué adjuntar — el score de similitud (threshold
+// + ATTACHMENT_RELEVANCE_GAP) no discrimina bien para queries cortas/genéricas
+// (ver historial en RULES.md §5); lo que el modelo realmente citó en su texto
+// sí es confiable. Se extrae y se limpia del texto antes de guardarlo/mostrarlo.
+const CITE_MARKER_RE = /\s?\[\[cite:([0-9a-fA-F-]{36})\]\]/g;
+
+function extractCitations(text: string): { displayText: string; citedNoteIds: Set<string> } {
+  const citedNoteIds = new Set<string>();
+  const displayText = text
+    .replace(CITE_MARKER_RE, (_match, id: string) => {
+      citedNoteIds.add(id);
+      return "";
+    })
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+  return { displayText, citedNoteIds };
+}
 
 export interface ChatResponse {
   text: string;
@@ -40,7 +73,7 @@ export class AiChatService {
     sessionId?: string | null,
     timezone?: string,
     context?: AiChatContext | null,
-    newSessionType: "chat" | "chat_tts" = "chat",
+    newSessionType: "chat" = "chat",
   ): Promise<ChatResponse> {
     const history: AiMessage[] = [];
     const sId = sessionId ?? undefined;
@@ -95,13 +128,7 @@ export class AiChatService {
       activeDomains = [...new Set([...ALWAYS_ACTIVE, ...parsedDomains])];
     }
 
-    const activeSkills = getSkillsByDomains(activeDomains);
-    const tools = [{
-      functionDeclarations: activeSkills.map((s) => {
-        const { $schema: _, ...parameters } = zodToJsonSchema(s.declaration.schema) as Record<string, unknown>;
-        return { name: s.declaration.name, description: s.declaration.description, parameters };
-      }),
-    }];
+    const tools = [{ functionDeclarations: buildToolDeclarations(activeDomains) }];
 
     // Fecha y hora local del asesor — implementación compartida con voz
     const { localIso, offsetStr } = buildLocalDateTime(timezone || DEFAULT_TIMEZONE);
@@ -152,6 +179,13 @@ export class AiChatService {
     let skillMetadata: Record<string, unknown> | undefined;
     let nextInteractionInput: string | Record<string, unknown>[] = contextPrefix + message;
 
+    // Adjuntos recolectados de los hits de RAG durante el bucle (dedupe por
+    // nota — puede haber varios chunks de la misma nota en un mismo resultado).
+    const ragAttachments: Record<string, unknown>[] = [];
+    const ragHarvestSeenIds = new Set<string>();
+    // Notas citadas explícitamente por el modelo en su respuesta final (ver CITE_MARKER_RE).
+    let citedNoteIds = new Set<string>();
+
     try {
     while (loops < MAX_LOOPS) {
       loops++;
@@ -179,8 +213,10 @@ export class AiChatService {
       }
 
       if (result.text && !result.functionCalls?.length) {
-        finalText = result.text;
-        history.push({ role: AiRole.MODEL, parts: [{ text: result.text }] });
+        const { displayText, citedNoteIds: cited } = extractCitations(result.text);
+        finalText = displayText;
+        citedNoteIds = cited;
+        history.push({ role: AiRole.MODEL, parts: [{ text: displayText }] });
         break;
       }
 
@@ -207,9 +243,35 @@ export class AiChatService {
         const response = execution.response;
 
         // Si la base de conocimiento o notas de contacto/póliza devuelven vacío, forzamos que en el siguiente turno genere texto directo
-        if (call.name === "search_knowledge" || call.name === "search_contact_notes" || call.name === "search_policy_notes" || call.name === "search_reminder_notes") {
-          if (Array.isArray(response) && response.length === 0) {
+        if (RAG_SEARCH_SKILLS.includes(call.name) && Array.isArray(response)) {
+          if (response.length === 0) {
             forceNextTurnToGenerateText = true;
+          }
+          // Cosechar adjuntos de las notas encontradas por similitud, filtrando
+          // por relevancia relativa al mejor match de esta búsqueda (ver
+          // ATTACHMENT_RELEVANCE_GAP).
+          const hits = response as Record<string, unknown>[];
+          const similarities = hits
+            .map((h) => h.similarity as number | undefined)
+            .filter((s): s is number => typeof s === "number");
+          const maxSimilarity = similarities.length > 0 ? Math.max(...similarities) : undefined;
+
+          for (const hit of hits) {
+            const storagePath = (hit.storagePath ?? hit.storage_path) as string | undefined;
+            const id = (hit.noteId ?? hit.note_id ?? hit.id) as string | undefined;
+            const similarity = hit.similarity as number | undefined;
+            const isRelevantEnough = maxSimilarity === undefined || similarity === undefined ||
+              similarity >= maxSimilarity - ATTACHMENT_RELEVANCE_GAP;
+            if (storagePath && id && isRelevantEnough && !ragHarvestSeenIds.has(id)) {
+              ragHarvestSeenIds.add(id);
+              ragAttachments.push({
+                id,
+                fileName: hit.fileName ?? hit.file_name ?? hit.summary ?? "Documento",
+                storagePath,
+                sourceType: hit.sourceType ?? hit.source_type ?? "document",
+                summary: hit.summary ?? hit.content,
+              });
+            }
           }
         }
 
@@ -280,6 +342,47 @@ export class AiChatService {
       totalUsage,
       lastInteractionId,
     );
+
+    // attachment_list se alimenta de dos fuentes complementarias: los hits de
+    // RAG con documento adjunto (búsqueda vectorial) y las notas del contexto de
+    // pantalla. Solo se emite si ninguna skill ya produjo su propio metadata.
+    if (!skillMetadata) {
+      // Filtro autoritativo: solo adjuntar notas RAG que el modelo citó en su
+      // respuesta. Si no citó ninguna (respuesta sin RAG, o no cumplió la
+      // instrucción esta vez), se conserva el set ya filtrado por relevancia
+      // relativa como resguardo — mejor eso que ocultar adjuntos de golpe.
+      const citedRagAttachments = citedNoteIds.size > 0
+        ? ragAttachments.filter((a) => citedNoteIds.has(a.id as string))
+        : ragAttachments;
+
+      const attachments: Record<string, unknown>[] = [...citedRagAttachments];
+      const seenAttachmentIds = new Set(attachments.map((a) => a.id as string));
+
+      if (context?.data?.notes && Array.isArray(context.data.notes)) {
+        // deno-lint-ignore no-explicit-any
+        const contextAttachments = (context.data.notes as any[])
+          .filter((n: any) => n.storage_path || n.storagePath || n.fileName || n.file_name)
+          .map((n: any) => ({
+            id: n.id,
+            fileName: n.fileName || n.file_name || n.summary || "Documento",
+            storagePath: n.storagePath || n.storage_path,
+            sourceType: n.sourceType || n.source_type || "document",
+            summary: n.summary || n.content,
+          }));
+        for (const att of contextAttachments) {
+          if (att.id && seenAttachmentIds.has(att.id as string)) continue;
+          if (att.id) seenAttachmentIds.add(att.id as string);
+          attachments.push(att);
+        }
+      }
+
+      if (attachments.length > 0) {
+        skillMetadata = {
+          type: "attachment_list",
+          attachments,
+        };
+      }
+    }
 
     return { text: finalText, sessionId: currentSessionId!, usage: totalUsage, sessionUsage, metadata: skillMetadata };
 

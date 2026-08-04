@@ -15,10 +15,6 @@ export interface UpdateSessionData {
   isBillable?: boolean;
   history?: unknown[];
   embeddingModelName?: string;
-  ttsModelName?: string;
-  ttsPromptTokens?: number;
-  ttsCompletionTokens?: number;
-  ttsTotalTokens?: number;
   metadata?: Record<string, unknown>;
   lastInteractionId?: string | null;
   durationSeconds?: number;
@@ -61,7 +57,6 @@ export interface IAiSessionRepository {
   updateSession(sessionId: string, data: UpdateSessionData): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
   getSessionTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number }>;
-  getSessionTtsTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number }>;
   getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string; modelName?: string | null; last_interaction_id?: string | null; createdAt?: string } | null>;
   getMetadata(sessionId: string): Promise<Record<string, unknown> | null>;
   savePendingTask(sessionId: string, agentId: string, taskType: string, payload: Record<string, unknown>): Promise<string>;
@@ -185,10 +180,6 @@ export class AiSessionRepository implements IAiSessionRepository {
     if (data.isBillable !== undefined) payload.is_billable = data.isBillable;
     if (data.history !== undefined) payload.history = data.history;
     if (data.embeddingModelName !== undefined) payload.embedding_model_name = data.embeddingModelName;
-    if (data.ttsModelName !== undefined) payload.tts_model_name = data.ttsModelName;
-    if (data.ttsPromptTokens !== undefined) payload.tts_prompt_tokens = data.ttsPromptTokens;
-    if (data.ttsCompletionTokens !== undefined) payload.tts_completion_tokens = data.ttsCompletionTokens;
-    if (data.ttsTotalTokens !== undefined) payload.tts_total_tokens = data.ttsTotalTokens;
     if (data.metadata !== undefined) payload.metadata = data.metadata;
     if (data.lastInteractionId !== undefined) payload.last_interaction_id = data.lastInteractionId;
     if (data.durationSeconds !== undefined) payload.duration_seconds = data.durationSeconds;
@@ -219,19 +210,6 @@ export class AiSessionRepository implements IAiSessionRepository {
     }
 
     return { promptTokens, completionTokens, totalTokens, cachedTokens };
-  }
-
-  async getSessionTtsTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number }> {
-    const { data } = await this.supabase
-      .from("ai_sessions")
-      .select("tts_prompt_tokens, tts_completion_tokens, tts_total_tokens")
-      .eq("id", sessionId)
-      .single();
-    return {
-      promptTokens: data?.tts_prompt_tokens ?? 0,
-      completionTokens: data?.tts_completion_tokens ?? 0,
-      totalTokens: data?.tts_total_tokens ?? 0,
-    };
   }
 
   async deleteSession(sessionId: string): Promise<void> {

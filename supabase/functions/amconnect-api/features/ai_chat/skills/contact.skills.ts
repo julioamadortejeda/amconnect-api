@@ -212,7 +212,7 @@ export const contactSkills: SkillDefinition[] = [
     async execute({ query, contact_id }, ctx) {
       return await ctx.ragService.searchNotes(ctx.agentId, query as string, {
         contactId: contact_id as string | undefined,
-        threshold: 0.5,
+        threshold: 0.65,
       });
     },
   },

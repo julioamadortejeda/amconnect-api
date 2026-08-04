@@ -45,7 +45,26 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute(_args, ctx) {
       const policies = await ctx.policyService.getByField("agent_id", ctx.agentId);
-      return (policies ?? []).map(slimPolicy);
+      const list = (policies ?? []).map(slimPolicy);
+      return {
+        policies: list,
+        __skillMetadata: {
+          type: "policy_list",
+          policies: (policies ?? []).map((p: any) => ({
+            id: p.id,
+            policyNumber: p.policyNumber,
+            holderName: p.contact?.fullName ?? p.contactName ?? "",
+            carrierName: p.product?.branch?.carrier?.name ?? "",
+            branchName: p.product?.branch?.name ?? "",
+            productName: p.product?.name ?? "",
+            statusName: p.status?.name ?? "",
+            premium: p.premium,
+            sumInsured: p.sumInsured,
+            renewalDate: p.renewalDate,
+            nextPaymentDate: p.nextPaymentDate,
+          })),
+        },
+      };
     },
   },
   {
@@ -60,7 +79,26 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute({ contact_id }, ctx) {
       const policies = await ctx.policyService.getByField("contact_id", contact_id as string);
-      return (policies ?? []).map(slimPolicy);
+      const list = (policies ?? []).map(slimPolicy);
+      return {
+        policies: list,
+        __skillMetadata: {
+          type: "policy_list",
+          policies: (policies ?? []).map((p: any) => ({
+            id: p.id,
+            policyNumber: p.policyNumber,
+            holderName: p.contact?.fullName ?? p.contactName ?? "",
+            carrierName: p.product?.branch?.carrier?.name ?? "",
+            branchName: p.product?.branch?.name ?? "",
+            productName: p.product?.name ?? "",
+            statusName: p.status?.name ?? "",
+            premium: p.premium,
+            sumInsured: p.sumInsured,
+            renewalDate: p.renewalDate,
+            nextPaymentDate: p.nextPaymentDate,
+          })),
+        },
+      };
     },
   },
   {
@@ -123,7 +161,7 @@ export const policySkills: SkillDefinition[] = [
     async execute({ query, policy_id }, ctx) {
       return await ctx.ragService.searchNotes(ctx.agentId, query as string, {
         policyId: policy_id as string | undefined,
-        threshold: 0.5,
+        threshold: 0.65,
       });
     },
   },

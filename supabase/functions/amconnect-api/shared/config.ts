@@ -2,7 +2,7 @@
 // falta la env var, el boot truena con mensaje claro en vez de operar con un
 // modelo por defecto que nadie pidió. El DI valida además que cada modelo
 // exista y esté activo en ai_models (catálogo de precios).
-function requireEnv(name: string): string {
+export function requireEnv(name: string): string {
   const value = Deno.env.get(name)?.trim();
   if (!value) {
     throw new Error(`[CONFIG] ${name} no está configurada y no hay fallback (fail closed). Defínela en .env.local / secrets.`);

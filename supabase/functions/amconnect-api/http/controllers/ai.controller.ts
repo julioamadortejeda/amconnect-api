@@ -1,9 +1,7 @@
 import { Context } from "hono";
-import type { ZodIssue } from "zod";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { AiInvokedError, AiProviderError, AppError } from "../../shared/errors.ts";
 import { AiChatService } from "../../features/ai_chat/ai_chat.service.ts";
-import { ChatTtsService } from "../../features/ai_chat/chat_tts.service.ts";
 import { AiSessionService } from "../../features/ai_chat/ai_session.service.ts";
 import { ConfirmPolicySchema } from "../../features/document_processing/confirm_policy.service.ts";
 import { QUICK_NOTE_MAX_LENGTH } from "../../features/document_processing/knowledge_ingestion.service.ts";
@@ -41,39 +39,10 @@ export class AiController {
     }
   }
 
-  // Chat de voz "turn-based" (walkie-talkie): la app transcribe el audio del
-  // asesor on-device (STT local, sin subir audio) y manda el texto aquí, tal
-  // cual /ai/chat — misma sesión, mismas skills, mismo historial vía
-  // ChatTtsService, que compone AiChatService y solo agrega la síntesis de
-  // audio + su propio log de tokens.
-  static async chatTts(c: Context) {
-    const agentId: string = c.get("agent_id");
-    const { message, sessionId, context } = AiController.parseChatBody(await c.req.json());
-
-    const usageService = c.get("usage_service") as UsageService;
-    await usageService.checkAndIncrementChat(agentId);
-
-    try {
-      const timezone = resolveTimezone(c.req.header("x-timezone"), c.req.header("x-timezone-offset"));
-      const service: ChatTtsService = c.get("services").chatTtsService;
-      const response = await service.processMessage(message, agentId, sessionId, timezone, context);
-      return sendSuccess(c, { ...response, aiBackend: AI_BACKEND_NAME });
-    } catch (err) {
-      if (err instanceof AiProviderError) {
-        // Session already marked inside processMessage; only decrement usage
-        await usageService.decrementChat(agentId);
-      }
-      throw err;
-    }
-  }
-
   private static parseChatBody(body: unknown) {
-    const parsed = AiChatSchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
-    return { message: parsed.data.message, sessionId: parsed.data.sessionId, context: parsed.data.context };
+    // Schema.parse: el ZodError lo formatea el globalErrorHandler (RULES §2).
+    const parsed = AiChatSchema.parse(body);
+    return { message: parsed.message, sessionId: parsed.sessionId, context: parsed.context };
   }
 
   static async cancelSession(c: Context) {
@@ -95,12 +64,7 @@ export class AiController {
 
   static async processDocument(c: Context) {
     const agentId: string = c.get("agent_id");
-    const parsed = AiProcessDocumentRequestSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
-    const { filePath, fileName } = parsed.data;
+    const { filePath, fileName } = AiProcessDocumentRequestSchema.parse(await c.req.json());
     const result = await c.get("services").documentProcessorService.processDocument(agentId, filePath, fileName);
     return sendSuccess(c, result);
   }
@@ -136,12 +100,7 @@ export class AiController {
     await usageService.checkAndIncrementIngestion(agentId);
 
     const body = await c.req.json();
-    const parsed = AiIngestPolicySchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
-    const { storagePath, fileName, mimeType, contactId } = parsed.data;
+    const { storagePath, fileName, mimeType, contactId } = AiIngestPolicySchema.parse(body);
 
     const { aiSessionService, policyIngestionService, aiChatService } = c.get("services");
     const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
@@ -206,15 +165,11 @@ export class AiController {
     if (!sessionId) throw new AppError("El parámetro 'sessionId' es requerido.", 400);
 
     const agentId: string = c.get("agent_id");
-    const parsed = AiResolveContactMismatchSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
+    const parsed = AiResolveContactMismatchSchema.parse(await c.req.json());
 
     const { policyIngestionService, aiChatService } = c.get("services");
     const { extraction, documentMetadataId } = await policyIngestionService.resolveContactMismatch(
-      agentId, sessionId, parsed.data.assignToScreenContact,
+      agentId, sessionId, parsed.assignToScreenContact,
     );
 
     const response = await aiChatService.startPolicySession(sessionId, agentId, extraction, documentMetadataId);
@@ -234,12 +189,7 @@ export class AiController {
     await usageService.checkAndIncrementIngestion(agentId);
 
     const body = await c.req.json();
-    const parsed = AiIngestFileSchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
-    const { storagePath, fileName, mimeType, contactId, policyId, reminderId, makeGeneral } = parsed.data;
+    const { storagePath, fileName, mimeType, contactId, policyId, reminderId, makeGeneral } = AiIngestFileSchema.parse(body);
 
     const storageService = c.get("storage_service") as StorageService;
     storageService.validateMimeType(mimeType);
@@ -272,12 +222,7 @@ export class AiController {
     const usageService = c.get("usage_service") as UsageService;
 
     const body = await c.req.json();
-    const parsed = AiIngestTextSchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
-    const { content, sourceType, contactId, policyId, reminderId, makeGeneral, isClientNote } = parsed.data;
+    const { content, sourceType, contactId, policyId, reminderId, makeGeneral, isClientNote } = AiIngestTextSchema.parse(body);
 
     // Solo las notas rápidas de cliente (isClientNote) se libran de la cuota
     // cuando el texto es corto (ver QUICK_NOTE_MAX_LENGTH) — el pegado de
@@ -314,13 +259,9 @@ export class AiController {
     const agentId: string = c.get("agent_id");
     const body = await c.req.json();
 
-    const parsed = ConfirmPolicySchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
+    const parsed = ConfirmPolicySchema.parse(body);
 
-    const result = await c.get("services").confirmPolicyService.confirm(agentId, parsed.data);
+    const result = await c.get("services").confirmPolicyService.confirm(agentId, parsed);
     return sendSuccess(c, result);
   }
 

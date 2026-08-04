@@ -36,12 +36,11 @@ export class GeminiLiveProvider {
   // feature no existe en Vertex AI.
   connect(systemInstruction: string, tools: Record<string, unknown>[]): void {
     const url = `${LIVE_API_URL}?key=${this.apiKey}`;
-    console.log(`[VOICE] Connecting to Gemini Live API — model: ${this.model}`);
+    console.warn(`[VOICE] Connecting to Gemini Live API — model: ${this.model}`);
 
     this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
-      console.log("[VOICE] WebSocket opened to Gemini Live API");
       const setup = {
         setup: {
           model: `models/${this.model}`,
@@ -69,7 +68,6 @@ export class GeminiLiveProvider {
         },
       };
       this.ws!.send(JSON.stringify(setup));
-      console.log("[VOICE] >> Setup message sent to Gemini");
     };
 
     this.ws.onmessage = async (event: MessageEvent) => {
@@ -88,7 +86,7 @@ export class GeminiLiveProvider {
     };
 
     this.ws.onclose = async (event: CloseEvent) => {
-      console.log(`[VOICE] Gemini WS closed — code=${event.code} reason="${event.reason}"`);
+      console.warn(`[VOICE] Gemini WS closed — code=${event.code} reason="${event.reason}"`);
       await this.callbacks.onClose(event.code, event.reason);
     };
 
@@ -108,12 +106,8 @@ export class GeminiLiveProvider {
       return;
     }
 
-    const topKeys = Object.keys(msg).join(", ");
-    console.log(`[VOICE] << Gemini message keys: [${topKeys}]`);
-
     const setupComplete = msg.setup_complete ?? msg.setupComplete;
     if (setupComplete !== undefined) {
-      console.log("[VOICE] Setup complete — Gemini session ready");
       this.callbacks.onSetupComplete();
       return;
     }
@@ -121,7 +115,6 @@ export class GeminiLiveProvider {
     const serverContent = msg.server_content ?? msg.serverContent;
     if (serverContent) {
       if (serverContent.interrupted === true) {
-        console.log("[VOICE] Barge-in detected — model interrupted");
         this.callbacks.onInterrupted();
       }
 
@@ -132,29 +125,22 @@ export class GeminiLiveProvider {
           if (inlineData?.data) {
             this.callbacks.onAudio(inlineData.data as string);
           }
-          if (part.text) {
-            console.log(`[VOICE] Model text part: "${String(part.text).slice(0, 120)}"`);
-          }
+          // LFPDPPP: no loguear el texto/transcripción del modelo ni del usuario.
         }
       }
 
       const outputTranscription = serverContent.output_transcription ?? serverContent.outputTranscription;
       if (outputTranscription?.text) {
-        const text = outputTranscription.text as string;
-        console.log(`[VOICE] Model transcript: "${text.slice(0, 120)}"`);
-        this.callbacks.onOutputTranscription(text);
+        this.callbacks.onOutputTranscription(outputTranscription.text as string);
       }
 
       const inputTranscription = serverContent.input_transcription ?? serverContent.inputTranscription;
       if (inputTranscription?.text) {
-        const text = inputTranscription.text as string;
-        console.log(`[VOICE] User transcript: "${text.slice(0, 120)}"`);
-        this.callbacks.onInputTranscription(text);
+        this.callbacks.onInputTranscription(inputTranscription.text as string);
       }
 
       const turnComplete = serverContent.turn_complete ?? serverContent.turnComplete;
       if (turnComplete === true) {
-        console.log("[VOICE] Turn complete");
         await this.callbacks.onTurnComplete();
       }
     }
@@ -164,7 +150,6 @@ export class GeminiLiveProvider {
     if (functionCalls?.length > 0) {
       // deno-lint-ignore no-explicit-any
       const calls = functionCalls as Record<string, any>[];
-      console.log(`[VOICE] Tool calls: [${calls.map((c) => c.name).join(", ")}]`);
       for (const call of calls) {
         await this.callbacks.onToolCall({
           id: call.id as string,
@@ -185,7 +170,6 @@ export class GeminiLiveProvider {
         completionTokens: candidatesTokenCount as number,
         totalTokens: totalTokenCount as number,
       };
-      console.log(`[VOICE] Usage metadata: prompt=${tokens.promptTokens} completion=${tokens.completionTokens} total=${tokens.totalTokens}`);
       this.callbacks.onUsageMetadata(tokens);
     }
   }
@@ -239,7 +223,6 @@ export class GeminiLiveProvider {
         function_responses: [{ id: callId, name, response: { result } }],
       },
     };
-    console.log(`[VOICE] >> Tool response sent for: ${name}`);
     this.ws.send(JSON.stringify(msg));
   }
 
