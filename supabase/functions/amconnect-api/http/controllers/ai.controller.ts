@@ -1,10 +1,12 @@
 import { Context } from "hono";
 import { sendSuccess } from "../../shared/api_response.ts";
-import { AiInvokedError, AiProviderError, AppError } from "../../shared/errors.ts";
+import { AiProviderError, AppError } from "../../shared/errors.ts";
 import { AiChatService } from "../../features/ai_chat/ai_chat.service.ts";
 import { AiSessionService } from "../../features/ai_chat/ai_session.service.ts";
 import { ConfirmPolicySchema } from "../../features/document_processing/confirm_policy.service.ts";
 import { QUICK_NOTE_MAX_LENGTH } from "../../features/document_processing/knowledge_ingestion.service.ts";
+import { PolicyIngestionOrchestrator } from "../../features/document_processing/policy_ingestion_orchestrator.ts";
+import { compensateIngestionFailure } from "../../shared/ingestion_compensation.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
 import { StorageService } from "../../modules/storage/storage.service.ts";
 import { resolveTimezone } from "../../shared/datetime.ts";
@@ -96,70 +98,33 @@ export class AiController {
 
   static async ingestPolicy(c: Context) {
     const agentId: string = c.get("agent_id");
-    const usageService = c.get("usage_service") as UsageService;
-    await usageService.checkAndIncrementIngestion(agentId);
-
     const body = await c.req.json();
     const { storagePath, fileName, mimeType, contactId } = AiIngestPolicySchema.parse(body);
 
-    const { aiSessionService, policyIngestionService, aiChatService } = c.get("services");
-    const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
-      triggerMessage: "policy_ingestion",
-      sessionType: "policy_ingestion",
-      modelName: AI_MODEL,
-    });
-    try {
-      const ingestResult = await policyIngestionService.extract(agentId, sessionId, {
-        storagePath, fileName, mimeType, contactId,
-      });
+    const orchestrator = c.get("services").policyIngestionOrchestrator as PolicyIngestionOrchestrator;
+    const result = await orchestrator.ingestPolicy(agentId, { storagePath, fileName, mimeType, contactId });
 
-      if (ingestResult.status === 'contact_mismatch') {
-        // No arrancamos el chat de confirmación todavía — se pausa hasta que
-        // el asesor resuelva vía /resolve-contact-mismatch (sin costo de IA extra).
-        return sendSuccess(c, {
-          sessionId,
-          status: 'contact_mismatch',
-          contactMismatch: ingestResult.contactMismatch,
-        }, 201);
-      }
-
-      let text: string;
-      if (ingestResult.status === 'duplicate_detected') {
-        const response = await aiChatService.startPolicyUpdateSession(
-          sessionId,
-          agentId,
-          ingestResult.extraction,
-          ingestResult.existingPolicyId!,
-          ingestResult.diff!,
-        );
-        text = response.text;
-      } else {
-        const response = await aiChatService.startPolicySession(
-          sessionId,
-          agentId,
-          ingestResult.extraction,
-          ingestResult.documentMetadataId,
-        );
-        text = response.text;
-      }
-
+    if (result.status === "contact_mismatch") {
+      // No arrancamos el chat de confirmación todavía — se pausa hasta que
+      // el asesor resuelva vía /resolve-contact-mismatch (sin costo de IA extra).
       return sendSuccess(c, {
-        sessionId,
-        message: text,
-        documentMetadataId: ingestResult.documentMetadataId || null,
-        extraction: ingestResult.extraction,
-        isDuplicate: ingestResult.status === 'duplicate_detected',
+        sessionId: result.sessionId,
+        status: "contact_mismatch",
+        contactMismatch: result.contactMismatch,
       }, 201);
-    } catch (err) {
-      await AiController.compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId);
-      throw err;
     }
+
+    return sendSuccess(c, {
+      sessionId: result.sessionId,
+      message: result.message,
+      documentMetadataId: result.documentMetadataId,
+      extraction: result.extraction,
+      isDuplicate: result.isDuplicate,
+    }, 201);
   }
 
-  // Resuelve la pregunta sí/no de contact_mismatch (ver policyIngestionService.extract).
-  // No es un turno de chat con el modelo — es una decisión determinística sobre la
-  // misma sesión ya creada por ingestPolicy. Tras persistirla, arranca el chat de
-  // confirmación normal (mismo call que el camino sin conflicto).
+  // Resuelve la pregunta sí/no de contact_mismatch — ver
+  // PolicyIngestionOrchestrator.resolveContactMismatch.
   static async resolveContactMismatch(c: Context) {
     const sessionId = c.req.param("sessionId");
     if (!sessionId) throw new AppError("El parámetro 'sessionId' es requerido.", 400);
@@ -167,20 +132,10 @@ export class AiController {
     const agentId: string = c.get("agent_id");
     const parsed = AiResolveContactMismatchSchema.parse(await c.req.json());
 
-    const { policyIngestionService, aiChatService } = c.get("services");
-    const { extraction, documentMetadataId } = await policyIngestionService.resolveContactMismatch(
-      agentId, sessionId, parsed.assignToScreenContact,
-    );
+    const orchestrator = c.get("services").policyIngestionOrchestrator as PolicyIngestionOrchestrator;
+    const result = await orchestrator.resolveContactMismatch(agentId, sessionId, parsed.assignToScreenContact);
 
-    const response = await aiChatService.startPolicySession(sessionId, agentId, extraction, documentMetadataId);
-
-    return sendSuccess(c, {
-      sessionId,
-      message: response.text,
-      documentMetadataId: documentMetadataId || null,
-      extraction,
-      isDuplicate: false,
-    });
+    return sendSuccess(c, result);
   }
 
   static async ingest(c: Context) {
@@ -212,7 +167,7 @@ export class AiController {
         message: responseMessage,
       }, 201);
     } catch (err) {
-      await AiController.compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId);
+      await compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId);
       throw err;
     }
   }
@@ -250,7 +205,7 @@ export class AiController {
         message: responseMessage,
       }, 201);
     } catch (err) {
-      await AiController.compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId, chargedIngestion);
+      await compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId, chargedIngestion);
       throw err;
     }
   }
@@ -288,34 +243,5 @@ export class AiController {
       limit: typeof limit === "number" ? limit : 10,
     });
     return sendSuccess(c, results);
-  }
-
-  /**
-   * Compensación cuando una ingesta falla, según el tipo de error:
-   * - AiProviderError: el provider falló (no es culpa del usuario) → marcar sesión y devolver la cuota
-   * - AiInvokedError: el AI ya consumió tokens → marcar sesión fallida, la cuota se queda consumida
-   * - Cualquier otro: nada llegó al AI → borrar la sesión y devolver la cuota
-   */
-  private static async compensateIngestionFailure(
-    err: unknown,
-    aiSessionService: AiSessionService,
-    usageService: UsageService,
-    agentId: string,
-    sessionId: string,
-    chargedIngestion: boolean = true,
-  ): Promise<void> {
-    if (err instanceof AiProviderError) {
-      await Promise.all([
-        aiSessionService.markSessionProviderError(sessionId, err instanceof Error ? err.message : ""),
-        chargedIngestion ? usageService.decrementIngestion(agentId) : Promise.resolve(),
-      ]);
-    } else if (err instanceof AiInvokedError) {
-      await aiSessionService.markSessionFailed(sessionId, err.message);
-    } else {
-      await Promise.all([
-        aiSessionService.deleteSession(sessionId),
-        chargedIngestion ? usageService.decrementIngestion(agentId) : Promise.resolve(),
-      ]);
-    }
   }
 }

@@ -37,6 +37,7 @@ import { TextSplitter } from "../../../shared/text_splitter.ts";
 import { DocumentProcessorService } from "../../../features/document_processing/document_processor.service.ts";
 import { KnowledgeIngestionService } from "../../../features/document_processing/knowledge_ingestion.service.ts";
 import { PolicyIngestionService } from "../../../features/document_processing/policy_ingestion.service.ts";
+import { PolicyIngestionOrchestrator } from "../../../features/document_processing/policy_ingestion_orchestrator.ts";
 import { ConfirmPolicyService } from "../../../features/document_processing/confirm_policy.service.ts";
 import { DocumentMetadataRepository } from "../../../modules/document_metadata/document_metadata.repository.ts";
 import { AppError } from "../../../shared/errors.ts";
@@ -142,6 +143,7 @@ export const injectServices = async (c: Context, next: Next) => {
   let documentProcessorService: DocumentProcessorService | undefined;
   let knowledgeIngestionService: KnowledgeIngestionService | undefined;
   let policyIngestionService: PolicyIngestionService | undefined;
+  let policyIngestionOrchestrator: PolicyIngestionOrchestrator | undefined;
   let confirmPolicyService: ConfirmPolicyService | undefined;
 
   const getGeminiProvider = () => {
@@ -256,6 +258,18 @@ export const injectServices = async (c: Context, next: Next) => {
     return policyIngestionService;
   };
 
+  const getPolicyIngestionOrchestrator = () => {
+    if (!policyIngestionOrchestrator) {
+      policyIngestionOrchestrator = new PolicyIngestionOrchestrator(
+        aiSessionService,
+        getPolicyIngestionService(),
+        getAiChatService(),
+        usageService,
+      );
+    }
+    return policyIngestionOrchestrator;
+  };
+
   const getConfirmPolicyService = () => {
     if (!confirmPolicyService) {
       confirmPolicyService = new ConfirmPolicyService(policyService, getEmbeddingsService());
@@ -295,6 +309,9 @@ export const injectServices = async (c: Context, next: Next) => {
     },
     get policyIngestionService() {
       return getPolicyIngestionService();
+    },
+    get policyIngestionOrchestrator() {
+      return getPolicyIngestionOrchestrator();
     },
     get confirmPolicyService() {
       return getConfirmPolicyService();

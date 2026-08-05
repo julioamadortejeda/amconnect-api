@@ -82,6 +82,12 @@ Estado: `[ ]` pendiente · `[~]` en progreso · `[x]` resuelto · `[-]` descarta
 - `ContactController`, `PolicyController`, `ReminderController` — `getAll` acepta `?page=&pageSize=` (default 20, cap 100). Responde `{ data, total, page, pageSize, hasMore }`.
 **Estado:** `[x]`
 
+### P5 — `ReminderService.update` hace doble query al guardar
+**Archivos:** `modules/reminder/reminder.service.ts:63-138`
+**Problema:** `this.repository.update(id, updatePayload)` (método base de `SupabaseRepository`) ya devuelve la fila completa con joins vía `.select(this.selectString).single()` — el mismo `REMINDER_SELECT` con `type`, `status`, `contact`, `policy`, `comments` y `notes` (con `document_metadata` anidado). Pero el resultado se descarta y la función cierra con `return this.getById(id)`, que repite esa misma query pesada. Cada PATCH a un recordatorio (ej. asignar cliente/póliza desde la app) paga dos round-trips a Postgres con múltiples joins en vez de uno — es la causa medida de los ~1-2s de delay visible en la app al reasignar cliente/póliza desde `ReminderDetailScreen`.
+**Fix:** Devolver directamente el resultado de `this.repository.update(id, updatePayload)` (via `toDTO`) cuando `Object.keys(updatePayload).length > 0`; solo caer a `getById(id)` cuando el único cambio fue un comentario (`updatePayload` vacío, ya que `reminder_comments` es una tabla aparte y el `update()` no se ejecuta en ese caso).
+**Estado:** `[ ]`
+
 ---
 
 ## 🟡 Estructura / violaciones al patrón
