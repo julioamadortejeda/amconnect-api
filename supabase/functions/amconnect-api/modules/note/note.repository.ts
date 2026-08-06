@@ -146,21 +146,33 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
   }
 
   async searchNotes(limit = 20, offset = 0, search?: string): Promise<RecentNoteRow[]> {
-    const selectQuery = "id, contact_id, policy_id, source_type, created_at, content, summary, document_metadata(file_name, storage_path), contacts(full_name)";
-    let query = this.supabase
-      .from("agent_notes")
-      .select(selectQuery)
-      .eq("is_active", true);
-
-    if (search && search.trim().length > 0) {
-      query = query.or(`content.ilike.*${search}*,summary.ilike.*${search}*`);
-    }
-
-    const { data, error } = await query
-      .order("created_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+    // RPC en vez de `.or()` de PostgREST: el texto de búsqueda va como
+    // parámetro bindeado (sin riesgo de romper el filtro con comas/paréntesis)
+    // y permite matchear también document_metadata.file_name via join —
+    // `.or()` no puede cruzar tablas embebidas de forma limpia. Ver
+    // migración `add_search_notes_function`.
+    // deno-lint-ignore no-explicit-any
+    const { data, error } = await (this.supabase.rpc as any)("search_notes", {
+      p_query: search && search.trim().length > 0 ? search : null,
+      p_limit: limit,
+      p_offset: offset,
+    });
 
     if (error) handleSupabaseError(error, "Error al buscar notas");
-    return (data ?? []) as unknown as RecentNoteRow[];
+
+    // deno-lint-ignore no-explicit-any
+    return ((data ?? []) as any[]).map((row) => ({
+      id: row.id,
+      contact_id: row.contact_id,
+      policy_id: row.policy_id,
+      source_type: row.source_type,
+      created_at: row.created_at,
+      content: row.content,
+      summary: row.summary,
+      document_metadata: row.file_name
+        ? { file_name: row.file_name, storage_path: row.storage_path }
+        : null,
+      contacts: row.full_name ? { full_name: row.full_name } : null,
+    })) as RecentNoteRow[];
   }
 }

@@ -147,7 +147,8 @@ The advisor's preferred language is {{advisor_language}}.
 2. Write a 1-2 sentence summary IN THE AUDIO'S OWN LANGUAGE of what was discussed or found.
 3. Provide the complete transcription verbatim in the audio's original language, word for word. Do not translate.
 4. Write a friendly confirmation message IN {{advisor_language}} (max 30 words) telling the advisor the audio was processed.
-CRITICAL: The summary (step 2) MUST be in the same language as the audio. Only the responseMessage (step 4) must be in {{advisor_language}}.`,
+CRITICAL: The summary (step 2) MUST be in the same language as the audio. Only the responseMessage (step 4) must be in {{advisor_language}}.
+IF THE AUDIO HAS NO DISCERNIBLE SPEECH (only silence, background noise, or non-verbal sounds like knocking or static): do not guess or invent a spoken language. Write the summary and transcription in {{advisor_language}} instead, explicitly stating that no speech was detected in the recording.`,
 
   knowledge_image_system: `You are a document and claims analyst for an insurance advisor.
 The advisor's preferred language is {{advisor_language}}.

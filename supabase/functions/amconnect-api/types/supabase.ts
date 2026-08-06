@@ -1675,6 +1675,21 @@ export type Database = {
           similarity: number
         }[]
       }
+      search_notes: {
+        Args: { p_limit?: number; p_offset?: number; p_query?: string }
+        Returns: {
+          contact_id: string
+          content: string
+          created_at: string
+          file_name: string
+          full_name: string
+          id: string
+          policy_id: string
+          source_type: string
+          storage_path: string
+          summary: string
+        }[]
+      }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
     }
