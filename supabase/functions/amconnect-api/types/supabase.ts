@@ -1248,6 +1248,38 @@ export type Database = {
           },
         ]
       }
+      reminder_notifications: {
+        Row: {
+          agent_id: string
+          due_date_at_send: string
+          id: string
+          reminder_id: string
+          sent_at: string
+        }
+        Insert: {
+          agent_id: string
+          due_date_at_send: string
+          id?: string
+          reminder_id: string
+          sent_at?: string
+        }
+        Update: {
+          agent_id?: string
+          due_date_at_send?: string
+          id?: string
+          reminder_id?: string
+          sent_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reminder_notifications_reminder_id_fkey"
+            columns: ["reminder_id"]
+            isOneToOne: false
+            referencedRelation: "reminders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reminder_settings: {
         Row: {
           agent_id: string

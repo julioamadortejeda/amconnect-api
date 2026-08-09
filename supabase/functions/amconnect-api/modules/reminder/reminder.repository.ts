@@ -15,6 +15,7 @@ export interface DueReminderRow {
 export interface INotificationReminderRepository {
   findDueUnnotified(): Promise<DueReminderRow[]>;
   markNotified(id: string): Promise<void>;
+  logNotification(reminderId: string, agentId: string, dueDate: string): Promise<void>;
 }
 
 const REMINDER_SELECT = `
@@ -107,6 +108,14 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
       .eq("id", id);
 
     if (error) throw internalError("No se pudo marcar el recordatorio como notificado.", `mark notified failed for ${id}: ${error.message}`);
+  }
+
+  async logNotification(reminderId: string, agentId: string, dueDate: string): Promise<void> {
+    const { error } = await this.supabase
+      .from("reminder_notifications")
+      .insert({ reminder_id: reminderId, agent_id: agentId, due_date_at_send: dueDate });
+
+    if (error) throw internalError("No se pudo registrar el log de notificación.", `log notification failed for ${reminderId}: ${error.message}`);
   }
 
   async getUpcomingReminders(agentId: string, fromDate: string, toDate: string, excludedStatusIds: string[]): Promise<ReminderResponseDTO[] | null> {

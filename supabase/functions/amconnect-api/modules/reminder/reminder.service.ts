@@ -128,7 +128,15 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     if (data.typeId !== undefined) updatePayload.type_id = data.typeId;
     if (data.title !== undefined) updatePayload.title = data.title;
     if (data.description !== undefined) updatePayload.description = data.description;
-    if (data.dueDate !== undefined) updatePayload.due_date = data.dueDate;
+    if (data.dueDate !== undefined) {
+      updatePayload.due_date = data.dueDate;
+      // Reagendar debe volver a hacer al recordatorio elegible para el cron
+      // de notificaciones — si no, notified_at sigue seteado de la fecha
+      // vieja y findDueUnnotified() lo excluye para siempre.
+      if (new Date(data.dueDate).getTime() !== new Date(existing.dueDate).getTime()) {
+        updatePayload.notified_at = null;
+      }
+    }
 
     if (Object.keys(updatePayload).length > 0) {
       // deno-lint-ignore no-explicit-any

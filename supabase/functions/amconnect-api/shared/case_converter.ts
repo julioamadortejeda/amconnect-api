@@ -69,9 +69,17 @@ export function flattenRelations(obj: Record<string, unknown>): Record<string, u
   return result;
 }
 
+// Partículas de nombres propios en español que se mantienen en minúscula
+// salvo que sean la primera palabra — "María de la Cruz", no "María De La Cruz".
+const TITLE_CASE_PARTICLES = new Set(["de", "del", "la", "las", "los", "y"]);
+
 export function toTitleCase(str: string): string {
-  return str
-    .split(" ")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+  const words = str.trim().split(/\s+/).filter(Boolean);
+  return words
+    .map((word, i) => {
+      const lower = word.toLowerCase();
+      if (i > 0 && TITLE_CASE_PARTICLES.has(lower)) return lower;
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
     .join(" ");
 }

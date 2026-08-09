@@ -197,6 +197,7 @@ export class NotificationService {
         });
 
         await this.reminderRepo.markNotified(reminder.id);
+        await this.reminderRepo.logNotification(reminder.id, reminder.agent_id, reminder.due_date);
         notifiedCount++;
       } catch (err) {
         console.error(`[NotificationService] Error processing reminder ${reminder.id}:`, err);
