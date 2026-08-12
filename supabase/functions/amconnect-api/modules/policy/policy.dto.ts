@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PaymentSchedule } from "../../shared/payment_schedule.ts";
 
 export const PolicyRequestSchema = z.object({
   agentId: z.string().uuid().optional(),
@@ -59,6 +60,12 @@ export interface PolicyResponseDTO {
   currency?: { id: string; code: string; name: string };
   paymentFrequency?: { id: string; name: string; months: number };
   paymentMethod?: { id: string; name: string };
+  /**
+   * Calendario de pago ya resuelto en el servidor: la regla atemporal
+   * ("paga el 10 de may y el 10 de nov") más la siguiente fecha real.
+   * Los clientes solo lo pintan — ni la app ni la web recalculan fechas.
+   */
+  paymentSchedule?: PaymentSchedule | null;
 }
 
 // ─── Participantes ────────────────────────────────────────────────────────────

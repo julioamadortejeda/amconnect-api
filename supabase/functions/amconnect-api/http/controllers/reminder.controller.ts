@@ -10,8 +10,12 @@ export class ReminderController {
   static async getAll(c: Context) {
     const agentId: string = c.get("agent_id");
     const { page, pageSize } = parsePagination(c);
+    // ?policyId= acota al historial de una póliza (incluye los ya cerrados).
+    const policyId = c.req.query("policyId");
+    const filters: Record<string, unknown> = { agent_id: agentId };
+    if (policyId) filters.policy_id = policyId;
     const service: ReminderService = c.get("services").reminderService;
-    const data = await service.paginate({ agent_id: agentId }, page, pageSize);
+    const data = await service.paginate(filters, page, pageSize);
     return sendSuccess(c, data);
   }
 

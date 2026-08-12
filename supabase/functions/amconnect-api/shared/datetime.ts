@@ -35,6 +35,26 @@ export function resolveTimezone(tz?: string | null, offset?: string | null): str
   return DEFAULT_TIMEZONE;
 }
 
+/**
+ * La fecha local del asesor en formato "YYYY-MM-DD". Acepta tanto un nombre
+ * IANA ("America/Mexico_City") como un offset ("-06:00") — V8 acepta ambos como
+ * `timeZone`. Es el "hoy" contra el que se comparan las fechas de las pólizas:
+ * usar la fecha UTC del servidor correría el día para asesores al oeste de GMT.
+ */
+export function todayInTimezone(timezone: string, at: Date = new Date()): string {
+  try {
+    // en-CA formatea como YYYY-MM-DD.
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(at);
+  } catch (_) {
+    return at.toISOString().slice(0, 10);
+  }
+}
+
 /** Offset del timezone en formato "-06:00", calculado en el instante `at`
  *  (default: ahora) — relevante en zonas con horario de verano. Fallback: "-06:00". */
 export function calcTimezoneOffset(timezone: string, at: Date = new Date()): string {

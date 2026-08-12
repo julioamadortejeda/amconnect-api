@@ -5,19 +5,35 @@ import { SupabaseRepository } from "../../core/base_repository.ts";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { objectToCamelCaseDeep, stripUndefined } from "../../shared/case_converter.ts";
 import { EmbeddingsService } from "../../features/rag/embeddings.service.ts";
+import { DEFAULT_TIMEZONE, todayInTimezone } from "../../shared/datetime.ts";
+import { buildPaymentSchedule } from "../../shared/payment_schedule.ts";
 
 export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseDTO> {
   private participantRepo: SupabaseRepository<Record<string, unknown>>;
   private beneficiaryRepo: SupabaseRepository<Record<string, unknown>>;
 
-  constructor(supabase: SupabaseClient, repository: PolicyRepository) {
+  constructor(
+    supabase: SupabaseClient,
+    repository: PolicyRepository,
+    private readonly timezone: string = DEFAULT_TIMEZONE,
+  ) {
     super(repository);
     this.participantRepo = new SupabaseRepository(supabase, "policy_participants", "*", false);
     this.beneficiaryRepo = new SupabaseRepository(supabase, "beneficiaries", "*", false);
   }
 
   protected override toDTO(row: unknown): PolicyResponseDTO {
-    return objectToCamelCaseDeep(row) as PolicyResponseDTO;
+    const dto = objectToCamelCaseDeep(row) as PolicyResponseDTO;
+
+    // El calendario se resuelve aquí, no en el cliente: la app y la futura web
+    // consumen el mismo resultado en vez de reimplementar la regla cada una.
+    dto.paymentSchedule = buildPaymentSchedule(
+      dto.nextPaymentDate,
+      dto.paymentFrequency?.months,
+      todayInTimezone(this.timezone),
+    );
+
+    return dto;
   }
 
   protected override prepareForCreate(data: Partial<PolicyRequestDTO>): Record<string, unknown> {

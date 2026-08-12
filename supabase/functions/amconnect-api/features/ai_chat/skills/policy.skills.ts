@@ -2,6 +2,7 @@ import { z } from "zod";
 import { SkillDefinition } from "./skill.core.ts";
 import { PolicyResponseDTO } from "../../../modules/policy/policy.dto.ts";
 import { appendNote, assertNoDuplicatePolicyNumber, resolveCatalogId } from "../../../shared/utils.ts";
+import { objectToCamelCase } from "../../../shared/case_converter.ts";
 
 const slimPolicy = (p: PolicyResponseDTO) => ({
   id: p.id,
@@ -258,15 +259,16 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute(args, ctx) {
       const params = args as any;
-      const updates: Record<string, unknown> = { ...params };
-      delete updates.policy_id;
+      // El modelo manda snake_case y prepareForUpdate lee camelCase: se convierte
+      // el objeto COMPLETO de una vez. Mapear campo por campo ya había dejado
+      // fuera las fechas y los montos — el update salía vacío y Supabase
+      // respondía "sin filas", que el cliente traducía como 404.
+      const updates: Record<string, unknown> = objectToCamelCase({ ...params });
+      delete updates.policyId;
       delete updates.status;
       delete updates.currency;
-      delete updates.payment_frequency;
-      delete updates.payment_method;
-      if (params.seniority_date !== undefined) { updates.seniorityDate = params.seniority_date; delete updates.seniority_date; }
-      if (params.insured_item !== undefined) { updates.insuredItem = params.insured_item; delete updates.insured_item; }
-      if (params.policy_version !== undefined) { updates.policyVersion = params.policy_version; delete updates.policy_version; }
+      delete updates.paymentFrequency;
+      delete updates.paymentMethod;
 
       if (params.status) {
         updates.statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "ACTIVE" });

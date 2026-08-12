@@ -9,6 +9,7 @@ export interface AgentUpdateData {
 export interface IAgentRepository {
   findById(agentId: string): Promise<Record<string, unknown> | null>;
   update(agentId: string, data: AgentUpdateData): Promise<Record<string, unknown> | null>;
+  updateTimezone(agentId: string, timezone: string): Promise<void>;
 }
 
 export class AgentRepository implements IAgentRepository {
@@ -39,5 +40,14 @@ export class AgentRepository implements IAgentRepository {
 
     if (error) handleSupabaseError(error, "Error al actualizar el perfil.");
     return result as Record<string, unknown> | null;
+  }
+
+  async updateTimezone(agentId: string, timezone: string): Promise<void> {
+    const { error } = await this.supabase
+      .from("agents")
+      .update({ timezone })
+      .eq("id", agentId);
+
+    if (error) handleSupabaseError(error, "agents.updateTimezone");
   }
 }

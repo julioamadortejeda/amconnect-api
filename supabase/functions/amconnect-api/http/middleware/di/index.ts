@@ -9,6 +9,9 @@ import { ReminderService } from "../../../modules/reminder/reminder.service.ts";
 import { ReminderRepository } from "../../../modules/reminder/reminder.repository.ts";
 import { ReminderGenerationService } from "../../../modules/reminder/reminder_generation.service.ts";
 import { ReminderGenerationRepository } from "../../../modules/reminder/reminder_generation.repository.ts";
+import { DEFAULT_TIMEZONE, resolveTimezone } from "../../../shared/datetime.ts";
+import { ReminderSettingService } from "../../../modules/reminder/reminder_setting.service.ts";
+import { ReminderSettingRepository } from "../../../modules/reminder/reminder_setting.repository.ts";
 import { AgentService } from "../../../modules/agent/agent.service.ts";
 import { AgentRepository } from "../../../modules/agent/agent.repository.ts";
 import { DeviceTokenRepository } from "../../../modules/agent/device_token.repository.ts";
@@ -112,13 +115,36 @@ export const injectServices = async (c: Context, next: Next) => {
   const subscriptionRepository = new SubscriptionRepository(supabase);
   const subscriptionService = new SubscriptionService(subscriptionRepository, usageService);
 
-  await subscriptionService.checkSubscriptionActive(agentId);
+  const agentStatus = await subscriptionService.checkSubscriptionActive(agentId);
   c.set("subscription_service", subscriptionService);
   c.set("usage_service", usageService);
 
   // Core modules
   const catalogServices = createCatalogServices(supabase, agentId);
   const agentService = new AgentService(new AgentRepository(supabase));
+
+  // La zona horaria viaja en cada request, pero el cron diario de recordatorios
+  // no tiene request del cual leerla: se persiste aquí cuando cambia (sin query
+  // extra — el estado del agente ya se leyó arriba). Fire-and-forget a propósito:
+  // que falle guardar la zona no puede tumbar la petición del asesor.
+  // OJO: solo se persiste si el cliente REALMENTE mandó header. resolveTimezone()
+  // rellena con DEFAULT_TIMEZONE cuando no hay nada, así que guardar su resultado
+  // a ciegas haría que un cliente sin header (la futura web, un webhook, un curl)
+  // pisara el "Europe/Madrid" correcto con "America/Mexico_City".
+  const timezoneHeader = c.req.header("x-timezone");
+  const offsetHeader = c.req.header("x-timezone-offset");
+  const clientTimezone = (timezoneHeader || offsetHeader)
+    ? resolveTimezone(timezoneHeader, offsetHeader)
+    : null;
+
+  if (clientTimezone && clientTimezone !== agentStatus.timezone) {
+    agentService.syncTimezone(agentId, clientTimezone).catch((error) => {
+      console.error("[DI] no se pudo guardar el timezone del asesor:", error?.message ?? error);
+    });
+  }
+
+  // Para este request: lo que reportó el cliente, si no lo último que guardamos.
+  const reportedTimezone = clientTimezone ?? agentStatus.timezone ?? DEFAULT_TIMEZONE;
   const deviceTokenRepository = new DeviceTokenRepository(supabase);
   const deviceTokenService = new DeviceTokenService(deviceTokenRepository, subscriptionRepository);
   const notificationService = new NotificationService(deviceTokenRepository, new ReminderRepository(supabase));
@@ -127,10 +153,17 @@ export const injectServices = async (c: Context, next: Next) => {
   c.set("storage_service", storageService);
 
   const contactService = new ContactService(new ContactRepository(supabase));
-  const policyService = new PolicyService(supabase, new PolicyRepository(supabase));
+  const policyService = new PolicyService(supabase, new PolicyRepository(supabase), reportedTimezone);
   const noteService = new NoteService(new NoteRepository(supabase));
   const reminderService = new ReminderService(new ReminderRepository(supabase));
-  const reminderGenerationService = new ReminderGenerationService(new ReminderGenerationRepository(supabase));
+  const reminderSettingService = new ReminderSettingService(
+    new ReminderSettingRepository(supabase),
+    agentId,
+  );
+  const reminderGenerationService = new ReminderGenerationService(
+    new ReminderGenerationRepository(supabase),
+    reminderSettingService,
+  );
 
   // AI infrastructure (instanciados de forma perezosa / lazy loaded)
   let geminiProvider: GoogleGenAiProvider | undefined;
@@ -187,6 +220,7 @@ export const injectServices = async (c: Context, next: Next) => {
           policyService,
           reminderService,
           reminderGenerationService,
+          reminderSettingService,
           ragService: getRagService(),
           embeddingsService: getEmbeddingsService(),
           catalogServices,
@@ -209,6 +243,7 @@ export const injectServices = async (c: Context, next: Next) => {
           policyService,
           reminderService,
           reminderGenerationService,
+          reminderSettingService,
           ragService: getRagService(),
           embeddingsService: getEmbeddingsService(),
           catalogServices,
@@ -290,6 +325,8 @@ export const injectServices = async (c: Context, next: Next) => {
     policyService,
     noteService,
     reminderService,
+    reminderSettingService,
+    reminderGenerationService,
     aiSessionService,
     promptService,
     get embeddingsService() {

@@ -19,4 +19,13 @@ export class AgentService {
     });
     return objectToCamelCase(result as Record<string, unknown>);
   }
+
+  /**
+   * Guarda la zona horaria que reporta el cliente. El cron de generación de
+   * recordatorios no tiene request del cual leerla, así que depende de esto
+   * para calcular la medianoche local correcta de cada asesor.
+   */
+  async syncTimezone(agentId: string, timezone: string): Promise<void> {
+    await this.repository.updateTimezone(agentId, timezone);
+  }
 }

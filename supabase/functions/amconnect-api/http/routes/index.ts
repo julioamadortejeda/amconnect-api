@@ -4,6 +4,7 @@ import { DeviceTokenController } from "../controllers/device_token.controller.ts
 import { ContactController } from "../controllers/contact.controller.ts";
 import { PolicyController } from "../controllers/policy.controller.ts";
 import { ReminderController } from "../controllers/reminder.controller.ts";
+import { ReminderSettingController } from "../controllers/reminder_setting.controller.ts";
 import { AiController } from "../controllers/ai.controller.ts";
 import { VoiceChatController } from "../controllers/voice_chat.controller.ts";
 import { SubscriptionController } from "../controllers/subscription.controller.ts";
@@ -82,6 +83,10 @@ apiRouter.delete("/notes/:id", PolicyController.deleteNote);
 // ─── Reminders ────────────────────────────────────────────────────────────────
 apiRouter.get("/reminders", ReminderController.getAll);
 apiRouter.get("/reminders/upcoming", ReminderController.getUpcoming);
+// Antes de /reminders/:id — si no, "settings" se leería como un id.
+apiRouter.get("/reminders/settings", ReminderSettingController.getAll);
+apiRouter.patch("/reminders/settings", ReminderSettingController.update);
+apiRouter.delete("/reminders/settings/:typeCode/branches/:branchId", ReminderSettingController.removeOverride);
 apiRouter.get("/reminders/:id", ReminderController.getById);
 apiRouter.post("/reminders", ReminderController.create);
 apiRouter.patch("/reminders/:id", ReminderController.update);

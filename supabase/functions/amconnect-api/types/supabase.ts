@@ -243,6 +243,7 @@ export type Database = {
           promo_code_used: string | null
           subscription_expires_at: string | null
           subscription_status: string
+          timezone: string | null
           trial_ends_at: string | null
           updated_at: string
         }
@@ -258,6 +259,7 @@ export type Database = {
           promo_code_used?: string | null
           subscription_expires_at?: string | null
           subscription_status?: string
+          timezone?: string | null
           trial_ends_at?: string | null
           updated_at?: string
         }
@@ -273,6 +275,7 @@ export type Database = {
           promo_code_used?: string | null
           subscription_expires_at?: string | null
           subscription_status?: string
+          timezone?: string | null
           trial_ends_at?: string | null
           updated_at?: string
         }
@@ -1283,6 +1286,7 @@ export type Database = {
       reminder_settings: {
         Row: {
           agent_id: string
+          branch_id: string | null
           created_at: string
           days_before: number
           id: string
@@ -1291,6 +1295,7 @@ export type Database = {
         }
         Insert: {
           agent_id: string
+          branch_id?: string | null
           created_at?: string
           days_before?: number
           id?: string
@@ -1299,6 +1304,7 @@ export type Database = {
         }
         Update: {
           agent_id?: string
+          branch_id?: string | null
           created_at?: string
           days_before?: number
           id?: string
@@ -1311,6 +1317,13 @@ export type Database = {
             columns: ["agent_id"]
             isOneToOne: false
             referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminder_settings_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
             referencedColumns: ["id"]
           },
           {
@@ -1381,6 +1394,7 @@ export type Database = {
           id: string
           is_active: boolean
           notified_at: string | null
+          occurrence_date: string | null
           policy_id: string | null
           status_id: string
           title: string
@@ -1397,6 +1411,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           notified_at?: string | null
+          occurrence_date?: string | null
           policy_id?: string | null
           status_id: string
           title: string
@@ -1413,6 +1428,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           notified_at?: string | null
+          occurrence_date?: string | null
           policy_id?: string | null
           status_id?: string
           title?: string
@@ -1626,6 +1642,7 @@ export type Database = {
         Returns: Json
       }
       cron_check_due_reminders: { Args: never; Returns: undefined }
+      cron_generate_due_reminders: { Args: never; Returns: undefined }
       decrement_monthly_usage: {
         Args: { p_agent_id: string; p_field: string }
         Returns: undefined

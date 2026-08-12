@@ -3,6 +3,7 @@ import { ContactService } from "../../../modules/contact/contact.service.ts";
 import { PolicyService } from "../../../modules/policy/policy.service.ts";
 import { ReminderService } from "../../../modules/reminder/reminder.service.ts";
 import { ReminderGenerationService } from "../../../modules/reminder/reminder_generation.service.ts";
+import { ReminderSettingService } from "../../../modules/reminder/reminder_setting.service.ts";
 import { RagService } from "../../rag/rag.service.ts";
 import { EmbeddingsService } from "../../rag/embeddings.service.ts";
 import { KnowledgeIngestionService } from "../../document_processing/knowledge_ingestion.service.ts";
@@ -21,6 +22,7 @@ export interface SkillContext {
   policyService: PolicyService;
   reminderService: ReminderService;
   reminderGenerationService: ReminderGenerationService;
+  reminderSettingService: ReminderSettingService;
   ragService: RagService;
   embeddingsService: EmbeddingsService;
   aiSessionService: AiSessionService;

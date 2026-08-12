@@ -44,6 +44,18 @@ export async function executeSkill(
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error executing skill.";
     console.error(`[SKILL] "${name}" threw: ${msg}`);
-    return { response: { error: msg } };
+    // El sobre de fallo es explícito a propósito: un `error` suelto con un
+    // mensaje corto en español se le ha colado al modelo como si fuera un
+    // resultado válido, y terminó confirmándole al asesor un cambio que nunca
+    // ocurrió. `ok: false` + la instrucción no dejan lugar a interpretación.
+    return {
+      response: {
+        ok: false,
+        error: msg,
+        instruction:
+          "This action FAILED and nothing was saved. Tell the advisor plainly that it could not be " +
+          "completed, and why. NEVER report this as done or successful.",
+      },
+    };
   }
 }
