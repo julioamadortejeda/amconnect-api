@@ -1,10 +1,16 @@
 import { z } from "zod";
 
+/**
+ * Los ÚNICOS roles que acepta un `Content` de Gemini. No agregar `system` ni
+ * `function`: cualquier otro valor devuelve
+ * `400 Please use a valid role: user, model.` y tumba la petición completa.
+ *
+ * Una respuesta de herramienta va como `USER` con una part `functionResponse`;
+ * la llamada va como `MODEL` con una part `functionCall`.
+ */
 export enum AiRole {
   USER = "user",
   MODEL = "model",
-  SYSTEM = "system",
-  FUNCTION = "function",
 }
 
 export interface AiMessage {

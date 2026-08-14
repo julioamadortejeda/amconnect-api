@@ -10,6 +10,7 @@ import {
   TokenUsage,
 } from "../core/ai_provider.interface.ts";
 import { AiError, AiProviderError } from "../shared/errors.ts";
+import { normalizeHistoryRoles } from "../shared/ai_history.ts";
 import { PromptService } from "../modules/prompt/prompt.service.ts";
 
 export function wrapGeminiError(e: unknown, context: string): never {
@@ -45,7 +46,10 @@ export class GoogleGenAiProvider implements IAiProvider {
     try {
       response = await this.ai.models.generateContent({
         model: this.model,
-        contents: history as never,
+        // Último filtro antes de salir a Gemini: un solo rol inválido en el
+        // historial tumba la petición completa. Va aquí y no en cada llamador
+        // para que ninguna ruta nueva pueda saltárselo.
+        contents: normalizeHistoryRoles(history) as never,
         config: {
           tools: tools as never,
           systemInstruction,

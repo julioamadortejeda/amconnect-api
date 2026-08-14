@@ -31,6 +31,11 @@ export const contactSkills: SkillDefinition[] = [
       const slim = (results ?? []).map(slimContact);
       return {
         contacts: slim,
+        // NO agregar aquí una instrucción para el modelo. Se intentó el
+        // 2026-08-13 (para que no llamara get_contact sobre gente que esta
+        // respuesta ya trae completa) y no cambió nada, pero sí se quedaba en
+        // el historial de la sesión: en voz Live el contexto se recobra en
+        // cada turno, así que el texto muerto se paga una y otra vez.
         __skillMetadata: {
           type: "contact_list",
           contacts: slim,
@@ -42,7 +47,11 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "get_contact",
-      description: "Retrieves the complete data of a contact by their ID.",
+      // Corta a propósito: la descripción viaja en el esquema de tools de cada
+      // petición. La versión larga que explicaba cuándo no usarla (2026-08-13)
+      // no cambió el comportamiento del modelo y costaba ~100 tokens por turno.
+      description:
+        "Retrieves a contact's data by their UUID. Prefer search_contact when you have a name.",
       schema: z.object({
         contact_id: z.string({ required_error: "The contact UUID is required" })
           .describe("UUID of the contact"),

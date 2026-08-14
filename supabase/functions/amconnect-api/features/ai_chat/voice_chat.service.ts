@@ -127,7 +127,10 @@ export class VoiceChatService {
           if (t.kind === "function_call") {
             return { role: "model", parts: [{ functionCall: { name: t.name, args: t.args } }] };
           }
-          return { role: "function", parts: [{ functionResponse: { name: t.name, response: { result: t.response } } }] };
+          // `user`, no `function`: Gemini solo acepta user/model como rol de un
+          // Content. Es el mismo formato con el que el chat de texto reinyecta
+          // sus functionResults — el historial es compartido entre los dos.
+          return { role: "user", parts: [{ functionResponse: { name: t.name, response: { result: t.response } } }] };
         });
 
         const historyDb = [...existingHistory, ...newHistory];
@@ -457,7 +460,8 @@ export class VoiceChatService {
         parts: [{ functionCall: { name: call.name, args: call.args ?? {} } }],
       });
       historyDb.push({
-        role: "function",
+        // Ver nota en newHistory: `user`, nunca `function`.
+        role: "user",
         parts: [{ functionResponse: { name: call.name, response: { result: call.response } } }],
       });
     }
