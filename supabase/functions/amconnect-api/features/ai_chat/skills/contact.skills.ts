@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SkillDefinition } from "./skill.core.ts";
+import { assertHasChanges, SkillDefinition } from "./skill.core.ts";
 import { ContactResponseDTO } from "../../../modules/contact/contact.dto.ts";
 import { QUICK_NOTE_MAX_LENGTH } from "../../document_processing/knowledge_ingestion.service.ts";
 
@@ -182,7 +182,7 @@ export const contactSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
-      const updated = await ctx.contactService.update(args.contact_id as string, {
+      const changes = {
         fullName: (args.full_name ?? args.name) as string | undefined,
         email: args.email as string | undefined,
         phone: args.phone as string | undefined,
@@ -191,7 +191,9 @@ export const contactSkills: SkillDefinition[] = [
         curp: args.curp as string | undefined,
         address: args.address as string | undefined,
         occupation: args.occupation as string | undefined,
-      });
+      };
+      assertHasChanges(changes);
+      const updated = await ctx.contactService.update(args.contact_id as string, changes);
 
       if (!updated) return null;
       return {

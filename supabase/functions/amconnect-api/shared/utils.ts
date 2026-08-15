@@ -62,3 +62,18 @@ export function appendNote(currentNotes: string | null | undefined, newNote: str
   const entry = `[${day}/${month}/${year}]: ${newNote}`;
   return currentNotes ? `${currentNotes}\n${entry}` : entry;
 }
+
+/**
+ * ¿Es un UUID canónico? Sirve para aceptar indistintamente el `id` o el `code`
+ * de un catálogo en los parámetros de las skills.
+ *
+ * Hace falta porque el modelo los confunde, y con razón: `get_reminder_statuses`
+ * devuelve `{id, code, name}` y la misma skill que pide el estado por `code`
+ * pide el tipo por `type_id` en UUID. Mandar el UUID del estado es la lectura
+ * natural de ese esquema (caso real 2026-08-14:
+ * `Estado '17F9E128-...' no válido`).
+ */
+export function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    .test(value.trim());
+}

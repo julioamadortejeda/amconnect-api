@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { SkillContext, SkillDefinition } from "./skill.core.ts";
+import { assertHasChanges, SkillContext, SkillDefinition } from "./skill.core.ts";
 import { ReminderResponseDTO } from "../../../modules/reminder/reminder.dto.ts";
 import { utcToLocalIso } from "../../../shared/datetime.ts";
-import { daysFromNowRange } from "../../../shared/utils.ts";
+import { daysFromNowRange, isUuid } from "../../../shared/utils.ts";
 
 // Postgres devuelve timestamptz en UTC; al modelo se le entregan ya convertidos
 // al timezone del asesor para que no tenga que hacer aritmética de husos horarios.
@@ -29,8 +29,8 @@ const slimReminder = (r: ReminderResponseDTO, ctx: SkillContext) => ({
   policy: r.policy,
 });
 
-const STATUS_UPDATE_DESC = "New status code for the reminder. Call get_reminder_statuses first to get the list of valid codes from the database before using this field.";
-const STATUS_FILTER_DESC = "Filter by status code. Call get_reminder_statuses first to get the list of valid codes from the database.";
+const STATUS_UPDATE_DESC = "New status for the reminder — its code or its UUID, both are accepted. Call get_reminder_statuses first to get the catalog.";
+const STATUS_FILTER_DESC = "Filter by status — its code or its UUID, both are accepted. Call get_reminder_statuses first to get the catalog.";
 
 export const reminderSkills: SkillDefinition[] = [
   {
@@ -187,14 +187,25 @@ export const reminderSkills: SkillDefinition[] = [
       if (params.status === "CANCELLED" && (!params.comment || !params.comment.trim())) {
         return { error: "El comentario es obligatorio para cancelar un recordatorio. Por favor, solicita o proporciona un comentario explicativo." };
       }
-      const result = await ctx.reminderService.update(params.reminder_id as string, {
+      // El modelo manda indistintamente el `code` o el `id` del estado, y no es
+      // capricho: get_reminder_statuses devuelve los dos, y esta misma skill
+      // pide el tipo como `type_id` en UUID. Se acepta cualquiera en vez de
+      // pelearse con él desde la descripción — el service ya sabe resolver
+      // ambos (`status` por code, `statusId` por id).
+      const rawStatus = (params.status as string | undefined)?.trim() || undefined;
+      const statusIsId = rawStatus !== undefined && isUuid(rawStatus);
+
+      const changes = {
         title: params.title as string | undefined,
         description: params.description as string | undefined,
         dueDate: params.due_date as string | undefined,
         typeId: params.type_id as string | undefined,
-        status: params.status as string | undefined,
+        status: statusIsId ? undefined : rawStatus,
+        statusId: statusIsId ? rawStatus : undefined,
         comment: params.comment as string | undefined,
-      });
+      };
+      assertHasChanges(changes);
+      const result = await ctx.reminderService.update(params.reminder_id as string, changes);
       return result ? slimReminder(result, ctx) : null;
     },
   },
@@ -243,7 +254,15 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute({ query, status }, ctx) {
-      const items = await ctx.reminderService.searchReminders(ctx.agentId, query as string, status as string | undefined);
+      // Mismo motivo que en update_reminder: si llega el UUID del estado se
+      // traduce a su code, que es lo que filtra el repositorio. Sin esto la
+      // búsqueda no truena — devuelve vacío, que es peor.
+      let statusCode = (status as string | undefined)?.trim() || undefined;
+      if (statusCode && isUuid(statusCode)) {
+        const all = await ctx.catalogServices.reminderStatusService.getAll();
+        statusCode = all?.find((s) => s.id === statusCode)?.code as string | undefined;
+      }
+      const items = await ctx.reminderService.searchReminders(ctx.agentId, query as string, statusCode);
       return (items ?? []).map((r) => slimReminder(r, ctx));
     },
   },

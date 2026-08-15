@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SkillDefinition } from "./skill.core.ts";
+import { assertHasChanges, SkillDefinition } from "./skill.core.ts";
 import { PolicyResponseDTO } from "../../../modules/policy/policy.dto.ts";
 import { appendNote, assertNoDuplicatePolicyNumber, resolveCatalogId } from "../../../shared/utils.ts";
 import { objectToCamelCase } from "../../../shared/case_converter.ts";
@@ -288,6 +288,7 @@ export const policySkills: SkillDefinition[] = [
         updates.notes = appendNote(existing?.notes, params.notes);
       }
 
+      assertHasChanges(updates);
       const result = await ctx.policyService.update(params.policy_id, updates as never);
       return result ? slimPolicy(result) : null;
     },

@@ -34,6 +34,16 @@ export async function executeSkill(
     };
   }
 
+  // Solo los NOMBRES de los parámetros, nunca los valores: los args traen
+  // nombres, teléfonos y direcciones de clientes y eso no puede ir al log
+  // (LFPDPPP). Las llaves solas bastan para lo que se necesita saber — qué
+  // campos mandó el modelo — y fue justo lo que faltó para diagnosticar el
+  // "ponlo en progreso" que no guardó nada (2026-08-13).
+  const argKeys = validation.data && typeof validation.data === "object"
+    ? Object.keys(validation.data as Record<string, unknown>)
+    : [];
+  console.warn(`[SKILL] "${name}" args: [${argKeys.join(", ")}]`);
+
   try {
     const raw = await skill.execute(validation.data, ctx);
     if (raw && typeof raw === "object" && "__skillMetadata" in (raw as Record<string, unknown>)) {
