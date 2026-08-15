@@ -10,6 +10,7 @@ export interface DocumentInput {
   sourceType: NoteSourceType;
   contactId?: string | null;
   policyId?: string | null;
+  reminderId?: string | null;
   documentMetadataId?: string | null;
   noteOrigin?: 'knowledge' | 'policy' | 'policy_changelog';
   summary?: string | null;
@@ -33,6 +34,7 @@ export class EmbeddingsService {
       agentId,
       contactId: input.contactId ?? null,
       policyId: input.policyId ?? null,
+      reminderId: input.reminderId ?? null,
       sourceType: input.sourceType,
       content: input.content,
       documentMetadataId: input.documentMetadataId ?? null,

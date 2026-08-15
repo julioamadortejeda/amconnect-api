@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PaymentSchedule } from "../../shared/payment_schedule.ts";
 
 export const PolicyRequestSchema = z.object({
   agentId: z.string().uuid().optional(),
@@ -19,6 +20,10 @@ export const PolicyRequestSchema = z.object({
   nextPaymentDate: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   deductible: z.string().optional().nullable(),
+  coinsurance: z.string().optional().nullable(),
+  seniorityDate: z.string().optional().nullable(),
+  insuredItem: z.string().optional().nullable(),
+  policyVersion: z.string().optional().nullable(),
 });
 
 export type PolicyRequestDTO = z.infer<typeof PolicyRequestSchema>;
@@ -41,6 +46,10 @@ export interface PolicyResponseDTO {
   nextPaymentDate: string | null;
   notes: string | null;
   deductible: string | null;
+  coinsurance: string | null;
+  seniorityDate: string | null;
+  insuredItem: string | null;
+  policyVersion: string | null;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -51,6 +60,12 @@ export interface PolicyResponseDTO {
   currency?: { id: string; code: string; name: string };
   paymentFrequency?: { id: string; name: string; months: number };
   paymentMethod?: { id: string; name: string };
+  /**
+   * Calendario de pago ya resuelto en el servidor: la regla atemporal
+   * ("paga el 10 de may y el 10 de nov") más la siguiente fecha real.
+   * Los clientes solo lo pintan — ni la app ni la web recalculan fechas.
+   */
+  paymentSchedule?: PaymentSchedule | null;
 }
 
 // ─── Participantes ────────────────────────────────────────────────────────────
@@ -64,6 +79,13 @@ export const PolicyParticipantSchema = z.object({
   relationship: z.string().optional().nullable(),
 });
 export type PolicyParticipantDTO = z.infer<typeof PolicyParticipantSchema>;
+
+// ─── Notas manuales ───────────────────────────────────────────────────────────
+
+export const PolicyNoteCreateSchema = z.object({
+  content: z.string().min(1, "El campo 'content' es requerido."),
+});
+export type PolicyNoteCreateDTO = z.infer<typeof PolicyNoteCreateSchema>;
 
 // ─── Beneficiarios ────────────────────────────────────────────────────────────
 

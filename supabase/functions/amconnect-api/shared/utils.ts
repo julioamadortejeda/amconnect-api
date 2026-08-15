@@ -1,3 +1,31 @@
+import { ConflictError, ValidationError } from "./errors.ts";
+
+export function daysFromNowRange(days: number): { from: string; to: string } {
+  return {
+    from: new Date().toISOString(),
+    to: new Date(Date.now() + days * 86400000).toISOString(),
+  };
+}
+
+/**
+ * Lanza ConflictError si ya existe una póliza activa con el mismo policy_number
+ * para este agente. No hace nada si policyNumber es null/undefined/"" —
+ * el número es opcional y varias pólizas sin número son válidas.
+ */
+export async function assertNoDuplicatePolicyNumber(
+  policyService: { findByFilters(filters: Record<string, unknown>, limit?: number): Promise<{ id: string }[] | null> },
+  agentId: string,
+  policyNumber: string | null | undefined,
+): Promise<void> {
+  if (!policyNumber) return;
+  const existing = await policyService.findByFilters({ agent_id: agentId, policy_number: policyNumber }, 1);
+  if (existing && existing.length > 0) {
+    throw new ConflictError(
+      `Ya existe una póliza activa con el número '${policyNumber}'. Usa la opción de actualizar en vez de crear una nueva.`,
+    );
+  }
+}
+
 export async function resolveCatalogId(
   service: { getAll(): Promise<Record<string, unknown>[] | null> },
   queryText: string | undefined,
@@ -14,6 +42,9 @@ export async function resolveCatalogId(
     if (byNameExact) return byNameExact.id as string;
     const byNamePartial = items.find((item) => String(item.name).toLowerCase().includes(q));
     if (byNamePartial) return byNamePartial.id as string;
+
+    const options = items.map((item) => item.name ? `${item.code} (${item.name})` : item.code).filter(Boolean).join(", ");
+    throw new ValidationError(`No se encontró '${queryText}' en el catálogo. Opciones válidas: ${options}.`);
   }
 
   const byDefault = items.find((item) => String(item[defaultField.key]).toLowerCase() === defaultField.value.toLowerCase());
@@ -30,4 +61,19 @@ export function appendNote(currentNotes: string | null | undefined, newNote: str
   const year = now.getFullYear();
   const entry = `[${day}/${month}/${year}]: ${newNote}`;
   return currentNotes ? `${currentNotes}\n${entry}` : entry;
+}
+
+/**
+ * ¿Es un UUID canónico? Sirve para aceptar indistintamente el `id` o el `code`
+ * de un catálogo en los parámetros de las skills.
+ *
+ * Hace falta porque el modelo los confunde, y con razón: `get_reminder_statuses`
+ * devuelve `{id, code, name}` y la misma skill que pide el estado por `code`
+ * pide el tipo por `type_id` en UUID. Mandar el UUID del estado es la lectura
+ * natural de ese esquema (caso real 2026-08-14:
+ * `Estado '17F9E128-...' no válido`).
+ */
+export function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    .test(value.trim());
 }

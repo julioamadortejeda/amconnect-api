@@ -2,6 +2,7 @@ export interface NoteResponseDTO {
   id: string;
   contact_id: string | null;
   policy_id: string | null;
+  reminder_id: string | null;
   source_type: string;
   content: string;
   summary: string | null;
@@ -15,6 +16,8 @@ export interface PolicyNoteRow {
   source_type: string;
   created_at: string;
   isObsolete: boolean;
+  content?: string | null;
+  summary?: string | null;
   document_metadata: { storage_path: string; file_name: string } | null;
 }
 

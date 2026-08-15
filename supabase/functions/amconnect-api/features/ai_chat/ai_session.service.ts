@@ -1,11 +1,12 @@
-import type { IAiSessionRepository, IngestionUsageRow, ChatMessageRow, PendingTaskRow } from "./ai_session.repository.ts";
-import { AI_MODEL } from "../../shared/config.ts";
+import type { IAiSessionRepository, TokenUsageRow, ChatMessageRow, PendingTaskRow } from "./ai_session.repository.ts";
 import { AppError } from "../../shared/errors.ts";
 
 export interface CreateSessionInput {
   triggerMessage: string;
   sessionType: "chat" | "knowledge_ingestion" | "policy_ingestion" | "voice";
-  modelName?: string | null;
+  // Obligatorio y sin fallback: cada caller declara el modelo que realmente
+  // usará (AI_MODEL, LIVE_AUDIO_MODEL...) — de esto dependen los costos.
+  modelName: string;
   embeddingModelName?: string | null;
 }
 
@@ -22,7 +23,12 @@ export interface ChatMessageInput {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cachedTokens?: number;
   interactionId?: string | null;
+  textPromptTokens?: number;
+  audioPromptTokens?: number;
+  textCompletionTokens?: number;
+  audioCompletionTokens?: number;
 }
 
 export class AiSessionService {
@@ -34,7 +40,7 @@ export class AiSessionService {
       triggerMessage: input.triggerMessage,
       history: [],
       type: input.sessionType,
-      modelName: input.modelName ?? AI_MODEL,
+      modelName: input.modelName,
       embeddingModelName: input.embeddingModelName,
     });
   }
@@ -47,44 +53,40 @@ export class AiSessionService {
     extractionUsage: UsageTokens | undefined,
     embeddingModelName: string,
     embeddingTotalTokens: number,
-    embeddingCount: number,
+    _embeddingCount: number,
+    noteId?: string | null,
   ): Promise<void> {
-    const rows: IngestionUsageRow[] = [
-      {
+    const rows: TokenUsageRow[] = [];
+    // Sin extractionUsage no hubo llamada de IA que resumir (ej. nota rápida
+    // que se saltó generateStructuredData) — no insertar una fila en ceros.
+    if (extractionUsage) {
+      rows.push({
         agentId,
         sessionId,
         documentMetadataId: docMetaId,
-        operation: "extraction",
+        noteId: noteId ?? null,
+        source: "extraction",
         modelName: extractionModelName,
-        promptTokens: extractionUsage?.promptTokens ?? 0,
-        completionTokens: extractionUsage?.completionTokens ?? 0,
-        totalTokens: extractionUsage?.totalTokens ?? 0,
-        cachedTokens: extractionUsage?.cachedTokens ?? 0,
-        itemCount: 1,
-      },
-      {
-        agentId,
-        sessionId,
-        documentMetadataId: docMetaId,
-        operation: "embedding",
-        modelName: embeddingModelName,
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: embeddingTotalTokens,
-        cachedTokens: 0,
-        itemCount: embeddingCount,
-      },
-    ];
+        promptTokens: extractionUsage.promptTokens,
+        completionTokens: extractionUsage.completionTokens,
+        cachedTokens: extractionUsage.cachedTokens ?? 0,
+      });
+    }
+    rows.push({
+      agentId,
+      sessionId,
+      documentMetadataId: docMetaId,
+      noteId: noteId ?? null,
+      source: "embedding",
+      modelName: embeddingModelName,
+      promptTokens: embeddingTotalTokens,
+      completionTokens: 0,
+      cachedTokens: 0,
+    });
 
-    await this.repository.insertIngestionUsage(rows);
+    await this.repository.logTokenUsage(rows);
     await this.repository.updateSession(sessionId, {
       embeddingModelName,
-      extractionPromptTokens: extractionUsage?.promptTokens ?? 0,
-      extractionCompletionTokens: extractionUsage?.completionTokens ?? 0,
-      extractionTotalTokens: extractionUsage?.totalTokens ?? 0,
-      extractionCachedTokens: extractionUsage?.cachedTokens ?? 0,
-      embeddingTotalTokens,
-      embeddingCount,
     });
   }
 
@@ -95,23 +97,15 @@ export class AiSessionService {
     extractionModelName: string,
     extractionUsage: UsageTokens | undefined,
   ): Promise<void> {
-    await this.repository.insertIngestionUsage({
+    await this.repository.logTokenUsage({
       agentId,
       sessionId,
       documentMetadataId: docMetaId,
-      operation: "extraction",
+      source: "extraction",
       modelName: extractionModelName,
       promptTokens: extractionUsage?.promptTokens ?? 0,
       completionTokens: extractionUsage?.completionTokens ?? 0,
-      totalTokens: extractionUsage?.totalTokens ?? 0,
       cachedTokens: extractionUsage?.cachedTokens ?? 0,
-      itemCount: 1,
-    });
-    await this.repository.updateSession(sessionId, {
-      extractionPromptTokens: extractionUsage?.promptTokens ?? 0,
-      extractionCompletionTokens: extractionUsage?.completionTokens ?? 0,
-      extractionTotalTokens: extractionUsage?.totalTokens ?? 0,
-      extractionCachedTokens: extractionUsage?.cachedTokens ?? 0,
     });
   }
 
@@ -121,24 +115,20 @@ export class AiSessionService {
     docMetaId: string | null,
     embeddingModelName: string,
     embeddingTotalTokens: number,
-    embeddingCount: number,
+    _embeddingCount: number,
   ): Promise<void> {
-    await this.repository.insertIngestionUsage({
+    await this.repository.logTokenUsage({
       agentId,
       sessionId,
       documentMetadataId: docMetaId,
-      operation: "embedding",
+      source: "embedding",
       modelName: embeddingModelName,
-      promptTokens: 0,
+      promptTokens: embeddingTotalTokens,
       completionTokens: 0,
-      totalTokens: embeddingTotalTokens,
       cachedTokens: 0,
-      itemCount: embeddingCount,
     });
     await this.repository.updateSession(sessionId, {
       embeddingModelName,
-      embeddingTotalTokens,
-      embeddingCount,
     });
   }
 
@@ -149,38 +139,77 @@ export class AiSessionService {
     messages: ChatMessageInput[],
     deltaUsage: UsageTokens,
     lastInteractionId?: string | null,
+    durationSeconds?: number,
+    replaceTokens = false,
   ): Promise<UsageTokens> {
     const chatMessageRows: ChatMessageRow[] = messages.map((m) => ({
       agentId,
       sessionId,
       role: m.role,
       content: m.content,
-      promptTokens: m.promptTokens,
-      completionTokens: m.completionTokens,
-      totalTokens: m.totalTokens,
       interactionId: m.interactionId ?? null,
     }));
 
+    const sessionCtx = await this.repository.getSessionContext(sessionId).catch(() => null);
+    // Sin fallback: costear tokens con el modelo equivocado es peor que fallar.
+    const modelName = sessionCtx?.modelName;
+    if (!modelName) {
+      throw new AppError(
+        "La sesión no tiene modelo registrado — no se puede costear el uso de tokens.",
+        500,
+      );
+    }
+    const source = sessionCtx?.type === "voice" || sessionCtx?.type === "chat_voice" ? "chat_voice" : "chat_text";
+
+    const tokenUsageRows: TokenUsageRow[] = [];
+    for (const m of messages) {
+      if (m.promptTokens > 0 || m.completionTokens > 0) {
+        tokenUsageRows.push({
+          agentId,
+          sessionId,
+          source,
+          modelName,
+          promptTokens: m.promptTokens,
+          completionTokens: m.completionTokens,
+          cachedTokens: m.cachedTokens ?? 0,
+          textPromptTokens: m.textPromptTokens,
+          audioPromptTokens: m.audioPromptTokens,
+          textCompletionTokens: m.textCompletionTokens,
+          audioCompletionTokens: m.audioCompletionTokens,
+        });
+      }
+    }
+
+    if (tokenUsageRows.length > 0) {
+      await this.repository.logTokenUsage(tokenUsageRows);
+    }
+
     const current = await this.repository.getSessionTokens(sessionId);
-    const nextTokens = {
-      promptTokens: current.promptTokens + deltaUsage.promptTokens,
-      completionTokens: current.completionTokens + deltaUsage.completionTokens,
-      totalTokens: current.totalTokens + deltaUsage.totalTokens,
-      cachedTokens: current.cachedTokens + (deltaUsage.cachedTokens ?? 0),
-    };
+    const nextTokens = replaceTokens
+      ? {
+          promptTokens: deltaUsage.promptTokens,
+          completionTokens: deltaUsage.completionTokens,
+          totalTokens: deltaUsage.totalTokens,
+          cachedTokens: deltaUsage.cachedTokens ?? 0,
+        }
+      : {
+          promptTokens: current.promptTokens + deltaUsage.promptTokens,
+          completionTokens: current.completionTokens + deltaUsage.completionTokens,
+          totalTokens: current.totalTokens + deltaUsage.totalTokens,
+          cachedTokens: current.cachedTokens + (deltaUsage.cachedTokens ?? 0),
+        };
 
     await Promise.all([
       this.repository.updateSession(sessionId, {
         history,
         lastInteractionId,
-        ...nextTokens,
+        durationSeconds,
       }),
       this.repository.insertChatMessages(chatMessageRows),
     ]);
 
     return nextTokens;
   }
-
 
   async updateMetadata(sessionId: string, metadata: Record<string, unknown>): Promise<void> {
     await this.repository.updateSession(sessionId, { metadata });
@@ -228,7 +257,7 @@ export class AiSessionService {
     return { cancelledTasks };
   }
 
-  async getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string; last_interaction_id?: string | null } | null> {
+  async getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string; last_interaction_id?: string | null; createdAt?: string } | null> {
     return await this.repository.getSessionContext(sessionId);
   }
 
@@ -238,13 +267,18 @@ export class AiSessionService {
   }
 
   async getSessionCost(sessionId: string): Promise<Record<string, any>> {
-    const data = await this.repository.getSessionWithRates(sessionId);
+    const [data, usage] = await Promise.all([
+      this.repository.getSessionWithRates(sessionId),
+      this.repository.getSessionTokenUsageDetails(sessionId),
+    ]);
     if (!data) throw new AppError("Sesión no encontrada.", 404);
 
     // deno-lint-ignore any
     const chatModel = data.chat_model ? (Array.isArray(data.chat_model) ? data.chat_model[0] : data.chat_model) as any : null;
     // deno-lint-ignore any
     const embeddingModel = data.embedding_model ? (Array.isArray(data.embedding_model) ? data.embedding_model[0] : data.embedding_model) as any : null;
+    // deno-lint-ignore any
+    const ttsModel = data.tts_model ? (Array.isArray(data.tts_model) ? data.tts_model[0] : data.tts_model) as any : null;
 
     const calcCosts = (promptTokens: number, cachedTokens: number, completionTokens: number, model: any) => {
       if (!model) return { inputCostUsd: 0, cacheReadCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 };
@@ -255,25 +289,27 @@ export class AiSessionService {
       return { inputCostUsd, cacheReadCostUsd, outputCostUsd, totalCostUsd: inputCostUsd + cacheReadCostUsd + outputCostUsd };
     };
 
-    const chatCosts = calcCosts(data.prompt_tokens, data.cached_tokens ?? 0, data.completion_tokens, chatModel);
-    const extractionCosts = calcCosts(data.extraction_prompt_tokens, data.extraction_cached_tokens ?? 0, data.extraction_completion_tokens, chatModel);
+    const chatCosts = calcCosts(usage.chat.promptTokens, usage.chat.cachedTokens, usage.chat.completionTokens, chatModel);
+    const extractionCosts = calcCosts(usage.extraction.promptTokens, usage.extraction.cachedTokens, usage.extraction.completionTokens, chatModel);
 
     let embeddingCostUsd = 0;
     if (embeddingModel) {
-      embeddingCostUsd = (data.embedding_total_tokens * Number(embeddingModel.input_cost_per_1m)) / 1_000_000;
+      embeddingCostUsd = (usage.embedding.totalTokens * Number(embeddingModel.input_cost_per_1m)) / 1_000_000;
     }
 
-    const totalCostUsd = chatCosts.totalCostUsd + extractionCosts.totalCostUsd + embeddingCostUsd;
+    const ttsCosts = calcCosts(data.tts_prompt_tokens ?? 0, 0, data.tts_completion_tokens ?? 0, ttsModel);
+
+    const totalCostUsd = chatCosts.totalCostUsd + extractionCosts.totalCostUsd + embeddingCostUsd + ttsCosts.totalCostUsd;
 
     return {
       sessionId: data.id,
       chat: {
         model: data.model_name ?? null,
         displayName: chatModel?.display_name ?? null,
-        promptTokens: data.prompt_tokens,
-        completionTokens: data.completion_tokens,
-        totalTokens: data.total_tokens,
-        cachedTokens: data.cached_tokens ?? 0,
+        promptTokens: usage.chat.promptTokens,
+        completionTokens: usage.chat.completionTokens,
+        totalTokens: usage.chat.totalTokens,
+        cachedTokens: usage.chat.cachedTokens,
         cost: {
           inputUsd: chatCosts.inputCostUsd,
           cacheReadUsd: chatCosts.cacheReadCostUsd,
@@ -284,10 +320,10 @@ export class AiSessionService {
       extraction: {
         model: data.model_name ?? null,
         displayName: chatModel?.display_name ?? null,
-        promptTokens: data.extraction_prompt_tokens,
-        completionTokens: data.extraction_completion_tokens,
-        totalTokens: data.extraction_total_tokens,
-        cachedTokens: data.extraction_cached_tokens ?? 0,
+        promptTokens: usage.extraction.promptTokens,
+        completionTokens: usage.extraction.completionTokens,
+        totalTokens: usage.extraction.totalTokens,
+        cachedTokens: usage.extraction.cachedTokens,
         cost: {
           inputUsd: extractionCosts.inputCostUsd,
           cacheReadUsd: extractionCosts.cacheReadCostUsd,
@@ -298,11 +334,23 @@ export class AiSessionService {
       embedding: {
         model: data.embedding_model_name ?? null,
         displayName: embeddingModel?.display_name ?? null,
-        totalTokens: data.embedding_total_tokens,
-        count: data.embedding_count,
+        totalTokens: usage.embedding.totalTokens,
+        count: 0,
         cost: {
           inputUsd: embeddingCostUsd,
           totalUsd: embeddingCostUsd,
+        },
+      },
+      tts: {
+        model: data.tts_model_name ?? null,
+        displayName: ttsModel?.display_name ?? null,
+        promptTokens: data.tts_prompt_tokens ?? 0,
+        completionTokens: data.tts_completion_tokens ?? 0,
+        totalTokens: data.tts_total_tokens ?? 0,
+        cost: {
+          inputUsd: ttsCosts.inputCostUsd,
+          outputUsd: ttsCosts.outputCostUsd,
+          totalUsd: ttsCosts.totalCostUsd,
         },
       },
       totalCostUsd,

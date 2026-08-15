@@ -2,7 +2,7 @@ import { Context } from "hono";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { ContactService } from "../../modules/contact/contact.service.ts";
 import { ContactRequestSchema } from "../../modules/contact/contact.dto.ts";
-import { NoteRepository } from "../../modules/note/note.repository.ts";
+import { NoteService } from "../../modules/note/note.service.ts";
 import { AppError } from "../../shared/errors.ts";
 import { parsePagination } from "../../shared/pagination.ts";
 
@@ -52,30 +52,30 @@ export class ContactController {
   }
 
   static async getNotes(c: Context) {
-    const repo: NoteRepository = c.get("services").noteRepository;
-    const notes = await repo.getByContactId(c.req.param("id") as string);
+    const service: NoteService = c.get("services").noteService;
+    const notes = await service.getByContactId(c.req.param("id") as string);
     return sendSuccess(c, { data: notes });
   }
 
   static async getRecentNotes(c: Context) {
-    const repo: NoteRepository = c.get("services").noteRepository;
+    const service: NoteService = c.get("services").noteService;
     const limit = Math.min(parseInt(c.req.query("limit") ?? "20", 10), 50);
-    const notes = await repo.getRecent(limit);
+    const notes = await service.getRecent(limit);
     return sendSuccess(c, { data: notes });
   }
 
   static async getNotesSummary(c: Context) {
-    const repo: NoteRepository = c.get("services").noteRepository;
-    const summary = await repo.getNotesSummary();
+    const service: NoteService = c.get("services").noteService;
+    const summary = await service.getNotesSummary();
     return sendSuccess(c, summary);
   }
 
   static async searchNotes(c: Context) {
-    const repo: NoteRepository = c.get("services").noteRepository;
+    const service: NoteService = c.get("services").noteService;
     const limit = Math.min(parseInt(c.req.query("limit") ?? "20", 10), 50);
     const offset = Math.max(parseInt(c.req.query("offset") ?? "0", 10), 0);
     const search = c.req.query("search");
-    const notes = await repo.searchNotes(limit, offset, search);
+    const notes = await service.searchNotes(limit, offset, search);
     return sendSuccess(c, { data: notes });
   }
 }

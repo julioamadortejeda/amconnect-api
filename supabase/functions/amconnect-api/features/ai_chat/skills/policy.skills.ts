@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { SkillDefinition } from "./skill.core.ts";
+import { assertHasChanges, SkillDefinition } from "./skill.core.ts";
 import { PolicyResponseDTO } from "../../../modules/policy/policy.dto.ts";
-import { appendNote, resolveCatalogId } from "../../../shared/utils.ts";
+import { appendNote, assertNoDuplicatePolicyNumber, resolveCatalogId } from "../../../shared/utils.ts";
+import { objectToCamelCase } from "../../../shared/case_converter.ts";
 
 const slimPolicy = (p: PolicyResponseDTO) => ({
   id: p.id,
@@ -14,6 +15,11 @@ const slimPolicy = (p: PolicyResponseDTO) => ({
   renewalDate: p.renewalDate,
   nextPaymentDate: p.nextPaymentDate,
   notes: p.notes,
+  deductible: p.deductible,
+  coinsurance: p.coinsurance,
+  seniorityDate: p.seniorityDate,
+  insuredItem: p.insuredItem,
+  policyVersion: p.policyVersion,
   product: p.product,
   status: p.status,
 });
@@ -40,7 +46,26 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute(_args, ctx) {
       const policies = await ctx.policyService.getByField("agent_id", ctx.agentId);
-      return (policies ?? []).map(slimPolicy);
+      const list = (policies ?? []).map(slimPolicy);
+      return {
+        policies: list,
+        __skillMetadata: {
+          type: "policy_list",
+          policies: (policies ?? []).map((p: any) => ({
+            id: p.id,
+            policyNumber: p.policyNumber,
+            holderName: p.contact?.fullName ?? p.contactName ?? "",
+            carrierName: p.product?.branch?.carrier?.name ?? "",
+            branchName: p.product?.branch?.name ?? "",
+            productName: p.product?.name ?? "",
+            statusName: p.status?.name ?? "",
+            premium: p.premium,
+            sumInsured: p.sumInsured,
+            renewalDate: p.renewalDate,
+            nextPaymentDate: p.nextPaymentDate,
+          })),
+        },
+      };
     },
   },
   {
@@ -55,7 +80,26 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute({ contact_id }, ctx) {
       const policies = await ctx.policyService.getByField("contact_id", contact_id as string);
-      return (policies ?? []).map(slimPolicy);
+      const list = (policies ?? []).map(slimPolicy);
+      return {
+        policies: list,
+        __skillMetadata: {
+          type: "policy_list",
+          policies: (policies ?? []).map((p: any) => ({
+            id: p.id,
+            policyNumber: p.policyNumber,
+            holderName: p.contact?.fullName ?? p.contactName ?? "",
+            carrierName: p.product?.branch?.carrier?.name ?? "",
+            branchName: p.product?.branch?.name ?? "",
+            productName: p.product?.name ?? "",
+            statusName: p.status?.name ?? "",
+            premium: p.premium,
+            sumInsured: p.sumInsured,
+            renewalDate: p.renewalDate,
+            nextPaymentDate: p.nextPaymentDate,
+          })),
+        },
+      };
     },
   },
   {
@@ -74,7 +118,35 @@ export const policySkills: SkillDefinition[] = [
         ctx.policyService.getParticipants(policy_id as string),
         ctx.policyService.getBeneficiaries(policy_id as string),
       ]);
-      return { policy, participants, beneficiaries };
+      if (!policy) return { policy: null, participants: [], beneficiaries: [] };
+      // deno-lint-ignore no-explicit-any
+      const policyAny = policy as any;
+      return {
+        policy,
+        participants,
+        beneficiaries,
+        __skillMetadata: {
+          type: "policy_info",
+          policyId: policy.id,
+          policyNumber: policy.policyNumber,
+          carrierName: policyAny.product?.branch?.carrier?.name ?? "",
+          branchName: policyAny.product?.branch?.name ?? "",
+          productName: policyAny.product?.name ?? "",
+          holderName: policy.contact?.fullName ?? "",
+          premium: policy.premium,
+          sumInsured: policy.sumInsured,
+          startDate: policy.startDate,
+          endDate: policy.endDate,
+          renewalDate: policy.renewalDate,
+          nextPaymentDate: policy.nextPaymentDate,
+          statusName: policyAny.status?.name ?? "",
+          deductible: policy.deductible,
+          coinsurance: policy.coinsurance,
+          seniorityDate: policy.seniorityDate,
+          insuredItem: policy.insuredItem,
+          policyVersion: policy.policyVersion,
+        },
+      };
     },
   },
   {
@@ -90,6 +162,7 @@ export const policySkills: SkillDefinition[] = [
     async execute({ query, policy_id }, ctx) {
       return await ctx.ragService.searchNotes(ctx.agentId, query as string, {
         policyId: policy_id as string | undefined,
+        threshold: 0.65,
       });
     },
   },
@@ -113,11 +186,17 @@ export const policySkills: SkillDefinition[] = [
         payment_frequency: z.string().optional().describe("Payment frequency (e.g., 'Anual', 'Mensual', 'Semestral', 'Trimestral'). Defaults to 'Anual'"),
         payment_method: z.string().optional().describe("Payment method (e.g., 'Domiciliación', 'Transferencia Bancaria', 'Tarjeta de Crédito')"),
         notes: z.string().optional().describe("Additional notes"),
+        deductible: z.string().optional().describe("Deductible (amount or percentage, e.g. '10%' or '$5,000')"),
+        coinsurance: z.string().optional().describe("Coinsurance percentage (e.g. '10%'), common on GMM policies"),
+        seniority_date: z.string().optional().describe("Recognized seniority date (antigüedad reconocida), YYYY-MM-DD — common on GMM/Life policies, distinct from start_date"),
+        insured_item: z.string().optional().describe("Short label of the insured asset for Auto/Hogar/Mascotas policies (e.g. 'Suzuki Swift 2021 · ABC-123'). Leave empty for policies insuring a person."),
+        policy_version: z.string().optional().describe("Policy version or endorsement number"),
       }),
     },
     async execute(args, ctx) {
       const params = args as any;
-      const statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "VIGENTE" });
+      await assertNoDuplicatePolicyNumber(ctx.policyService, ctx.agentId, params.policy_number);
+      const statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "ACTIVE" });
       const currencyId = await resolveCatalogId(ctx.catalogServices.currencyService, params.currency, { key: "code", value: "MXN" });
       const paymentFrequencyId = params.payment_frequency 
         ? await resolveCatalogId(ctx.catalogServices.paymentFrequencyService, params.payment_frequency, { key: "name", value: "Anual" })
@@ -142,6 +221,11 @@ export const policySkills: SkillDefinition[] = [
         renewalDate: params.renewal_date,
         nextPaymentDate: params.next_payment_date,
         notes: params.notes,
+        deductible: params.deductible,
+        coinsurance: params.coinsurance,
+        seniorityDate: params.seniority_date,
+        insuredItem: params.insured_item,
+        policyVersion: params.policy_version,
       });
 
       return policy ? slimPolicy(policy) : null;
@@ -166,19 +250,28 @@ export const policySkills: SkillDefinition[] = [
         payment_frequency: z.string().optional().describe("New payment frequency"),
         payment_method: z.string().optional().describe("New payment method"),
         notes: z.string().optional(),
+        deductible: z.string().optional().describe("Deductible (amount or percentage, e.g. '10%' or '$5,000')"),
+        coinsurance: z.string().optional().describe("Coinsurance percentage (e.g. '10%'), common on GMM policies"),
+        seniority_date: z.string().optional().describe("Recognized seniority date (antigüedad reconocida), YYYY-MM-DD"),
+        insured_item: z.string().optional().describe("Short label of the insured asset (Auto/Hogar/Mascotas)"),
+        policy_version: z.string().optional().describe("Policy version or endorsement number"),
       }),
     },
     async execute(args, ctx) {
       const params = args as any;
-      const updates: Record<string, unknown> = { ...params };
-      delete updates.policy_id;
+      // El modelo manda snake_case y prepareForUpdate lee camelCase: se convierte
+      // el objeto COMPLETO de una vez. Mapear campo por campo ya había dejado
+      // fuera las fechas y los montos — el update salía vacío y Supabase
+      // respondía "sin filas", que el cliente traducía como 404.
+      const updates: Record<string, unknown> = objectToCamelCase({ ...params });
+      delete updates.policyId;
       delete updates.status;
       delete updates.currency;
-      delete updates.payment_frequency;
-      delete updates.payment_method;
+      delete updates.paymentFrequency;
+      delete updates.paymentMethod;
 
       if (params.status) {
-        updates.statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "VIGENTE" });
+        updates.statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "ACTIVE" });
       }
       if (params.currency) {
         updates.currencyId = await resolveCatalogId(ctx.catalogServices.currencyService, params.currency, { key: "code", value: "MXN" });
@@ -195,6 +288,7 @@ export const policySkills: SkillDefinition[] = [
         updates.notes = appendNote(existing?.notes, params.notes);
       }
 
+      assertHasChanges(updates);
       const result = await ctx.policyService.update(params.policy_id, updates as never);
       return result ? slimPolicy(result) : null;
     },

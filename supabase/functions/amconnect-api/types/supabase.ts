@@ -158,6 +158,7 @@ export type Database = {
           is_active: boolean
           note_origin: string
           policy_id: string | null
+          reminder_id: string | null
           source_type: string
           summary: string | null
         }
@@ -172,6 +173,7 @@ export type Database = {
           is_active?: boolean
           note_origin?: string
           policy_id?: string | null
+          reminder_id?: string | null
           source_type: string
           summary?: string | null
         }
@@ -186,6 +188,7 @@ export type Database = {
           is_active?: boolean
           note_origin?: string
           policy_id?: string | null
+          reminder_id?: string | null
           source_type?: string
           summary?: string | null
         }
@@ -218,6 +221,13 @@ export type Database = {
             referencedRelation: "policies"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "agent_notes_reminder_id_fkey"
+            columns: ["reminder_id"]
+            isOneToOne: false
+            referencedRelation: "reminders"
+            referencedColumns: ["id"]
+          },
         ]
       }
       agents: {
@@ -233,6 +243,7 @@ export type Database = {
           promo_code_used: string | null
           subscription_expires_at: string | null
           subscription_status: string
+          timezone: string | null
           trial_ends_at: string | null
           updated_at: string
         }
@@ -248,6 +259,7 @@ export type Database = {
           promo_code_used?: string | null
           subscription_expires_at?: string | null
           subscription_status?: string
+          timezone?: string | null
           trial_ends_at?: string | null
           updated_at?: string
         }
@@ -263,6 +275,7 @@ export type Database = {
           promo_code_used?: string | null
           subscription_expires_at?: string | null
           subscription_status?: string
+          timezone?: string | null
           trial_ends_at?: string | null
           updated_at?: string
         }
@@ -286,39 +299,30 @@ export type Database = {
       ai_chat_messages: {
         Row: {
           agent_id: string
-          completion_tokens: number
           content: string | null
           created_at: string
           id: string
           interaction_id: string | null
-          prompt_tokens: number
           role: string
           session_id: string
-          total_tokens: number
         }
         Insert: {
           agent_id: string
-          completion_tokens?: number
           content?: string | null
           created_at?: string
           id?: string
           interaction_id?: string | null
-          prompt_tokens?: number
           role: string
           session_id: string
-          total_tokens?: number
         }
         Update: {
           agent_id?: string
-          completion_tokens?: number
           content?: string | null
           created_at?: string
           id?: string
           interaction_id?: string | null
-          prompt_tokens?: number
           role?: string
           session_id?: string
-          total_tokens?: number
         }
         Relationships: [
           {
@@ -330,80 +334,6 @@ export type Database = {
           },
           {
             foreignKeyName: "ai_chat_messages_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "ai_sessions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      ai_ingestion_usage: {
-        Row: {
-          agent_id: string
-          cached_tokens: number
-          completion_tokens: number
-          created_at: string
-          document_metadata_id: string | null
-          id: string
-          item_count: number | null
-          model_name: string
-          operation: string
-          prompt_tokens: number
-          session_id: string | null
-          total_tokens: number
-        }
-        Insert: {
-          agent_id: string
-          cached_tokens?: number
-          completion_tokens?: number
-          created_at?: string
-          document_metadata_id?: string | null
-          id?: string
-          item_count?: number | null
-          model_name: string
-          operation: string
-          prompt_tokens?: number
-          session_id?: string | null
-          total_tokens?: number
-        }
-        Update: {
-          agent_id?: string
-          cached_tokens?: number
-          completion_tokens?: number
-          created_at?: string
-          document_metadata_id?: string | null
-          id?: string
-          item_count?: number | null
-          model_name?: string
-          operation?: string
-          prompt_tokens?: number
-          session_id?: string | null
-          total_tokens?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "ai_ingestion_usage_agent_id_fkey"
-            columns: ["agent_id"]
-            isOneToOne: false
-            referencedRelation: "agents"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ai_ingestion_usage_document_metadata_id_fkey"
-            columns: ["document_metadata_id"]
-            isOneToOne: false
-            referencedRelation: "document_metadata"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "ai_ingestion_usage_model_name_fkey"
-            columns: ["model_name"]
-            isOneToOne: false
-            referencedRelation: "ai_models"
-            referencedColumns: ["model_name"]
-          },
-          {
-            foreignKeyName: "ai_ingestion_usage_session_id_fkey"
             columns: ["session_id"]
             isOneToOne: false
             referencedRelation: "ai_sessions"
@@ -496,75 +426,63 @@ export type Database = {
         Row: {
           agent_id: string
           cached_tokens: number
-          completion_tokens: number
           created_at: string
-          embedding_count: number
+          duration_seconds: number | null
           embedding_model_name: string | null
-          embedding_total_tokens: number
-          extraction_cached_tokens: number
-          extraction_completion_tokens: number
-          extraction_prompt_tokens: number
-          extraction_total_tokens: number
           history: Json | null
           id: string
           is_billable: boolean
           last_interaction_id: string | null
           metadata: Json | null
           model_name: string | null
-          prompt_tokens: number
           status: string
-          total_tokens: number
           trigger_message: string | null
+          tts_completion_tokens: number
+          tts_model_name: string | null
+          tts_prompt_tokens: number
+          tts_total_tokens: number
           type: string
           updated_at: string
         }
         Insert: {
           agent_id: string
           cached_tokens?: number
-          completion_tokens?: number
           created_at?: string
-          embedding_count?: number
+          duration_seconds?: number | null
           embedding_model_name?: string | null
-          embedding_total_tokens?: number
-          extraction_cached_tokens?: number
-          extraction_completion_tokens?: number
-          extraction_prompt_tokens?: number
-          extraction_total_tokens?: number
           history?: Json | null
           id?: string
           is_billable?: boolean
           last_interaction_id?: string | null
           metadata?: Json | null
           model_name?: string | null
-          prompt_tokens?: number
           status?: string
-          total_tokens?: number
           trigger_message?: string | null
+          tts_completion_tokens?: number
+          tts_model_name?: string | null
+          tts_prompt_tokens?: number
+          tts_total_tokens?: number
           type?: string
           updated_at?: string
         }
         Update: {
           agent_id?: string
           cached_tokens?: number
-          completion_tokens?: number
           created_at?: string
-          embedding_count?: number
+          duration_seconds?: number | null
           embedding_model_name?: string | null
-          embedding_total_tokens?: number
-          extraction_cached_tokens?: number
-          extraction_completion_tokens?: number
-          extraction_prompt_tokens?: number
-          extraction_total_tokens?: number
           history?: Json | null
           id?: string
           is_billable?: boolean
           last_interaction_id?: string | null
           metadata?: Json | null
           model_name?: string | null
-          prompt_tokens?: number
           status?: string
-          total_tokens?: number
           trigger_message?: string | null
+          tts_completion_tokens?: number
+          tts_model_name?: string | null
+          tts_prompt_tokens?: number
+          tts_total_tokens?: number
           type?: string
           updated_at?: string
         }
@@ -586,6 +504,13 @@ export type Database = {
           {
             foreignKeyName: "ai_sessions_model_name_fkey"
             columns: ["model_name"]
+            isOneToOne: false
+            referencedRelation: "ai_models"
+            referencedColumns: ["model_name"]
+          },
+          {
+            foreignKeyName: "ai_sessions_tts_model_name_fkey"
+            columns: ["tts_model_name"]
             isOneToOne: false
             referencedRelation: "ai_models"
             referencedColumns: ["model_name"]
@@ -726,7 +651,6 @@ export type Database = {
           id: string
           is_active: boolean
           is_prospect: boolean
-          notes: string | null
           occupation: string | null
           phone: string | null
           referred_by_id: string | null
@@ -746,7 +670,6 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_prospect?: boolean
-          notes?: string | null
           occupation?: string | null
           phone?: string | null
           referred_by_id?: string | null
@@ -766,7 +689,6 @@ export type Database = {
           id?: string
           is_active?: boolean
           is_prospect?: boolean
-          notes?: string | null
           occupation?: string | null
           phone?: string | null
           referred_by_id?: string | null
@@ -986,6 +908,7 @@ export type Database = {
       policies: {
         Row: {
           agent_id: string
+          coinsurance: string | null
           contact_id: string
           created_at: string
           currency_id: string
@@ -993,15 +916,18 @@ export type Database = {
           deleted_at: string | null
           end_date: string | null
           id: string
+          insured_item: string | null
           is_active: boolean
           next_payment_date: string | null
           notes: string | null
           payment_frequency_id: string | null
           payment_method_id: string | null
           policy_number: string | null
+          policy_version: string | null
           premium: number | null
           product_id: string
           renewal_date: string | null
+          seniority_date: string | null
           start_date: string | null
           status_id: string
           sum_insured: number | null
@@ -1009,6 +935,7 @@ export type Database = {
         }
         Insert: {
           agent_id: string
+          coinsurance?: string | null
           contact_id: string
           created_at?: string
           currency_id: string
@@ -1016,15 +943,18 @@ export type Database = {
           deleted_at?: string | null
           end_date?: string | null
           id?: string
+          insured_item?: string | null
           is_active?: boolean
           next_payment_date?: string | null
           notes?: string | null
           payment_frequency_id?: string | null
           payment_method_id?: string | null
           policy_number?: string | null
+          policy_version?: string | null
           premium?: number | null
           product_id: string
           renewal_date?: string | null
+          seniority_date?: string | null
           start_date?: string | null
           status_id: string
           sum_insured?: number | null
@@ -1032,6 +962,7 @@ export type Database = {
         }
         Update: {
           agent_id?: string
+          coinsurance?: string | null
           contact_id?: string
           created_at?: string
           currency_id?: string
@@ -1039,15 +970,18 @@ export type Database = {
           deleted_at?: string | null
           end_date?: string | null
           id?: string
+          insured_item?: string | null
           is_active?: boolean
           next_payment_date?: string | null
           notes?: string | null
           payment_frequency_id?: string | null
           payment_method_id?: string | null
           policy_number?: string | null
+          policy_version?: string | null
           premium?: number | null
           product_id?: string
           renewal_date?: string | null
+          seniority_date?: string | null
           start_date?: string | null
           status_id?: string
           sum_insured?: number | null
@@ -1317,9 +1251,42 @@ export type Database = {
           },
         ]
       }
+      reminder_notifications: {
+        Row: {
+          agent_id: string
+          due_date_at_send: string
+          id: string
+          reminder_id: string
+          sent_at: string
+        }
+        Insert: {
+          agent_id: string
+          due_date_at_send: string
+          id?: string
+          reminder_id: string
+          sent_at?: string
+        }
+        Update: {
+          agent_id?: string
+          due_date_at_send?: string
+          id?: string
+          reminder_id?: string
+          sent_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reminder_notifications_reminder_id_fkey"
+            columns: ["reminder_id"]
+            isOneToOne: false
+            referencedRelation: "reminders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reminder_settings: {
         Row: {
           agent_id: string
+          branch_id: string | null
           created_at: string
           days_before: number
           id: string
@@ -1328,6 +1295,7 @@ export type Database = {
         }
         Insert: {
           agent_id: string
+          branch_id?: string | null
           created_at?: string
           days_before?: number
           id?: string
@@ -1336,6 +1304,7 @@ export type Database = {
         }
         Update: {
           agent_id?: string
+          branch_id?: string | null
           created_at?: string
           days_before?: number
           id?: string
@@ -1348,6 +1317,13 @@ export type Database = {
             columns: ["agent_id"]
             isOneToOne: false
             referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminder_settings_branch_id_fkey"
+            columns: ["branch_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
             referencedColumns: ["id"]
           },
           {
@@ -1418,6 +1394,7 @@ export type Database = {
           id: string
           is_active: boolean
           notified_at: string | null
+          occurrence_date: string | null
           policy_id: string | null
           status_id: string
           title: string
@@ -1434,6 +1411,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           notified_at?: string | null
+          occurrence_date?: string | null
           policy_id?: string | null
           status_id: string
           title: string
@@ -1450,6 +1428,7 @@ export type Database = {
           id?: string
           is_active?: boolean
           notified_at?: string | null
+          occurrence_date?: string | null
           policy_id?: string | null
           status_id?: string
           title?: string
@@ -1560,6 +1539,99 @@ export type Database = {
         }
         Relationships: []
       }
+      tokens_usage: {
+        Row: {
+          agent_id: string
+          audio_completion_tokens: number
+          audio_prompt_tokens: number
+          cached_tokens: number
+          completion_tokens: number
+          created_at: string
+          document_metadata_id: string | null
+          id: string
+          model_name: string
+          note_id: string | null
+          prompt_tokens: number
+          session_id: string | null
+          source: string
+          text_completion_tokens: number
+          text_prompt_tokens: number
+          total_tokens: number
+        }
+        Insert: {
+          agent_id: string
+          audio_completion_tokens?: number
+          audio_prompt_tokens?: number
+          cached_tokens?: number
+          completion_tokens?: number
+          created_at?: string
+          document_metadata_id?: string | null
+          id?: string
+          model_name: string
+          note_id?: string | null
+          prompt_tokens?: number
+          session_id?: string | null
+          source: string
+          text_completion_tokens?: number
+          text_prompt_tokens?: number
+          total_tokens?: number
+        }
+        Update: {
+          agent_id?: string
+          audio_completion_tokens?: number
+          audio_prompt_tokens?: number
+          cached_tokens?: number
+          completion_tokens?: number
+          created_at?: string
+          document_metadata_id?: string | null
+          id?: string
+          model_name?: string
+          note_id?: string | null
+          prompt_tokens?: number
+          session_id?: string | null
+          source?: string
+          text_completion_tokens?: number
+          text_prompt_tokens?: number
+          total_tokens?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tokens_usage_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tokens_usage_document_metadata_id_fkey"
+            columns: ["document_metadata_id"]
+            isOneToOne: false
+            referencedRelation: "document_metadata"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tokens_usage_model_name_fkey"
+            columns: ["model_name"]
+            isOneToOne: false
+            referencedRelation: "ai_models"
+            referencedColumns: ["model_name"]
+          },
+          {
+            foreignKeyName: "tokens_usage_note_id_fkey"
+            columns: ["note_id"]
+            isOneToOne: false
+            referencedRelation: "agent_notes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tokens_usage_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "ai_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -1570,12 +1642,14 @@ export type Database = {
         Returns: Json
       }
       cron_check_due_reminders: { Args: never; Returns: undefined }
+      cron_generate_due_reminders: { Args: never; Returns: undefined }
       decrement_monthly_usage: {
         Args: { p_agent_id: string; p_field: string }
         Returns: undefined
       }
       get_notification_secret: { Args: never; Returns: string }
       get_supabase_url: { Args: never; Returns: string }
+      get_vault_secret: { Args: { p_name: string }; Returns: string }
       increment_monthly_usage: {
         Args: { p_agent_id: string; p_field: string }
         Returns: Json
@@ -1648,6 +1722,21 @@ export type Database = {
           id: string
           phone: string
           similarity: number
+        }[]
+      }
+      search_notes: {
+        Args: { p_limit?: number; p_offset?: number; p_query?: string }
+        Returns: {
+          contact_id: string
+          content: string
+          created_at: string
+          file_name: string
+          full_name: string
+          id: string
+          policy_id: string
+          source_type: string
+          storage_path: string
+          summary: string
         }[]
       }
       show_limit: { Args: never; Returns: number }

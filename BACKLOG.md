@@ -82,6 +82,12 @@ Estado: `[ ]` pendiente · `[~]` en progreso · `[x]` resuelto · `[-]` descarta
 - `ContactController`, `PolicyController`, `ReminderController` — `getAll` acepta `?page=&pageSize=` (default 20, cap 100). Responde `{ data, total, page, pageSize, hasMore }`.
 **Estado:** `[x]`
 
+### P5 — `ReminderService.update` hace doble query al guardar
+**Archivos:** `modules/reminder/reminder.service.ts:63-138`
+**Problema:** `this.repository.update(id, updatePayload)` (método base de `SupabaseRepository`) ya devuelve la fila completa con joins vía `.select(this.selectString).single()` — el mismo `REMINDER_SELECT` con `type`, `status`, `contact`, `policy`, `comments` y `notes` (con `document_metadata` anidado). Pero el resultado se descarta y la función cierra con `return this.getById(id)`, que repite esa misma query pesada. Cada PATCH a un recordatorio (ej. asignar cliente/póliza desde la app) paga dos round-trips a Postgres con múltiples joins en vez de uno — es la causa medida de los ~1-2s de delay visible en la app al reasignar cliente/póliza desde `ReminderDetailScreen`.
+**Fix:** Devolver directamente el resultado de `this.repository.update(id, updatePayload)` (via `toDTO`) cuando `Object.keys(updatePayload).length > 0`; solo caer a `getById(id)` cuando el único cambio fue un comentario (`updatePayload` vacío, ya que `reminder_comments` es una tabla aparte y el `update()` no se ejecuta en ese caso).
+**Estado:** `[ ]`
+
 ---
 
 ## 🟡 Estructura / violaciones al patrón
@@ -159,6 +165,63 @@ Estado: `[ ]` pendiente · `[~]` en progreso · `[x]` resuelto · `[-]` descarta
 **Problema:** En sesiones `policy_ingestion` nunca hay pending tasks del tipo normal, pero igual se hace la query en cada mensaje.
 **Fix:** Omitir la llamada cuando `sessionType === "policy_ingestion"`.
 **Estado:** `[ ]`
+
+---
+
+## 🟡 Voice/Live Chat (Optimización y Mejores Prácticas)
+
+### V1 — Configuración de Idioma Nativo y Voz Preestablecida
+**Archivos:** `amconnect-app/amconnect/lib/features/chat/providers/voice_chat_provider.dart`
+**Problema:** El cliente no configuraba explícitamente el código de idioma ni la voz en el setup del WebSocket de Gemini Live API, lo que podía provocar respuestas en inglés o con acentos no consistentes.
+**Fix aplicado:** Se agregaron `speechConfig` con la voz `Puck` y se configuró `languageCodes: ['es-419']` en `inputAudioTranscription` y `outputAudioTranscription` dentro del `setupMessage` de la app.
+**Estado:** `[x]`
+
+### V2 — Reanudación Nativa de Sesión (Session Resumption)
+**Archivos:** `amconnect-app/amconnect/lib/features/chat/providers/voice_chat_provider.dart`, `backend/supabase/functions/amconnect-api`
+**Problema:** En caso de desconexiones del socket, el cliente hace una reconexión completa y el backend reinyecta todo el historial de chat de la base de datos de Supabase en formato de texto plano dentro de la instrucción de sistema, lo cual incrementa el consumo de tokens y los costos de facturación por turno.
+**Fix sugerido:** Implementar la reanudación nativa utilizando `SessionResumptionConfig` en el setup, almacenar el `session_resumption_update` en la app cliente ante eventos de red y presentarlo en reconexiones para que el contexto sea retenido internamente por Gemini sin costo.
+**Estado:** `[ ]`
+
+---
+
+## 🟡 Nuevos Requerimientos de Negocio (Backend)
+
+### R1 — Histórico de Pólizas (Renovaciones anuales)
+**Archivos:** `backend/supabase/functions/amconnect-api`
+**Problema:** Soportar un histórico de versiones de pólizas anuales para un mismo bien (e.g. auto, gastos médicos mayores) vinculando las renovaciones mediante una relación parent/previous_policy_id en la base de datos y exponiendo los métodos para consultar la línea de tiempo.
+**Estado:** `[ ]`
+
+### R2 — Manejo de Asistentes para Agentes
+**Archivos:** `backend/supabase/functions/amconnect-api`
+**Problema:** Implementar perfiles de asistente vinculados a las cuentas de los asesores de seguros (agentes), permitiendo compartir el acceso a la cartera de clientes y pólizas bajo roles y permisos específicos.
+**Estado:** `[ ]`
+
+### R3 — Chat IA con Capacidades de Seguimiento de Recordatorios
+**Archivos:** `features/ai_chat/skills/reminder.skills.ts`, `features/ai_chat/ai_chat.service.ts`
+**Problema:** Habilitar al chat IA para buscar comentarios e historial de recordatorios (e.g. "¿sabes si ya atendí el tema del PPR de Juan?") para poder responder con precisión si un tema ya fue resuelto basándose en las notas de seguimiento del recordatorio.
+**Estado:** `[ ]`
+
+---
+
+## 🟡 Chat IA — Latencia y costo de tokens (revisión 2026-07-23)
+
+### T1 — Implicit caching se perdía en el último turno del loop de function calling
+**Archivos:** `providers/google_genai.provider.ts`, `providers/vertex_ai.provider.ts`, `core/ai_provider.interface.ts`, `features/ai_chat/ai_chat.service.ts`
+**Problema:** Para forzar que el modelo respondiera solo texto tras resolver todos los function calls, `ai_chat.service.ts` mandaba `tools: []` en el último turno del loop. Esto cambiaba el prefix `system_instruction+tools` respecto a los turnos anteriores y le hacía perder a Gemini el cache implícito justo en ese turno — confirmado en logs: `total_cached_tokens` caía a 0 en la última llamada aunque los turnos previos sí cacheaban miles de tokens (ej. 4004-4013).
+**Fix aplicado:** `tools` se manda completo en todos los turnos; el bloqueo de function calls se hace con `generation_config.tool_choice: "none"` (Interactions API) / `toolConfig.functionCallingConfig.mode: "NONE"` (`generateContent`, usado por Vertex vía herencia). Nuevo parámetro `forceTextOnly` propagado en `IAiProvider.processInteraction`/`processUserRequest`.
+**Estado:** `[x]`
+
+### T2 — `cachedTokens` nunca se guardaba en `tokens_usage`
+**Archivos:** `features/ai_chat/ai_chat.service.ts:267-274`
+**Problema:** El objeto del mensaje `role: "model"` que arma `saveChatRound` no incluía el campo `cachedTokens` — el repository sí sabía mapearlo a la columna `cached_tokens` (`ai_session.repository.ts:98`), pero al llegar `undefined` siempre insertaba 0 vía `?? 0`, aunque `loopUsage.cachedTokens` sí se calculaba bien en memoria y el cache sí ocurría (y se cobraba más barato) en Gemini.
+**Fix aplicado:** Agregado `cachedTokens: loopUsage.cachedTokens` al objeto insertado.
+**Estado:** `[x]`
+
+### T3 — Chat de texto sin `thinking_level` — ~40s por turno de skills
+**Archivos:** `providers/google_genai.provider.ts`
+**Problema:** Solo la voz (`gemini_live.provider.ts`) configuraba `thinking_level: MINIMAL`. El chat de texto usaba el thinking por defecto del modelo, generando 174-835 thought tokens por turno observados en logs — tiempo real de cómputo, no solo costo, para una tarea de extracción de parámetros de function calling que no necesita razonamiento profundo.
+**Fix aplicado:** `thinking_level: "minimal"` (Interactions API) / `thinkingConfig.thinkingLevel: "MINIMAL"` (`generateContent`) agregado a ambos métodos de `GoogleGenAiProvider` (heredado por `VertexAiProvider`). Verificado en logs: `total_thought_tokens` bajó a 0 y el tiempo total de una ronda de 3-4 turnos bajó de ~40s a ~4s.
+**Estado:** `[x]`
 
 ---
 

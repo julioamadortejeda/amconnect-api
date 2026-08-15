@@ -12,7 +12,7 @@ export class RagService {
   async searchNotes(
     agentId: string,
     query: string,
-    options?: { contactId?: string; policyId?: string; threshold?: number; limit?: number },
+    options?: { contactId?: string; policyId?: string; reminderId?: string; threshold?: number; limit?: number },
   ): Promise<NoteMatch[]> {
     const { embedding } = await this.embeddingProvider.generateEmbedding(query);
 
@@ -21,7 +21,7 @@ export class RagService {
       JSON.stringify(embedding),
       options?.threshold ?? 0.7,
       options?.limit ?? 5,
-      { contactId: options?.contactId, policyId: options?.policyId },
+      { contactId: options?.contactId, policyId: options?.policyId, reminderId: options?.reminderId },
     );
   }
 

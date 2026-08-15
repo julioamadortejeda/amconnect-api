@@ -32,12 +32,19 @@ export const AiIngestPolicySchema = z.object({
 
 export type AiIngestPolicyDTO = z.infer<typeof AiIngestPolicySchema>;
 
+export const AiResolveContactMismatchSchema = z.object({
+  assignToScreenContact: z.boolean(),
+});
+
+export type AiResolveContactMismatchDTO = z.infer<typeof AiResolveContactMismatchSchema>;
+
 export const AiIngestFileSchema = z.object({
   storagePath: z.string().min(1, "El campo 'storagePath' es requerido."),
   fileName: z.string().min(1, "El campo 'fileName' es requerido."),
   mimeType: z.string().min(1, "El campo 'mimeType' es requerido."),
   contactId: z.string().uuid().optional().nullable(),
   policyId: z.string().uuid().optional().nullable(),
+  reminderId: z.string().uuid().optional().nullable(),
   makeGeneral: z.boolean().optional().nullable(),
 });
 
@@ -50,7 +57,13 @@ export const AiIngestTextSchema = z.object({
   }),
   contactId: z.string().uuid().optional().nullable(),
   policyId: z.string().uuid().optional().nullable(),
+  reminderId: z.string().uuid().optional().nullable(),
   makeGeneral: z.boolean().optional().nullable(),
+  // true SOLO desde el botón "Agregar nota" del perfil de cliente — distingue
+  // esa acción del pegado de texto general en Feed (mismo endpoint, mismo
+  // shape) para que el umbral de cuota (QUICK_NOTE_MAX_LENGTH) no aplique
+  // también a ingestas de Feed con contactId.
+  isClientNote: z.boolean().optional(),
 });
 
 export type AiIngestTextDTO = z.infer<typeof AiIngestTextSchema>;
@@ -61,3 +74,23 @@ export const AiProcessDocumentRequestSchema = z.object({
 });
 
 export type AiProcessDocumentRequestDTO = z.infer<typeof AiProcessDocumentRequestSchema>;
+
+// Esquema Zod para validar y tipar el mensaje de contenido de cliente (texto/media) para Gemini Live
+export const LiveClientContentMessageSchema = z.object({
+  clientContent: z.object({
+    turns: z.array(
+      z.object({
+        role: z.literal("user"),
+        parts: z.array(
+          z.object({
+            text: z.string(),
+          })
+        ),
+      })
+    ),
+    turnComplete: z.boolean(),
+  }),
+});
+
+export type LiveClientContentMessage = z.infer<typeof LiveClientContentMessageSchema>;
+

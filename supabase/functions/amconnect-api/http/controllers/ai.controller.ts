@@ -1,38 +1,37 @@
 import { Context } from "hono";
-import type { ZodIssue } from "zod";
 import { sendSuccess } from "../../shared/api_response.ts";
-import { AiInvokedError, AiProviderError, AppError } from "../../shared/errors.ts";
+import { AiProviderError, AppError } from "../../shared/errors.ts";
 import { AiChatService } from "../../features/ai_chat/ai_chat.service.ts";
 import { AiSessionService } from "../../features/ai_chat/ai_session.service.ts";
 import { ConfirmPolicySchema } from "../../features/document_processing/confirm_policy.service.ts";
+import { QUICK_NOTE_MAX_LENGTH } from "../../features/document_processing/knowledge_ingestion.service.ts";
+import { PolicyIngestionOrchestrator } from "../../features/document_processing/policy_ingestion_orchestrator.ts";
+import { compensateIngestionFailure } from "../../shared/ingestion_compensation.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
 import { StorageService } from "../../modules/storage/storage.service.ts";
+import { resolveTimezone } from "../../shared/datetime.ts";
+import { AI_BACKEND_NAME, AI_MODEL } from "../../shared/config.ts";
 import {
   AiChatSchema,
   AiIngestFileSchema,
   AiIngestPolicySchema,
   AiIngestTextSchema,
   AiProcessDocumentRequestSchema,
+  AiResolveContactMismatchSchema,
 } from "../../features/ai_chat/ai.dto.ts";
 export class AiController {
   static async chat(c: Context) {
     const agentId: string = c.get("agent_id");
-    const body = await c.req.json();
-    const parsed = AiChatSchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
-    const { message, sessionId: session_id, context } = parsed.data;
+    const { message, sessionId, context } = AiController.parseChatBody(await c.req.json());
 
     const usageService = c.get("usage_service") as UsageService;
     await usageService.checkAndIncrementChat(agentId);
 
     try {
-      const timezone = c.req.header("x-timezone") || "America/Mexico_City";
+      const timezone = resolveTimezone(c.req.header("x-timezone"), c.req.header("x-timezone-offset"));
       const service: AiChatService = c.get("services").aiChatService;
-      const response = await service.processMessage(message, agentId, session_id, timezone, context);
-      return sendSuccess(c, response);
+      const response = await service.processMessage(message, agentId, sessionId, timezone, context, "chat");
+      return sendSuccess(c, { ...response, aiBackend: AI_BACKEND_NAME });
     } catch (err) {
       if (err instanceof AiProviderError) {
         // Session already marked inside processMessage; only decrement usage
@@ -40,6 +39,12 @@ export class AiController {
       }
       throw err;
     }
+  }
+
+  private static parseChatBody(body: unknown) {
+    // Schema.parse: el ZodError lo formatea el globalErrorHandler (RULES §2).
+    const parsed = AiChatSchema.parse(body);
+    return { message: parsed.message, sessionId: parsed.sessionId, context: parsed.context };
   }
 
   static async cancelSession(c: Context) {
@@ -61,12 +66,7 @@ export class AiController {
 
   static async processDocument(c: Context) {
     const agentId: string = c.get("agent_id");
-    const parsed = AiProcessDocumentRequestSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
-    const { filePath, fileName } = parsed.data;
+    const { filePath, fileName } = AiProcessDocumentRequestSchema.parse(await c.req.json());
     const result = await c.get("services").documentProcessorService.processDocument(agentId, filePath, fileName);
     return sendSuccess(c, result);
   }
@@ -98,70 +98,44 @@ export class AiController {
 
   static async ingestPolicy(c: Context) {
     const agentId: string = c.get("agent_id");
-    const usageService = c.get("usage_service") as UsageService;
-    await usageService.checkAndIncrementIngestion(agentId);
-
     const body = await c.req.json();
-    const parsed = AiIngestPolicySchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
-    const { storagePath, fileName, mimeType, contactId } = parsed.data;
+    const { storagePath, fileName, mimeType, contactId } = AiIngestPolicySchema.parse(body);
 
-    const { aiSessionService, policyIngestionService, aiChatService } = c.get("services");
-    const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
-      triggerMessage: "policy_ingestion",
-      sessionType: "policy_ingestion",
-    });
-    try {
-      const ingestResult = await policyIngestionService.extract(agentId, sessionId, {
-        storagePath, fileName, mimeType, contactId,
-      });
+    const orchestrator = c.get("services").policyIngestionOrchestrator as PolicyIngestionOrchestrator;
+    const result = await orchestrator.ingestPolicy(agentId, { storagePath, fileName, mimeType, contactId });
 
-      let text: string;
-      if (ingestResult.status === 'duplicate_detected') {
-        const response = await aiChatService.startPolicyUpdateSession(
-          sessionId,
-          agentId,
-          ingestResult.extraction,
-          ingestResult.existingPolicyId!,
-          ingestResult.diff!,
-        );
-        text = response.text;
-      } else {
-        const response = await aiChatService.startPolicySession(
-          sessionId,
-          agentId,
-          ingestResult.extraction,
-          ingestResult.documentMetadataId,
-        );
-        text = response.text;
-      }
-
+    if (result.status === "contact_mismatch") {
+      // No arrancamos el chat de confirmación todavía — se pausa hasta que
+      // el asesor resuelva vía /resolve-contact-mismatch (sin costo de IA extra).
       return sendSuccess(c, {
-        sessionId,
-        message: text,
-        documentMetadataId: ingestResult.documentMetadataId || null,
-        extraction: ingestResult.extraction,
-        isDuplicate: ingestResult.status === 'duplicate_detected',
+        sessionId: result.sessionId,
+        status: "contact_mismatch",
+        contactMismatch: result.contactMismatch,
       }, 201);
-    } catch (err) {
-      if (err instanceof AiProviderError) {
-        await Promise.all([
-          (aiSessionService as AiSessionService).markSessionProviderError(sessionId, err.message),
-          usageService.decrementIngestion(agentId),
-        ]);
-      } else if (err instanceof AiInvokedError) {
-        await (aiSessionService as AiSessionService).markSessionFailed(sessionId, err.message);
-      } else {
-        await Promise.all([
-          (aiSessionService as AiSessionService).deleteSession(sessionId),
-          usageService.decrementIngestion(agentId),
-        ]);
-      }
-      throw err;
     }
+
+    return sendSuccess(c, {
+      sessionId: result.sessionId,
+      message: result.message,
+      documentMetadataId: result.documentMetadataId,
+      extraction: result.extraction,
+      isDuplicate: result.isDuplicate,
+    }, 201);
+  }
+
+  // Resuelve la pregunta sí/no de contact_mismatch — ver
+  // PolicyIngestionOrchestrator.resolveContactMismatch.
+  static async resolveContactMismatch(c: Context) {
+    const sessionId = c.req.param("sessionId");
+    if (!sessionId) throw new AppError("El parámetro 'sessionId' es requerido.", 400);
+
+    const agentId: string = c.get("agent_id");
+    const parsed = AiResolveContactMismatchSchema.parse(await c.req.json());
+
+    const orchestrator = c.get("services").policyIngestionOrchestrator as PolicyIngestionOrchestrator;
+    const result = await orchestrator.resolveContactMismatch(agentId, sessionId, parsed.assignToScreenContact);
+
+    return sendSuccess(c, result);
   }
 
   static async ingest(c: Context) {
@@ -170,12 +144,7 @@ export class AiController {
     await usageService.checkAndIncrementIngestion(agentId);
 
     const body = await c.req.json();
-    const parsed = AiIngestFileSchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
-    const { storagePath, fileName, mimeType, contactId, policyId, makeGeneral } = parsed.data;
+    const { storagePath, fileName, mimeType, contactId, policyId, reminderId, makeGeneral } = AiIngestFileSchema.parse(body);
 
     const storageService = c.get("storage_service") as StorageService;
     storageService.validateMimeType(mimeType);
@@ -186,10 +155,11 @@ export class AiController {
     const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
       triggerMessage: "file_ingestion",
       sessionType: "knowledge_ingestion",
+      modelName: AI_MODEL,
     });
     try {
       const { noteId, responseMessage } = await knowledgeIngestionService.ingestFile(agentId, sessionId, {
-        storagePath, fileName, mimeType, contactId, policyId, makeGeneral, advisorLocale,
+        storagePath, fileName, mimeType, contactId, policyId, reminderId, makeGeneral, advisorLocale,
       });
       return sendSuccess(c, {
         noteId,
@@ -197,19 +167,7 @@ export class AiController {
         message: responseMessage,
       }, 201);
     } catch (err) {
-      if (err instanceof AiProviderError) {
-        await Promise.all([
-          (aiSessionService as AiSessionService).markSessionProviderError(sessionId, err.message),
-          usageService.decrementIngestion(agentId),
-        ]);
-      } else if (err instanceof AiInvokedError) {
-        await (aiSessionService as AiSessionService).markSessionFailed(sessionId, err.message);
-      } else {
-        await Promise.all([
-          (aiSessionService as AiSessionService).deleteSession(sessionId),
-          usageService.decrementIngestion(agentId),
-        ]);
-      }
+      await compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId);
       throw err;
     }
   }
@@ -217,15 +175,17 @@ export class AiController {
   static async ingestText(c: Context) {
     const agentId: string = c.get("agent_id");
     const usageService = c.get("usage_service") as UsageService;
-    await usageService.checkAndIncrementIngestion(agentId);
 
     const body = await c.req.json();
-    const parsed = AiIngestTextSchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
+    const { content, sourceType, contactId, policyId, reminderId, makeGeneral, isClientNote } = AiIngestTextSchema.parse(body);
+
+    // Solo las notas rápidas de cliente (isClientNote) se libran de la cuota
+    // cuando el texto es corto (ver QUICK_NOTE_MAX_LENGTH) — el pegado de
+    // texto general en Feed siempre consume cuota, sin importar el tamaño.
+    const chargedIngestion = !(isClientNote && content.length <= QUICK_NOTE_MAX_LENGTH);
+    if (chargedIngestion) {
+      await usageService.checkAndIncrementIngestion(agentId);
     }
-    const { content, sourceType, contactId, policyId, makeGeneral } = parsed.data;
 
     const advisorLocale = c.req.header('Accept-Language')?.split(',')[0]?.split(';')[0]?.trim() ?? 'es';
 
@@ -233,10 +193,11 @@ export class AiController {
     const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
       triggerMessage: "text_ingestion",
       sessionType: "knowledge_ingestion",
+      modelName: AI_MODEL,
     });
     try {
       const { noteId, responseMessage } = await knowledgeIngestionService.ingestText(agentId, sessionId, {
-        content, sourceType, contactId, policyId, makeGeneral, advisorLocale,
+        content, sourceType, contactId, policyId, reminderId, makeGeneral, advisorLocale,
       });
       return sendSuccess(c, {
         noteId,
@@ -244,19 +205,7 @@ export class AiController {
         message: responseMessage,
       }, 201);
     } catch (err) {
-      if (err instanceof AiProviderError) {
-        await Promise.all([
-          (aiSessionService as AiSessionService).markSessionProviderError(sessionId, err.message),
-          usageService.decrementIngestion(agentId),
-        ]);
-      } else if (err instanceof AiInvokedError) {
-        await (aiSessionService as AiSessionService).markSessionFailed(sessionId, err.message);
-      } else {
-        await Promise.all([
-          (aiSessionService as AiSessionService).deleteSession(sessionId),
-          usageService.decrementIngestion(agentId),
-        ]);
-      }
+      await compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId, chargedIngestion);
       throw err;
     }
   }
@@ -265,13 +214,9 @@ export class AiController {
     const agentId: string = c.get("agent_id");
     const body = await c.req.json();
 
-    const parsed = ConfirmPolicySchema.safeParse(body);
-    if (!parsed.success) {
-      const issues = parsed.error.issues.map((i: ZodIssue) => `${i.path.join(".")}: ${i.message}`).join("; ");
-      throw new AppError(`Datos inválidos: ${issues}`, 400);
-    }
+    const parsed = ConfirmPolicySchema.parse(body);
 
-    const result = await c.get("services").confirmPolicyService.confirm(agentId, parsed.data);
+    const result = await c.get("services").confirmPolicyService.confirm(agentId, parsed);
     return sendSuccess(c, result);
   }
 

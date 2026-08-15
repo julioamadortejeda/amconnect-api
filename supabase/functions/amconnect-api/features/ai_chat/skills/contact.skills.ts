@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { SkillDefinition } from "./skill.core.ts";
+import { assertHasChanges, SkillDefinition } from "./skill.core.ts";
 import { ContactResponseDTO } from "../../../modules/contact/contact.dto.ts";
-import { appendNote } from "../../../shared/utils.ts";
+import { QUICK_NOTE_MAX_LENGTH } from "../../document_processing/knowledge_ingestion.service.ts";
 
 const slimContact = (c: ContactResponseDTO) => ({
   id: c.id,
@@ -13,7 +13,6 @@ const slimContact = (c: ContactResponseDTO) => ({
   address: c.address,
   rfc: c.rfc,
   curp: c.curp,
-  notes: c.notes,
 });
 
 export const contactSkills: SkillDefinition[] = [
@@ -29,21 +28,49 @@ export const contactSkills: SkillDefinition[] = [
     },
     async execute({ query }, ctx) {
       const results = await ctx.contactService.findSimilarContact(ctx.agentId, query as string);
-      return (results ?? []).map(slimContact);
+      const slim = (results ?? []).map(slimContact);
+      return {
+        contacts: slim,
+        // NO agregar aquí una instrucción para el modelo. Se intentó el
+        // 2026-08-13 (para que no llamara get_contact sobre gente que esta
+        // respuesta ya trae completa) y no cambió nada, pero sí se quedaba en
+        // el historial de la sesión: en voz Live el contexto se recobra en
+        // cada turno, así que el texto muerto se paga una y otra vez.
+        __skillMetadata: {
+          type: "contact_list",
+          contacts: slim,
+        },
+      };
     },
   },
   {
     domain: "contact",
     declaration: {
       name: "get_contact",
-      description: "Retrieves the complete data of a contact by their ID.",
+      // Corta a propósito: la descripción viaja en el esquema de tools de cada
+      // petición. La versión larga que explicaba cuándo no usarla (2026-08-13)
+      // no cambió el comportamiento del modelo y costaba ~100 tokens por turno.
+      description:
+        "Retrieves a contact's data by their UUID. Prefer search_contact when you have a name.",
       schema: z.object({
         contact_id: z.string({ required_error: "The contact UUID is required" })
           .describe("UUID of the contact"),
       }),
     },
     async execute({ contact_id }, ctx) {
-      return await ctx.contactService.getById(contact_id as string);
+      const contact = await ctx.contactService.getById(contact_id as string);
+      if (!contact) return null;
+      return {
+        ...contact,
+        __skillMetadata: {
+          type: "contact_info",
+          contactId: contact.id,
+          fullName: contact.fullName,
+          email: contact.email,
+          phone: contact.phone,
+          isProspect: contact.isProspect,
+        },
+      };
     },
   },
   {
@@ -66,7 +93,7 @@ export const contactSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
-      return await ctx.contactService.create({
+      const contact = await ctx.contactService.create({
         agentId: ctx.agentId,
         fullName: (args.full_name ?? args.name) as string,
         email: args.email as string ?? null,
@@ -76,9 +103,33 @@ export const contactSkills: SkillDefinition[] = [
         curp: args.curp as string ?? null,
         address: args.address as string ?? null,
         occupation: args.occupation as string ?? null,
-        notes: args.notes as string ?? null,
         isProspect: args.is_prospect as boolean ?? false,
       });
+      if (!contact) return null;
+      if (args.notes) {
+        // Cuota de ingesta solo se descuenta si el texto necesita el resumen
+        // de IA (ver QUICK_NOTE_MAX_LENGTH) — una nota corta siempre se
+        // trackea (tokens de embedding), pero no consume créditos del plan.
+        if ((args.notes as string).length > QUICK_NOTE_MAX_LENGTH) {
+          await ctx.usageService.checkAndIncrementIngestion(ctx.agentId);
+        }
+        await ctx.knowledgeIngestionService.ingestText(ctx.agentId, ctx.sessionId, {
+          content: args.notes as string,
+          sourceType: "text",
+          contactId: contact.id,
+        });
+      }
+      return {
+        ...contact,
+        __skillMetadata: {
+          type: "contact_created",
+          contactId: contact.id,
+          fullName: contact.fullName,
+          email: contact.email,
+          phone: contact.phone,
+          isProspect: contact.isProspect,
+        },
+      };
     },
   },
   {
@@ -90,7 +141,14 @@ export const contactSkills: SkillDefinition[] = [
     },
     async execute(_args, ctx) {
       const contacts = await ctx.contactService.getByField("agent_id", ctx.agentId);
-      return (contacts ?? []).map(slimContact);
+      const slim = (contacts ?? []).map(slimContact);
+      return {
+        contacts: slim,
+        __skillMetadata: {
+          type: "contact_list",
+          contacts: slim,
+        },
+      };
     },
   },
   {
@@ -109,7 +167,7 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "update_contact",
-      description: "Updates data of an existing contact. Use search_contact first to obtain the contact_id if unknown.",
+      description: "Updates data of an existing contact. Use search_contact first to obtain the contact_id if unknown. Does NOT handle notes — use add_note_to_client for that.",
       schema: z.object({
         contact_id: z.string({ required_error: "The UUID of the contact to update is required. Use search_contact first if unknown." })
           .describe("UUID of the contact to update"),
@@ -121,17 +179,10 @@ export const contactSkills: SkillDefinition[] = [
         curp: z.string().optional(),
         address: z.string().optional(),
         occupation: z.string().optional(),
-        notes: z.string().optional(),
       }),
     },
     async execute(args, ctx) {
-      let finalNotes: string | undefined;
-      if (args.notes) {
-        const existing = await ctx.contactService.getById(args.contact_id as string);
-        finalNotes = appendNote(existing?.notes, args.notes as string);
-      }
-
-      return await ctx.contactService.update(args.contact_id as string, {
+      const changes = {
         fullName: (args.full_name ?? args.name) as string | undefined,
         email: args.email as string | undefined,
         phone: args.phone as string | undefined,
@@ -140,8 +191,22 @@ export const contactSkills: SkillDefinition[] = [
         curp: args.curp as string | undefined,
         address: args.address as string | undefined,
         occupation: args.occupation as string | undefined,
-        notes: finalNotes,
-      });
+      };
+      assertHasChanges(changes);
+      const updated = await ctx.contactService.update(args.contact_id as string, changes);
+
+      if (!updated) return null;
+      return {
+        ...updated,
+        __skillMetadata: {
+          type: "contact_info",
+          contactId: updated.id,
+          fullName: updated.fullName,
+          email: updated.email,
+          phone: updated.phone,
+          isProspect: updated.isProspect,
+        },
+      };
     },
   },
   {
@@ -158,7 +223,7 @@ export const contactSkills: SkillDefinition[] = [
     async execute({ query, contact_id }, ctx) {
       return await ctx.ragService.searchNotes(ctx.agentId, query as string, {
         contactId: contact_id as string | undefined,
-        threshold: 0.5,
+        threshold: 0.65,
       });
     },
   },
@@ -181,7 +246,7 @@ export const contactSkills: SkillDefinition[] = [
     domain: "contact",
     declaration: {
       name: "add_note_to_client",
-      description: "Adds (concatenates) a note to a client's profile directly by their name. Use when the user asks to add comments, notes, or observations to a client mentioning their proper name (e.g., 'add a note to Karina Torres saying...'). This consolidates contact search and update into a single step and saves tokens.",
+      description: "Adds a dated note to a client's profile by their name. Use when the user asks to add comments, notes, or observations to a client mentioning their proper name (e.g., 'add a note to Karina Torres saying...'). This consolidates contact search and note creation into a single step and saves tokens.",
       schema: z.object({
         client_name: z.string({ required_error: "Name of the client to search for (e.g., 'Karina', 'Juan')" }).describe("Name of the client"),
         note_content: z.string({ required_error: "Content of the note to add" }).describe("Content of the note"),
@@ -200,17 +265,15 @@ export const contactSkills: SkillDefinition[] = [
       }
 
       const contact = contacts[0];
-      const currentNotes = contact.notes;
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, "0");
-      const day = String(now.getDate()).padStart(2, "0");
-      const todayStr = `${day}/${month}/${year}`;
-      const newNoteEntry = `[${todayStr}]: ${note_content}`;
-      const finalNotes = currentNotes ? `${currentNotes}\n${newNoteEntry}` : newNoteEntry;
-
-      const updated = await ctx.contactService.update(contact.id, { notes: finalNotes });
-      return updated ? { success: true, message: `Note added successfully to ${updated.fullName}.` } : { success: false, error: "Could not update contact." };
+      if ((note_content as string).length > QUICK_NOTE_MAX_LENGTH) {
+        await ctx.usageService.checkAndIncrementIngestion(ctx.agentId);
+      }
+      await ctx.knowledgeIngestionService.ingestText(ctx.agentId, ctx.sessionId, {
+        content: note_content as string,
+        sourceType: "text",
+        contactId: contact.id,
+      });
+      return { success: true, message: `Note added successfully to ${contact.fullName}.` };
     },
   },
 ];

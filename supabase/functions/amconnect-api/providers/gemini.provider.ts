@@ -1,260 +1,80 @@
-import { GoogleGenAI } from "@google/genai";
-import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
 import {
-  AiFunctionCall,
-  AiGenerationResult,
-  AiInlineData,
-  AiMessage,
-  IAiProvider,
-  TokenUsage,
-} from "../core/ai_provider.interface.ts";
-import { AiError, AiProviderError } from "../shared/errors.ts";
+  GoogleGenAI,
+  Modality,
+  StartSensitivity,
+  EndSensitivity,
+  type ToolListUnion,
+} from "@google/genai";
+import { GoogleGenAiProvider } from "./google_genai.provider.ts";
 import { PromptService } from "../modules/prompt/prompt.service.ts";
 
-function wrapGeminiError(e: unknown, context: string): never {
-  // deno-lint-ignore no-explicit-any
-  const err = e as any;
-  const status: number | undefined = err?.status ?? err?.statusCode ?? err?.httpStatus;
-  const message: string = err?.message ?? String(e);
-
-  if (status === 429 || status === 503 || status === 500) {
-    throw new AiProviderError(
-      `El servicio de IA no está disponible en este momento (${status}). Intenta de nuevo en unos segundos.`,
-    );
-  }
-  throw new AiError(`Error en ${context}: ${message}`);
-}
-
-export class GeminiProvider implements IAiProvider {
-  private ai: GoogleGenAI;
-  model: string;
-  constructor(apiKey: string, model: string, private promptService?: PromptService) {
-    this.ai = new GoogleGenAI({ apiKey });
-    this.model = model;
+export class GeminiProvider extends GoogleGenAiProvider {
+  constructor(apiKey: string, model: string, promptService?: PromptService) {
+    super(new GoogleGenAI({ apiKey }), model, promptService, apiKey);
   }
 
-  async processUserRequest(
-    history: AiMessage[],
+  override async createEphemeralToken(
+    model: string,
+    systemInstruction: string,
     tools: Record<string, unknown>[],
-    systemInstruction?: string,
-  ): Promise<AiGenerationResult> {
+  ): Promise<{ token: string; url: string; headers: Record<string, string> | null; expireTime: string; model: string }> {
+    const now = Date.now();
+    const expireTime = new Date(now + 10 * 60 * 1000).toISOString();
+    const newSessionExpireTime = new Date(now + 60 * 1000).toISOString();
+
+    // Map tools from snake_case REST shape to camelCase expected by GoogleGenAI SDK
     // deno-lint-ignore no-explicit-any
-    let response: any;
-    try {
-      response = await this.ai.models.generateContent({
-        model: this.model,
-        contents: history as never,
-        config: { tools: tools as never, systemInstruction },
-      });
-    } catch (e) {
-      wrapGeminiError(e, "processUserRequest");
-    }
+    const sdkTools: ToolListUnion = tools.map((t: any) => ({
+      functionDeclarations: t.function_declarations,
+    }));
 
-    const candidate = response.candidates?.[0];
-    if (!candidate?.content?.parts) {
-      throw new AiError("El modelo no devolvió respuesta válida.");
-    }
-
-    const parts = candidate.content.parts;
-    const text = parts.find((p: never) => (p as { text?: string }).text)?.text;
-    const functionCalls: AiFunctionCall[] = parts
-      // deno-lint-ignore no-explicit-any
-      .filter((p: any) => p.functionCall)
-      // deno-lint-ignore no-explicit-any
-      .map((p: any) => ({ name: p.functionCall.name, args: p.functionCall.args ?? {} }));
-
-    return {
-      text,
-      functionCalls: functionCalls.length > 0 ? functionCalls : undefined,
-      rawModelParts: parts,
-      usage: response.usageMetadata
-        ? {
-          promptTokens: response.usageMetadata.promptTokenCount ?? 0,
-          completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
-          totalTokens: response.usageMetadata.totalTokenCount ?? 0,
-          cachedTokens: response.usageMetadata.cachedContentTokenCount ?? 0,
-        }
-        : undefined,
-    };
-  }
-
-  async processInteraction(
-    messageOrSteps: string | Record<string, unknown>[],
-    tools: Record<string, unknown>[],
-    systemInstruction?: string,
-    previousInteractionId?: string,
-  ): Promise<AiGenerationResult & { interactionId?: string }> {
-    // deno-lint-ignore no-explicit-any
-    let response: any;
-    try {
-      const isSteps = Array.isArray(messageOrSteps);
-      // Mapear tools para el formato de Interactions API (Vertex AI / new GenAI SDK)
-      // Cada tool para interactions.create debe ser un objeto plano con {"type": "function", "name": "...", "description": "...", "parameters": {...}}
-      // deno-lint-ignore no-explicit-any
-      const mappedTools: any[] = [];
-      if (tools) {
-        for (const t of tools as any[]) {
-          const declarations = t?.functionDeclarations || t?.function_declarations;
-          if (declarations && Array.isArray(declarations)) {
-            for (const fd of declarations) {
-              mappedTools.push({
-                type: "function",
-                name: fd.name,
-                description: fd.description,
-                parameters: fd.parameters,
-              });
-            }
-          } else {
-            mappedTools.push(t);
-          }
-        }
-      }
-
-      // deno-lint-ignore no-explicit-any
-      const params: any = {
-        model: this.model,
-        tools: mappedTools as never,
-        system_instruction: systemInstruction,
-        previous_interaction_id: previousInteractionId,
-        input: messageOrSteps as any,
-      };
-      response = await this.ai.interactions.create(params);
-    } catch (e) {
-      wrapGeminiError(e, "processInteraction");
-    }
-
-
-
-    const steps = response.steps || [];
-    const text = response.output_text || undefined;
-    const functionCalls: AiFunctionCall[] = [];
-    // deno-lint-ignore no-explicit-any
-    const rawModelParts: any[] = [];
-
-    for (const step of steps) {
-      if (step.type === "text") {
-        rawModelParts.push({ text: step.text });
-      } else if (step.type === "function_call") {
-        functionCalls.push({
-          name: step.name,
-          args: step.arguments || {},
-        });
-        rawModelParts.push({
-          functionCall: {
-            id: step.id,
-            name: step.name,
-            args: step.arguments || {},
+    const authToken = await this.ai.authTokens.create({
+      config: {
+        uses: 1,
+        expireTime,
+        newSessionExpireTime,
+        liveConnectConstraints: {
+          model: `models/${model}`,
+          config: {
+            responseModalities: [Modality.AUDIO],
+            // Fija la voz aquí, NO en el `setup` que manda el cliente:
+            // liveConnectConstraints.config bloquea toda la LiveConnectConfig
+            // de la sesión — cualquier config que el cliente mande en su
+            // propio `setup` (incluyendo speechConfig) se ignora en silencio
+            // una vez que esto está seteado. Sin esta línea, Gemini elegía
+            // una voz distinta en cada sesión nueva.
+            speechConfig: {
+              voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } },
+            },
+            systemInstruction: { parts: [{ text: systemInstruction }] },
+            tools: sdkTools,
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
+            realtimeInputConfig: {
+              automaticActivityDetection: {
+                startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+                endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
+                prefixPaddingMs: 200,
+                silenceDurationMs: 500,
+              },
+            },
           },
-        });
-      }
+        },
+        httpOptions: { apiVersion: "v1alpha" },
+      },
+    });
+
+    if (!authToken.name) {
+      throw new Error("Gemini no devolvió un token efímero.");
     }
 
+    const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${authToken.name}`;
     return {
-      text,
-      functionCalls: functionCalls.length > 0 ? functionCalls : undefined,
-      rawModelParts: rawModelParts.length > 0 ? rawModelParts : undefined,
-      interactionId: response.id,
-      usage: response.usage
-        ? {
-          promptTokens: response.usage.total_input_tokens ?? 0,
-          completionTokens: response.usage.total_output_tokens ?? 0,
-          totalTokens: response.usage.total_tokens ?? 0,
-          cachedTokens: response.usage.total_cached_tokens ?? 0,
-        }
-        : undefined,
-    };
-  }
-
-  async generateStructuredData<T>(
-    prompt: string,
-    schema: z.ZodType<T>,
-    inlineData?: AiInlineData,
-  ): Promise<{ data: T; usage?: TokenUsage }> {
-    const jsonSchema = zodToJsonSchema(schema, { target: "openApi3" });
-    // deno-lint-ignore no-explicit-any
-    const parts: any[] = [{ text: prompt }];
-    if (inlineData) {
-      parts.push({ inlineData: { mimeType: inlineData.mimeType, data: inlineData.data } });
-    }
-
-    // deno-lint-ignore no-explicit-any
-    let response: any;
-    try {
-      response = await this.ai.models.generateContent({
-        model: this.model,
-        contents: [{ role: "user", parts }],
-        config: { responseMimeType: "application/json", responseSchema: jsonSchema as never },
-      });
-    } catch (e) {
-      wrapGeminiError(e, "generateStructuredData");
-    }
-
-    const text = response.text ?? "{}";
-    const parsed = JSON.parse(text);
-
-    return {
-      data: schema.parse(parsed),
-      usage: response.usageMetadata
-        ? {
-          promptTokens: response.usageMetadata.promptTokenCount ?? 0,
-          completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
-          totalTokens: response.usageMetadata.totalTokenCount ?? 0,
-          cachedTokens: response.usageMetadata.cachedContentTokenCount ?? 0,
-        }
-        : undefined,
-    };
-  }
-
-  async classifyMessage(
-    message: string,
-    availableDomains: string[],
-  ): Promise<{ domains: string[]; usage?: TokenUsage }> {
-    let promptTemplate: string;
-    if (this.promptService) {
-      promptTemplate = await this.promptService.getPrompt("message_classifier_system");
-    } else {
-      promptTemplate = `Classify the following message from an insurance advisor in Mexico into one or more of these domains:
-- contact: Information about clients, prospects, or personal contacts. Searching for phones, emails, CURP, RFC, addresses, birthdays, etc.
-- policy: Information about insurance policies, policy numbers, coverages, sum insured, beneficiaries, participants.
-- reminder: Tasks, events, reminders, appointments, calls, follow-up dates, pending work.
-- catalog: System catalogs such as insurance carriers, branches, and products. Creation of new companies or branches.
-- knowledge: Search for general information in free notes, audio transcripts, WhatsApp, or files uploaded by the advisor.
-
-Available domains to classify: {availableDomains}
-
-Respond ONLY with a JSON format: { "domains": ["domain1", "domain2"] }
-
-Advisor message: "{message}"`;
-    }
-
-    const prompt = promptTemplate
-      .replace("{availableDomains}", availableDomains.join(", "))
-      .replace("{message}", message);
-
-    // deno-lint-ignore no-explicit-any
-    let response: any;
-    try {
-      response = await this.ai.models.generateContent({
-        model: this.model,
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        config: { responseMimeType: "application/json" },
-      });
-    } catch (e) {
-      wrapGeminiError(e, "classifyMessage");
-    }
-
-    const parsed = JSON.parse(response.text ?? "{}");
-    return {
-      domains: parsed.domains ?? [],
-      usage: response.usageMetadata
-        ? {
-          promptTokens: response.usageMetadata.promptTokenCount ?? 0,
-          completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
-          totalTokens: response.usageMetadata.totalTokenCount ?? 0,
-          cachedTokens: response.usageMetadata.cachedContentTokenCount ?? 0,
-        }
-        : undefined,
+      token: authToken.name,
+      url,
+      headers: null,
+      expireTime,
+      model: `models/${model}`,
     };
   }
 }

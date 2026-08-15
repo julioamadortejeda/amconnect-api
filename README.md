@@ -151,6 +151,8 @@ supabase migration up
 - Catálogo pequeño/global → skill `get_<tipo>` que devuelve todos los registros (~7-20)
 - Catálogo grande o por agente → skill `search_<tipo>(query)` con búsqueda pg_trgm
 
+**Notas rápidas del asesor (contactos):** viven en `agent_notes` (mismo pipeline que la ingesta de documentos/texto), no en una tabla aparte — evita que el asesor perciba dos conceptos de "notas" distintos y las hace buscables por RAG. La skill `add_note_to_client` (y el `notes` opcional de `create_contact`) llaman a `KnowledgeIngestionService.ingestText`/`ingestRawContent`. Ahí, si `content.length <= 300` caracteres (`QUICK_NOTE_MAX_LENGTH` en `knowledge_ingestion.service.ts`), se salta la llamada de IA que genera `summary`/`responseMessage` — el texto ya es lo bastante corto para no necesitar resumen, se embebe directo (un solo chunk, sin costo/latencia extra de generación de texto).
+
 **Convenciones SQL:**
 - Funciones standalone sin prefijo: `search_contacts`
 - Triggers: `tg_agents_after_insert`
@@ -213,4 +215,35 @@ Históricamente, la aplicación utilizaba un flujo donde Supabase actuaba como u
   3. El cliente abre el WebSocket bidireccional **directamente** con Gemini Live API usando dicho token efímero.
   4. Cuando Gemini solicita ejecutar una herramienta, el cliente intercepta la petición y llama a la Edge Function de Supabase vía HTTP estándar (`POST /ai/voice/execute-tool`).
   5. Al concluir cada ronda o terminar la sesión, el cliente reporta las transcripciones y los metadatos de uso a Supabase con `POST /ai/voice/save-round` para guardar el historial y aplicar controles de cuota.
+
+---
+
+## Transportes de voz (DOS caminos, ambos vivos e intencionales)
+
+> Nota: el flujo WS-proxy descrito arriba como "Legacy" **sigue implementado y registrado** (`GET /ai/voice`). No es código muerto: convive con el flujo de token efímero. Los dos transportes se mantienen a propósito.
+
+El backend soporta dos maneras de transportar el audio de la sesión de voz Live. Ambas ejecutan las MISMAS skills y persisten el MISMO historial/tokens; solo cambia **dónde vive el WebSocket** hacia Gemini:
+
+| | WS-proxy (backend) | REST cliente-directo (token efímero) |
+|---|---|---|
+| **Entrada** | `VoiceChatService.startSession` | `initSession` / `executeTool` / `saveRound` |
+| **Endpoint(s)** | `GET /ai/voice` (Upgrade WS) | `POST /ai/voice/token`, `/init`, `/init-session`, `/execute-tool`, `/save-round` |
+| **Dónde vive el WS a Gemini** | En el **backend** (Edge Function hace de proxy bidireccional) | En el **cliente** (Flutter abre el WS directo a Gemini con el token efímero) |
+| **Rol del backend** | Proxy de audio + ejecuta tools + guarda la sesión en el `onClose`/flush | Solo emite el token/config, ejecuta tools vía HTTP y guarda cada round |
+
+**Cuándo se usa cada uno (según el código):** el camino **REST cliente-directo** es el flujo primario/actual (evita el salto de red extra y los timeouts de la Edge Function con WebSockets largos). El **WS-proxy** permanece como camino alterno (p. ej. entornos donde el cliente no puede sostener el WS directo a Gemini o para depuración server-side del pipeline de voz).
+
+**Duplicación parcial ACEPTADA a propósito:** ambos caminos repiten parte del ensamblado de la sesión (declaración de tools vía `buildToolDeclarations`, ejecución de skills con `executeSkill`, persistencia con `AiSessionService.saveChatRound`). La voz es un flujo frágil (WebSocket bidireccional, billing acumulativo, `usageMetadata` retrasado tras `turnComplete`), por lo que **no se consolidan** los dos transportes hasta que exista una decisión de producto sobre cuál es el transporte definitivo. No refactorizar esta duplicación sin esa decisión.
+
+---
+
+## Contrato de respuesta de voz (JSON crudo, SIN envelope estándar)
+
+A diferencia del resto de la API —que responde con el envelope `{ success, data }` de `sendSuccess`— **`voice_chat.controller` responde JSON CRUDO** (el `token`/`config`/`result` directo, sin envolver). Es **intencional**: Flutter consume ese shape tal cual para abrir el WebSocket directo a Gemini (`token`, `url`, `expireTime`, `model`, `aiBackend`) y para el ciclo `execute-tool` / `save-round`.
+
+Casos concretos:
+- `POST /ai/voice/token`, `/init`, `/init-session` → devuelven el objeto de config/token directo (`c.json(config)`), no `{ success, data }`.
+- `POST /ai/voice/execute-tool` → cuando la cuota está agotada devuelve **`{ quotaExceeded: true, message }` con HTTP 200 deliberado** (no un status de error), para que Flutter lea el mensaje, lo muestre y cierre la sesión de voz sin reenviar un resultado a Gemini.
+
+**No convertir estas respuestas a `sendSuccess` sin un cambio coordinado backend ↔ app** (rompería el parseo del cliente de voz). Las respuestas de **error** de estos endpoints sí siguen el contrato estándar: lanzan `AppError` y las formatea `globalErrorHandler` (`{ success:false, error, errorCode, errorId }`).
 

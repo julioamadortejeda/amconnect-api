@@ -3,6 +3,7 @@ import { ReminderRequestDTO, ReminderResponseDTO } from "./reminder.dto.ts";
 import { ReminderRepository } from "./reminder.repository.ts";
 import { objectToCamelCaseDeep, stripUndefined } from "../../shared/case_converter.ts";
 import { AppError } from "../../shared/errors.ts";
+import { daysFromNowRange } from "../../shared/utils.ts";
 
 export class ReminderService extends BaseService<ReminderRequestDTO, ReminderResponseDTO> {
   private reminderRepo: ReminderRepository;
@@ -127,7 +128,15 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     if (data.typeId !== undefined) updatePayload.type_id = data.typeId;
     if (data.title !== undefined) updatePayload.title = data.title;
     if (data.description !== undefined) updatePayload.description = data.description;
-    if (data.dueDate !== undefined) updatePayload.due_date = data.dueDate;
+    if (data.dueDate !== undefined) {
+      updatePayload.due_date = data.dueDate;
+      // Reagendar debe volver a hacer al recordatorio elegible para el cron
+      // de notificaciones — si no, notified_at sigue seteado de la fecha
+      // vieja y findDueUnnotified() lo excluye para siempre.
+      if (new Date(data.dueDate).getTime() !== new Date(existing.dueDate).getTime()) {
+        updatePayload.notified_at = null;
+      }
+    }
 
     if (Object.keys(updatePayload).length > 0) {
       // deno-lint-ignore no-explicit-any
@@ -150,9 +159,10 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     return row ? this.toDTO(row) : null;
   }
 
-  async getUpcoming(agentId: string, days = 7): Promise<ReminderResponseDTO[] | null> {
-    const from = new Date().toISOString();
-    const to = new Date(Date.now() + days * 86400000).toISOString();
+  async getUpcoming(agentId: string, fromDate?: string, toDate?: string): Promise<ReminderResponseDTO[] | null> {
+    const defaultRange = daysFromNowRange(7);
+    const from = fromDate ?? defaultRange.from;
+    const to = toDate ?? defaultRange.to;
 
     const { data: excludedStatuses } = await this.reminderRepo.client
       .from("reminder_statuses")
@@ -161,15 +171,8 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
 
     const excludedIds = excludedStatuses ? excludedStatuses.map((s) => s.id) : [];
 
-    const items = await this.repository.findByFilters({ agent_id: agentId });
-    if (!items) return null;
-
-    return items
-      .map((r) => this.toDTO(r))
-      .filter((r) => {
-        const isNotExcluded = !excludedIds.includes(r.statusId);
-        return isNotExcluded && r.dueDate >= from && r.dueDate <= to;
-      });
+    const items = await this.reminderRepo.getUpcomingReminders(agentId, from, to, excludedIds);
+    return items ? items.map((r) => this.toDTO(r)) : null;
   }
 
   async searchReminders(agentId: string, queryText: string, statusCode?: string): Promise<ReminderResponseDTO[] | null> {

@@ -1,5 +1,5 @@
-import type { IUsageRepository } from "./usage.repository.ts";
-import { AppError, QuotaExceededError } from "../../shared/errors.ts";
+import type { IUsageRepository, TokenUsageParams } from "./usage.repository.ts";
+import { AppError, QuotaExceededError, internalError } from "../../shared/errors.ts";
 
 export interface MonthlyUsage {
   chatCount: number;
@@ -27,7 +27,7 @@ export class UsageService {
           "Alcanzaste el límite de mensajes de chat este mes. Actualiza tu plan para continuar.",
         );
       }
-      throw new AppError(`Error al verificar cuota de chat: ${error.message}`, 500);
+      throw internalError("No se pudo verificar tu cuota de mensajes.", `chat quota check failed: ${error.message}`);
     }
   }
 
@@ -51,7 +51,7 @@ export class UsageService {
           "Alcanzaste el límite de ingestas este mes. Actualiza tu plan para continuar.",
         );
       }
-      throw new AppError(`Error al verificar cuota de ingesta: ${error.message}`, 500);
+      throw internalError("No se pudo verificar tu cuota de ingestas.", `ingestion quota check failed: ${error.message}`);
     }
   }
 
@@ -61,5 +61,9 @@ export class UsageService {
 
   async decrementIngestion(agentId: string): Promise<void> {
     await this.repository.decrementUsage(agentId, "ingestion");
+  }
+
+  async logTokenUsage(params: TokenUsageParams): Promise<void> {
+    await this.repository.logTokenUsage(params);
   }
 }

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Recupera tu acceso a AmConnect</title>
+  <style>
+    @media screen and (max-width: 480px) {
+      .email-container {
+        padding: 20px 8px !important;
+      }
+      .card {
+        padding: 24px 16px !important;
+        border-radius: 16px !important;
+      }
+      .token-text {
+        font-size: 26px !important;
+        letter-spacing: 4px !important;
+      }
+      .title-text {
+        font-size: 18px !important;
+      }
+      .desc-text {
+        font-size: 13.5px !important;
+      }
+    }
+  </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased;">
+  <table width="100%" cellpadding="0" cellspacing="0" class="email-container" style="padding: 40px 16px; background-color: #f8fafc;">
+    <tr>
+      <td align="center">
+        <!-- Contenedor Principal (Card) -->
+        <table width="100%" cellpadding="0" cellspacing="0" class="card" style="max-width: 440px; background: #ffffff; border-radius: 20px; padding: 36px; border: 1px solid #e2e8f0; box-shadow: 0 10px 25px -5px rgba(0, 122, 192, 0.08), 0 8px 16px -6px rgba(0, 122, 192, 0.04);">
+          <!-- Logo & Brand Header -->
+          <tr>
+            <td align="center" style="padding-bottom: 24px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td width="44" style="vertical-align: middle; text-align: left;">
+                    <img src="https://sapxmghrgppmnutmyyjk.supabase.co/storage/v1/object/public/public_files/logo_t.png" width="44" height="44" style="display: block; border: 0; outline: none; border-radius: 8px;" alt="AmConnect Logo">
+                  </td>
+                  <td style="vertical-align: top; padding-top: 5px; font-size: 22px; font-weight: 700; color: #0f172a; text-align: center; letter-spacing: -0.6px; font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif;">
+                    AmConnect
+                  </td>
+                  <td width="44" style="vertical-align: middle;">
+                    &nbsp;
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Título -->
+          <tr>
+            <td align="center" style="padding-bottom: 12px;">
+              <h2 class="title-text" style="margin: 0; color: #0f172a; font-size: 20px; font-weight: 700; letter-spacing: -0.3px;">
+                Restablecer contraseña
+              </h2>
+            </td>
+          </tr>
+          
+          <!-- Descripción -->
+          <tr>
+            <td align="center" style="padding-bottom: 24px;">
+              <p class="desc-text" style="margin: 0; color: #475569; font-size: 14.5px; line-height: 1.5; font-weight: 400;">
+                Usa el siguiente código de seguridad en la aplicación para configurar una nueva contraseña de acceso.
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Caja del Token -->
+          <tr>
+            <td align="center" style="padding-bottom: 24px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background: #f0f9ff; border: 1px solid #e0f2fe; border-radius: 14px; padding: 18px 20px;">
+                <tr>
+                  <td align="center" style="color: #0284c7; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.5px; padding-bottom: 8px; font-family: Arial, sans-serif;">
+                    Código de verificación
+                  </td>
+                </tr>
+                <tr>
+                  <td align="center" class="token-text" style="color: #007AC0; font-size: 30px; font-weight: 800; letter-spacing: 6px; font-family: 'Courier New', Courier, monospace; word-break: break-all;">
+                    {{ .Token }}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Tiempo de expiración -->
+          <tr>
+            <td align="center" style="padding-bottom: 24px;">
+              <span style="display: inline-block; background: #f1f5f9; color: #64748b; font-size: 12px; font-weight: 500; padding: 6px 12px; border-radius: 20px;">
+                ⏱ Expira en 1 hora
+              </span>
+            </td>
+          </tr>
+
+          <!-- Separador -->
+          <tr>
+            <td>
+              <hr style="border: 0; border-top: 1px solid #f1f5f9; margin: 0 0 20px 0;">
+            </td>
+          </tr>
+          
+          <!-- Nota de seguridad -->
+          <tr>
+            <td align="center">
+              <p style="margin: 0; color: #94a3b8; font-size: 11.5px; line-height: 1.5;">
+                Si tú no solicitaste este cambio, puedes ignorar este correo de forma segura. Tu contraseña actual seguirá siendo válida.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

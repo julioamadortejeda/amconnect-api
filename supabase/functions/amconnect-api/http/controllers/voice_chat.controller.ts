@@ -2,6 +2,8 @@ import { Context } from "hono";
 import { AppError } from "../../shared/errors.ts";
 import { VoiceChatService } from "../../features/ai_chat/voice_chat.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
+import { resolveTimezone } from "../../shared/datetime.ts";
+import { AI_BACKEND_NAME } from "../../shared/config.ts";
 
 export class VoiceChatController {
   static async connect(c: Context): Promise<Response> {
@@ -10,7 +12,7 @@ export class VoiceChatController {
     }
 
     const agentId = c.get("agent_id") as string;
-    const timezone = c.req.header("x-timezone") ?? "America/Mexico_City";
+    const timezone = resolveTimezone(c.req.header("x-timezone"), c.req.header("x-timezone-offset"));
     const resumeSessionId = c.req.header("sessionId") ?? undefined;
 
     // Quota check before upgrading — returns HTTP error if limit exceeded
@@ -24,7 +26,7 @@ export class VoiceChatController {
     // Keep the V8 isolate alive in Supabase Edge Runtime until the WebSocket closes or errors
     const socketClosedPromise = new Promise<void>((resolve) => {
       socket.addEventListener("close", (evt) => {
-        console.log(`[VOICE] client socket closed: code=${evt.code} reason="${evt.reason}"`);
+        console.warn(`[VOICE] client socket closed: code=${evt.code} reason="${evt.reason}"`);
         resolve();
       });
       socket.addEventListener("error", (err) => {
@@ -34,7 +36,6 @@ export class VoiceChatController {
     });
     // @ts-ignore: EdgeRuntime is a global variable provided by Supabase Edge Runtime
     if (typeof EdgeRuntime !== "undefined") {
-      console.log("[VOICE] EdgeRuntime is defined. Calling EdgeRuntime.waitUntil.");
       // @ts-ignore
       EdgeRuntime.waitUntil(socketClosedPromise);
     } else {
@@ -64,24 +65,61 @@ export class VoiceChatController {
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
     const result = await voiceChatService.createEphemeralToken(systemInstruction, tools);
-    return c.json(result);
+    return c.json({ ...result, aiBackend: AI_BACKEND_NAME });
   }
 
   static async initSession(c: Context): Promise<Response> {
     const agentId = c.get("agent_id") as string;
     const body = await c.req.json().catch(() => ({}));
-    const timezone = body.timezone ?? c.req.header("x-timezone") ?? "America/Mexico_City";
+    const timezone = resolveTimezone(
+      body.timezone ?? c.req.header("x-timezone"),
+      body.timezoneOffset ?? c.req.header("x-timezone-offset"),
+    );
     const resumeSessionId = body.sessionId ?? c.req.header("sessionId") ?? undefined;
+    const context = body.context ?? null;
 
-    console.log(`[VOICE] initSession - body: ${JSON.stringify(body)} resumeSessionId: ${resumeSessionId}`);
+    // LFPDPPP: no volcar el body completo (puede traer datos personales de la
+    // pantalla activa); solo el id de sesión a reanudar para trazabilidad.
+    console.warn(`[VOICE] initSession — resume=${resumeSessionId ?? "none"}`);
 
     const usageService = c.get("usage_service") as UsageService;
     await usageService.checkChatQuotaOnly(agentId);
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
-    const config = await voiceChatService.initSession(agentId, timezone, resumeSessionId);
+    const config = await voiceChatService.initSession(agentId, timezone, resumeSessionId, context);
 
     return c.json(config);
+  }
+
+  static async initSessionWithToken(c: Context): Promise<Response> {
+    const agentId = c.get("agent_id") as string;
+    const body = await c.req.json().catch(() => ({}));
+    const timezone = resolveTimezone(
+      body.timezone ?? c.req.header("x-timezone"),
+      body.timezoneOffset ?? c.req.header("x-timezone-offset"),
+    );
+    const resumeSessionId = body.sessionId ?? c.req.header("sessionId") ?? undefined;
+    const context = body.context ?? null;
+
+    // LFPDPPP: no volcar el body completo; solo el id de sesión a reanudar.
+    console.warn(`[VOICE] initSessionWithToken — resume=${resumeSessionId ?? "none"}`);
+
+    const usageService = c.get("usage_service") as UsageService;
+    await usageService.checkChatQuotaOnly(agentId);
+
+    const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
+    const config = await voiceChatService.initSession(agentId, timezone, resumeSessionId, context);
+
+    const tokenData = await voiceChatService.createEphemeralToken(
+      config.systemInstruction,
+      config.tools,
+    );
+
+    return c.json({
+      ...config,
+      ...tokenData,
+      aiBackend: AI_BACKEND_NAME,
+    });
   }
 
   static async executeTool(c: Context): Promise<Response> {
@@ -102,7 +140,13 @@ export class VoiceChatController {
     }
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
-    const result = await voiceChatService.executeTool(agentId, sessionId, timezone ?? "America/Mexico_City", toolName, args);
+    const result = await voiceChatService.executeTool(
+      agentId,
+      sessionId,
+      resolveTimezone(timezone ?? c.req.header("x-timezone"), c.req.header("x-timezone-offset")),
+      toolName,
+      args,
+    );
 
     return c.json(result);
   }
@@ -110,7 +154,19 @@ export class VoiceChatController {
   static async saveRound(c: Context): Promise<Response> {
     const agentId = c.get("agent_id") as string;
     const body = await c.req.json();
-    const { sessionId, userText, modelText, promptTokens, completionTokens, totalTokens } = body;
+    const {
+      sessionId,
+      userText,
+      modelText,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      toolCalls,
+      textPromptTokens,
+      audioPromptTokens,
+      textCompletionTokens,
+      audioCompletionTokens,
+    } = body;
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
     const result = await voiceChatService.saveRound(
@@ -120,7 +176,14 @@ export class VoiceChatController {
       modelText,
       promptTokens ?? 0,
       completionTokens ?? 0,
-      totalTokens ?? 0
+      totalTokens ?? 0,
+      Array.isArray(toolCalls) ? toolCalls : [],
+      {
+        textPromptTokens: typeof textPromptTokens === "number" ? textPromptTokens : undefined,
+        audioPromptTokens: typeof audioPromptTokens === "number" ? audioPromptTokens : undefined,
+        textCompletionTokens: typeof textCompletionTokens === "number" ? textCompletionTokens : undefined,
+        audioCompletionTokens: typeof audioCompletionTokens === "number" ? audioCompletionTokens : undefined,
+      },
     );
 
     return c.json(result);

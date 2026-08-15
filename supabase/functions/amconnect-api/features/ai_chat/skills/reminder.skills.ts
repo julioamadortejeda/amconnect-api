@@ -1,15 +1,27 @@
 import { z } from "zod";
-import { SkillDefinition } from "./skill.core.ts";
+import { assertHasChanges, SkillContext, SkillDefinition } from "./skill.core.ts";
 import { ReminderResponseDTO } from "../../../modules/reminder/reminder.dto.ts";
+import { utcToLocalIso } from "../../../shared/datetime.ts";
+import { daysFromNowRange, isUuid } from "../../../shared/utils.ts";
 
-const slimReminder = (r: ReminderResponseDTO) => ({
+// Postgres devuelve timestamptz en UTC; al modelo se le entregan ya convertidos
+// al timezone del asesor para que no tenga que hacer aritmética de husos horarios.
+const slimReminder = (r: ReminderResponseDTO, ctx: SkillContext) => ({
   id: r.id,
   title: r.title,
   description: r.description,
-  dueDate: r.dueDate,
+  dueDate: utcToLocalIso(r.dueDate, ctx.timezone),
   statusId: r.statusId,
   status: r.status,
-  comments: r.comments,
+  comments: r.comments?.map((c) => ({ ...c, createdAt: utcToLocalIso(c.createdAt, ctx.timezone) })),
+  notes: r.notes?.map((n) => ({
+    id: n.id,
+    sourceType: n.source_type,
+    summary: n.summary,
+    content: n.content,
+    fileName: n.document_metadata?.file_name,
+    createdAt: utcToLocalIso(n.created_at, ctx.timezone),
+  })),
   contactId: r.contactId,
   policyId: r.policyId,
   type: r.type,
@@ -17,8 +29,8 @@ const slimReminder = (r: ReminderResponseDTO) => ({
   policy: r.policy,
 });
 
-const STATUS_UPDATE_DESC = "New status code for the reminder. Call get_reminder_statuses first to get the list of valid codes from the database before using this field.";
-const STATUS_FILTER_DESC = "Filter by status code. Call get_reminder_statuses first to get the list of valid codes from the database.";
+const STATUS_UPDATE_DESC = "New status for the reminder — its code or its UUID, both are accepted. Call get_reminder_statuses first to get the catalog.";
+const STATUS_FILTER_DESC = "Filter by status — its code or its UUID, both are accepted. Call get_reminder_statuses first to get the catalog.";
 
 export const reminderSkills: SkillDefinition[] = [
   {
@@ -36,7 +48,7 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "get_reminder_types",
-      description: "Retrieves all available reminder types (e.g., PAYMENT, RENEWAL, FOLLOW_UP, etc.) with their IDs, codes, and names. Call this tool whenever the user asks what types of reminders they can create, or when you need the type_id to create or update a reminder.",
+      description: "Retrieves all available reminder types with their IDs, codes, and names. Call this tool BEFORE create_reminder or create_reminder_for_client whenever you don't already know the correct type_id/code from earlier in this same conversation — do not guess or default to OTHER without checking the actual catalog first, since new types may exist beyond what you already know.",
       schema: z.object({}),
     },
     async execute(_args, ctx) {
@@ -47,11 +59,11 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "create_reminder",
-      description: "Creates a new general reminder or task (not assigned to a specific client, or optionally assigned via contact_id). CRITICAL: Do not aggressively or automatically search for, resolve, or link a contact_id or policy_id to the reminder unless the user explicitly asks to associate it with a client or policy. If the user asks for a personal reminder or simple task (e.g. 'recuerdame enviar documentacion de mi poliza RC'), leave contact_id and policy_id as undefined. Only use them when explicitly requested. If the title or description are not explicitly provided by the user, you must intelligently generate an appropriate title (a very short summary like 'Llamar a Juan', 'Ir a junta') and a detailed description/summary from the context of what the advisor requested. Status is automatically set to CREATED.",
+      description: "Creates a new general reminder or task (not assigned to a specific client, or optionally assigned via contact_id). CRITICAL: Do not aggressively or automatically search for, resolve, or link a contact_id or policy_id to the reminder unless the user explicitly asks to associate it with a client or policy. Pronouns like 'me', 'mi', 'mis', 'tengo que', 'recuérdame' signal a personal/general task — keep contact_id and policy_id undefined in that case. If the user asks for a personal reminder or simple task (e.g. 'recuerdame enviar documentacion de mi poliza RC'), leave contact_id and policy_id as undefined. Only use them when explicitly requested. If the title or description are not explicitly provided by the user, you must intelligently generate an appropriate title (a very short summary like 'Llamar a Juan', 'Ir a junta') and a detailed description/summary from the context of what the advisor requested. Status is automatically set to CREATED.",
       schema: z.object({
         type_id: z.string().optional().describe("UUID of the reminder type (obtained from get_reminder_types)"),
         reminder_type_id: z.string().optional().describe("Alternative name for type_id (UUID of the reminder type)"),
-        reminder_type_name_or_code: z.string().optional().describe("Code or name of the reminder type. Call get_reminder_types to see all available types and their codes. Infer the best match from the user's message. Defaults to OTHER if omitted."),
+        reminder_type_name_or_code: z.string().optional().describe("Code or name of the reminder type, matched against the real catalog. Call get_reminder_types first if you don't already know the codes from earlier in this conversation, then pick the code that best matches the user's message (e.g. 'dar seguimiento' -> a follow-up type). Only fall back to a generic/OTHER type after checking the catalog and finding no better match."),
         title: z.string().optional()
           .describe("A very short, summarized title of the reminder (e.g., 'Llamar a Julio', 'Ir a junta'). If not provided, generate a concise short title matching this style based on the user request."),
         description: z.string().optional()
@@ -95,21 +107,63 @@ export const reminderSkills: SkillDefinition[] = [
         policyId: args.policy_id as string ?? null,
         comment: args.comment as string ?? null,
       });
-      return result ? slimReminder(result) : null;
+      if (!result) return null;
+      const slim = slimReminder(result, ctx);
+      return {
+        ...slim,
+        __skillMetadata: {
+          type: "reminder_created",
+          reminderId: result.id,
+          title: result.title,
+          description: result.description,
+          dueDate: slim.dueDate,
+          clientName: result.contact?.fullName ?? null,
+        },
+      };
     },
   },
   {
     domain: "reminder",
     declaration: {
       name: "get_upcoming_reminders",
-      description: "Retrieves the advisor's upcoming reminders (defaults to the next 7 days). Only returns pending or in progress reminders.",
+      description: "Retrieves the advisor's upcoming reminders within a date range. Only returns pending or in progress reminders. CRITICAL: If the user gives a relative time expression (e.g. 'today', 'this week', 'next 2 days', 'hoy', 'esta semana'), you MUST resolve it into local 'from'/'to' ISO 8601 bounds using the current date/time and timezone offset from the [CONTEXT] block. For 'today' (hoy) -> 'from' is today at 00:00:00 and 'to' is today at 23:59:59 using the local offset. If no time reference is given, leave both fields empty to query the default next 7 days. The response includes 'queriedRange' with the exact window consulted — before answering, verify each reminder's dueDate actually falls within the timeframe the user asked about.",
       schema: z.object({
-        days: z.number().optional().describe("Number of days to look ahead (default: 7)"),
+        from: z.string().optional().describe("Local start range (ISO 8601, e.g. '2026-07-04T00:00:00-06:00'). MUST be calculated relative to [CONTEXT]'s local time when querying a relative timeframe."),
+        to: z.string().optional().describe("Local end range (ISO 8601, e.g. '2026-07-04T23:59:59-06:00'). MUST be calculated relative to [CONTEXT]'s local time when querying a relative timeframe."),
       }),
     },
-    async execute({ days }, ctx) {
-      const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, (days as number) ?? 7);
-      return (reminders ?? []).map(slimReminder);
+    async execute({ from, to }, ctx) {
+      // Rango efectivo explícito: si el modelo no manda bounds se aplica el
+      // mismo default del service (próximos 7 días), pero informándolo en la
+      // respuesta para que el modelo sepa qué ventana está viendo y no
+      // presente tareas de mañana como pendientes de "hoy".
+      const usedDefault = !from && !to;
+      const defaults = daysFromNowRange(7);
+      const fromEff = (from as string | undefined) ?? defaults.from;
+      const toEff = (to as string | undefined) ?? defaults.to;
+
+      const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, fromEff, toEff);
+      const slim = (reminders ?? []).map((r) => slimReminder(r, ctx));
+      return {
+        queriedRange: {
+          from: utcToLocalIso(fromEff, ctx.timezone),
+          to: utcToLocalIso(toEff, ctx.timezone),
+          note: usedDefault
+            ? "No explicit range was requested — this is the DEFAULT 7-day window. If the user asked about a narrower timeframe (e.g. today), filter by dueDate before answering."
+            : undefined,
+        },
+        reminders: slim,
+        __skillMetadata: {
+          type: "reminder_list",
+          reminders: slim.map(r => ({
+            id: r.id,
+            title: r.title,
+            description: r.description,
+            dueDate: r.dueDate,
+            clientName: r.contact?.fullName ?? null,
+          })),
+        },
+      };
     },
   },
   {
@@ -133,15 +187,26 @@ export const reminderSkills: SkillDefinition[] = [
       if (params.status === "CANCELLED" && (!params.comment || !params.comment.trim())) {
         return { error: "El comentario es obligatorio para cancelar un recordatorio. Por favor, solicita o proporciona un comentario explicativo." };
       }
-      const result = await ctx.reminderService.update(params.reminder_id as string, {
+      // El modelo manda indistintamente el `code` o el `id` del estado, y no es
+      // capricho: get_reminder_statuses devuelve los dos, y esta misma skill
+      // pide el tipo como `type_id` en UUID. Se acepta cualquiera en vez de
+      // pelearse con él desde la descripción — el service ya sabe resolver
+      // ambos (`status` por code, `statusId` por id).
+      const rawStatus = (params.status as string | undefined)?.trim() || undefined;
+      const statusIsId = rawStatus !== undefined && isUuid(rawStatus);
+
+      const changes = {
         title: params.title as string | undefined,
         description: params.description as string | undefined,
         dueDate: params.due_date as string | undefined,
         typeId: params.type_id as string | undefined,
-        status: params.status as string | undefined,
+        status: statusIsId ? undefined : rawStatus,
+        statusId: statusIsId ? rawStatus : undefined,
         comment: params.comment as string | undefined,
-      });
-      return result ? slimReminder(result) : null;
+      };
+      assertHasChanges(changes);
+      const result = await ctx.reminderService.update(params.reminder_id as string, changes);
+      return result ? slimReminder(result, ctx) : null;
     },
   },
   {
@@ -160,7 +225,7 @@ export const reminderSkills: SkillDefinition[] = [
         status: "DONE",
         comment: comment as string | undefined,
       });
-      return result ? slimReminder(result) : null;
+      return result ? slimReminder(result, ctx) : null;
     },
   },
   {
@@ -189,8 +254,16 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute({ query, status }, ctx) {
-      const items = await ctx.reminderService.searchReminders(ctx.agentId, query as string, status as string | undefined);
-      return (items ?? []).map(slimReminder);
+      // Mismo motivo que en update_reminder: si llega el UUID del estado se
+      // traduce a su code, que es lo que filtra el repositorio. Sin esto la
+      // búsqueda no truena — devuelve vacío, que es peor.
+      let statusCode = (status as string | undefined)?.trim() || undefined;
+      if (statusCode && isUuid(statusCode)) {
+        const all = await ctx.catalogServices.reminderStatusService.getAll();
+        statusCode = all?.find((s) => s.id === statusCode)?.code as string | undefined;
+      }
+      const items = await ctx.reminderService.searchReminders(ctx.agentId, query as string, statusCode);
+      return (items ?? []).map((r) => slimReminder(r, ctx));
     },
   },
   {
@@ -205,7 +278,7 @@ export const reminderSkills: SkillDefinition[] = [
         due_date: z.string({ required_error: "Due date in ISO 8601 format with the advisor's local offset (e.g., 2026-06-02T15:00:00-06:00)" }).describe("Due date and time with offset (e.g., YYYY-MM-DDTHH:mm:ss-06:00)"),
         description: z.string().optional()
           .describe("Detailed description or notes for the reminder. You must always intelligently generate a suitable description summarizing the context/purpose of the reminder based on what the user requested if they did not provide one."),
-        reminder_type_name_or_code: z.string().optional().describe("Code or name of the reminder type. Call get_reminder_types to see all available types and their codes. Infer the best match from the user's message. Defaults to OTHER if omitted."),
+        reminder_type_name_or_code: z.string().optional().describe("Code or name of the reminder type, matched against the real catalog. Call get_reminder_types first if you don't already know the codes from earlier in this conversation, then pick the code that best matches the user's message (e.g. 'dar seguimiento' -> a follow-up type). Only fall back to a generic/OTHER type after checking the catalog and finding no better match."),
         comment: z.string().optional().describe("Optional initial comment"),
       }),
     },
@@ -245,7 +318,37 @@ export const reminderSkills: SkillDefinition[] = [
         comment: params.comment ?? null,
       });
 
-      return reminder ? slimReminder(reminder) : null;
+      if (!reminder) return null;
+      const slim = slimReminder(reminder, ctx);
+      return {
+        ...slim,
+        __skillMetadata: {
+          type: "reminder_created",
+          reminderId: reminder.id,
+          title: reminder.title,
+          description: reminder.description,
+          dueDate: slim.dueDate,
+          clientName: contacts[0].fullName,
+        },
+      };
+    },
+  },
+  {
+    domain: "reminder",
+    declaration: {
+      name: "search_reminder_notes",
+      description: "Searches for notes or attached files/documents belonging to a specific reminder or to all reminders. Use when the user asks a question about notes, attachments, quotes, or details of a specific reminder or meeting.",
+      schema: z.object({
+        query: z.string({ required_error: "The question or topic to search for in reminder notes/attachments is required" })
+          .describe("Question or topic to search for in reminder notes/attachments"),
+        reminder_id: z.string().optional().describe("UUID of the reminder (optional, for filtering search within a specific reminder's attachments)"),
+      }),
+    },
+    async execute({ query, reminder_id }, ctx) {
+      return await ctx.ragService.searchNotes(ctx.agentId, query as string, {
+        reminderId: reminder_id as string | undefined,
+        threshold: 0.65,
+      });
     },
   },
 ];

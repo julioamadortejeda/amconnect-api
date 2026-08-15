@@ -1,6 +1,13 @@
 import { PostgrestError } from "@supabase/supabase-js";
 
 export class AppError extends Error {
+  /**
+   * Detalle técnico (tabla, código de Postgres, contexto interno) que se
+   * persiste en error_logs pero NUNCA viaja al cliente. `message` es lo que
+   * ve el usuario — debe ser limpio y sin internals.
+   */
+  public internal?: string;
+
   constructor(message: string, public statusCode = 500, public errorCode?: string) {
     super(message);
     this.name = "AppError";
@@ -87,14 +94,40 @@ export class ConflictError extends AppError {
   }
 }
 
-export function handleSupabaseError(error: PostgrestError, message: string): never {
+/**
+ * Crea un AppError con mensaje público limpio y detalle técnico separado.
+ * Usar en lugar de interpolar `error.message` de Supabase/SDKs en el mensaje.
+ */
+export function internalError(
+  publicMessage: string,
+  internal: string,
+  statusCode = 500,
+  errorCode?: string,
+): AppError {
+  const err = new AppError(publicMessage, statusCode, errorCode);
+  err.internal = internal;
+  return err;
+}
+
+/**
+ * Convierte un error de Supabase en un AppError con mensaje PÚBLICO limpio.
+ * El `context` (que suele incluir el nombre de la tabla) y el detalle de
+ * Postgres van en `internal` — se loguean en error_logs, nunca al cliente.
+ */
+export function handleSupabaseError(error: PostgrestError, context: string): never {
+  const internal = `${context} (${error.code}: ${error.message})`;
+
+  let err: AppError;
   // PGRST116 = no rows found → 404
-  if (error.code === "PGRST116") throw new NotFoundError(message);
+  if (error.code === "PGRST116") err = new NotFoundError();
   // 22P02 = invalid UUID / type syntax
-  if (error.code === "22P02") throw new ValidationError("El identificador proporcionado no es válido.");
+  else if (error.code === "22P02") err = new ValidationError("El identificador proporcionado no es válido.");
   // 23503 = FK violation → el registro referenciado no existe
-  if (error.code === "23503") throw new ValidationError("Referencia inválida: el registro relacionado no existe.");
+  else if (error.code === "23503") err = new ValidationError("Referencia inválida: el registro relacionado no existe.");
   // 23505 = unique constraint → duplicado
-  if (error.code === "23505") throw new ConflictError();
-  throw new AppError(`${message} (${error.code}: ${error.message})`, 500);
+  else if (error.code === "23505") err = new ConflictError();
+  else err = new AppError("Ocurrió un error al procesar la solicitud.", 500);
+
+  err.internal = internal;
+  throw err;
 }

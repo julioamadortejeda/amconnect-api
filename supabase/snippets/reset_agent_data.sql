@@ -1,6 +1,6 @@
 -- ─── Reset completo de datos de un agente ────────────────────────────────────
 -- Borra: pólizas, contactos, recordatorios, sesiones de IA, uso de IA,
---        documentos, catálogos propios, vectores de notas.
+--        documentos, catálogos propios, vectores de notas, tokens de push.
 -- Resetea: uso mensual y suscripción.
 -- NO borra: el agente ni el usuario en auth.users.
 --
@@ -18,14 +18,14 @@
 
 do $$
 declare
-  p_agent_id uuid := 'e83559b7-1da5-4076-97ac-609b3dcb2212';
+  p_agent_id uuid := '4ac04a02-142b-4887-9a1b-7615eb95e11c';
 begin
 
   -- 1. Logs de error (FK SET NULL, borrar para limpiar completamente)
   delete from error_logs where agent_id = p_agent_id;
 
-  -- 2. Uso de ingesta (referencia sessions y document_metadata — borrar primero)
-  delete from ai_ingestion_usage where agent_id = p_agent_id;
+  -- 2. Uso de tokens (referencia sessions, document_metadata y agent_notes — borrar primero)
+  delete from tokens_usage where agent_id = p_agent_id;
 
   -- 3. Sesiones de IA (cascadea → ai_chat_messages + ai_pending_tasks)
   delete from ai_sessions where agent_id = p_agent_id;
@@ -58,7 +58,10 @@ begin
   -- 11. Uso mensual — borrar todas las filas del historial
   delete from agent_monthly_usage where agent_id = p_agent_id;
 
-  -- 12. Resetear suscripción a trial (14 días desde ahora)
+  -- 12. Tokens de dispositivo (push notifications) — se re-registran solos al abrir la app
+  delete from agent_device_tokens where agent_id = p_agent_id;
+
+  -- 13. Resetear suscripción a trial (14 días desde ahora)
   update agents
   set
     subscription_status      = 'trial',

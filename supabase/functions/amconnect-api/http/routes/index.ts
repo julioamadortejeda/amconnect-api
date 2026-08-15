@@ -4,6 +4,7 @@ import { DeviceTokenController } from "../controllers/device_token.controller.ts
 import { ContactController } from "../controllers/contact.controller.ts";
 import { PolicyController } from "../controllers/policy.controller.ts";
 import { ReminderController } from "../controllers/reminder.controller.ts";
+import { ReminderSettingController } from "../controllers/reminder_setting.controller.ts";
 import { AiController } from "../controllers/ai.controller.ts";
 import { VoiceChatController } from "../controllers/voice_chat.controller.ts";
 import { SubscriptionController } from "../controllers/subscription.controller.ts";
@@ -38,6 +39,7 @@ apiRouter.post("/ai/upload", AiController.uploadFile);
 apiRouter.post("/ai/ingest-policy", AiController.ingestPolicy);
 apiRouter.post("/ai/chat", AiController.chat);
 apiRouter.post("/ai/sessions/:sessionId/cancel", AiController.cancelSession);
+apiRouter.post("/ai/sessions/:sessionId/resolve-contact-mismatch", AiController.resolveContactMismatch);
 apiRouter.get("/ai/sessions/:sessionId/cost", AiController.getSessionCost);
 apiRouter.get("/ai/upload-url", AiController.getUploadUrl);
 apiRouter.post("/ai/ingest", AiController.ingest);
@@ -47,6 +49,7 @@ apiRouter.post("/ai/rag-search", AiController.ragSearch);
 apiRouter.get("/ai/voice", VoiceChatController.connect);
 apiRouter.post("/ai/voice/token", VoiceChatController.getToken);
 apiRouter.post("/ai/voice/init", VoiceChatController.initSession);
+apiRouter.post("/ai/voice/init-session", VoiceChatController.initSessionWithToken);
 apiRouter.post("/ai/voice/execute-tool", VoiceChatController.executeTool);
 apiRouter.post("/ai/voice/save-round", VoiceChatController.saveRound);
 // Deprecado — mantener por compatibilidad, redirige internamente a ingest
@@ -72,6 +75,7 @@ apiRouter.post("/policies", PolicyController.create);
 apiRouter.patch("/policies/:id", PolicyController.update);
 apiRouter.delete("/policies/:id", PolicyController.remove);
 apiRouter.get("/policies/:id/notes", PolicyController.getNotes);
+apiRouter.post("/policies/:id/notes", PolicyController.addNote);
 apiRouter.post("/policies/:id/participants", PolicyController.addParticipant);
 apiRouter.post("/policies/:id/beneficiaries", PolicyController.addBeneficiary);
 apiRouter.delete("/notes/:id", PolicyController.deleteNote);
@@ -79,11 +83,16 @@ apiRouter.delete("/notes/:id", PolicyController.deleteNote);
 // ─── Reminders ────────────────────────────────────────────────────────────────
 apiRouter.get("/reminders", ReminderController.getAll);
 apiRouter.get("/reminders/upcoming", ReminderController.getUpcoming);
+// Antes de /reminders/:id — si no, "settings" se leería como un id.
+apiRouter.get("/reminders/settings", ReminderSettingController.getAll);
+apiRouter.patch("/reminders/settings", ReminderSettingController.update);
+apiRouter.delete("/reminders/settings/:typeCode/branches/:branchId", ReminderSettingController.removeOverride);
 apiRouter.get("/reminders/:id", ReminderController.getById);
 apiRouter.post("/reminders", ReminderController.create);
 apiRouter.patch("/reminders/:id", ReminderController.update);
 apiRouter.patch("/reminders/:id/done", ReminderController.markDone);
 apiRouter.delete("/reminders/:id", ReminderController.remove);
+apiRouter.get("/reminders/:id/notes", ReminderController.getNotes);
 
 // ─── Catálogos por agente (CRUD) ──────────────────────────────────────────────
 apiRouter.get("/catalog/carriers", CarrierController.getAll);

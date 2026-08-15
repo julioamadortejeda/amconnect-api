@@ -1,9 +1,10 @@
-import { zodToJsonSchema } from "zod-to-json-schema";
 import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface.ts";
 import { AiSessionService } from "./ai_session.service.ts";
 import { AiError, AiProviderError } from "../../shared/errors.ts";
-import { getSkillByName, getSkillsByDomains } from "./skills/index.ts";
+import { buildToolDeclarations } from "../../shared/tool_declarations.ts";
+import { executeSkill } from "./skills/skill_executor.ts";
 import { SkillContext } from "./skills/skill.core.ts";
+import { buildLocalDateTime, DEFAULT_TIMEZONE } from "../../shared/datetime.ts";
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
 import type { PolicyChange } from "../document_processing/policy_diff.ts";
 import { AiChatContext } from "./ai.dto.ts";
@@ -11,6 +12,40 @@ import { AiChatContext } from "./ai.dto.ts";
 const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog", "knowledge"];
 const POLICY_INGESTION_DOMAINS = ["policy_ingestion"];
 const MAX_LOOPS = 6;
+
+// Skills de búsqueda vectorial que devuelven NoteMatch[]: sus resultados pueden
+// traer documentos adjuntos que alimentan el attachment_list (botón "abrir
+// archivo") aunque la nota se haya encontrado por similitud y no por pantalla.
+const RAG_SEARCH_SKILLS = ["search_knowledge", "search_contact_notes", "search_policy_notes", "search_reminder_notes"];
+
+// Margen de relevancia para adjuntos: dentro de una misma búsqueda, solo se
+// adjuntan resultados cuya similitud esté a lo sumo esta distancia por debajo
+// del mejor match. Evita adjuntar documentos que apenas cruzaron el threshold
+// absoluto pero no tienen relación real con la pregunta (ej. una póliza de
+// otro ramo apareciendo junto al documento realmente citado en la respuesta),
+// mientras conserva múltiples adjuntos cuando genuinamente son parecidos entre
+// sí (ej. varios documentos de un mismo cliente en una pregunta de resumen).
+const ATTACHMENT_RELEVANCE_GAP = 0.15;
+
+// Marcador inline que el modelo agrega junto a cada hecho tomado de una nota
+// RAG ([[cite:noteId]], instrucción en RAG SOURCE CITATION RULE del prompt).
+// Es el filtro AUTORITATIVO de qué adjuntar — el score de similitud (threshold
+// + ATTACHMENT_RELEVANCE_GAP) no discrimina bien para queries cortas/genéricas
+// (ver historial en RULES.md §5); lo que el modelo realmente citó en su texto
+// sí es confiable. Se extrae y se limpia del texto antes de guardarlo/mostrarlo.
+const CITE_MARKER_RE = /\s?\[\[cite:([0-9a-fA-F-]{36})\]\]/g;
+
+function extractCitations(text: string): { displayText: string; citedNoteIds: Set<string> } {
+  const citedNoteIds = new Set<string>();
+  const displayText = text
+    .replace(CITE_MARKER_RE, (_match, id: string) => {
+      citedNoteIds.add(id);
+      return "";
+    })
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+  return { displayText, citedNoteIds };
+}
 
 export interface ChatResponse {
   text: string;
@@ -38,26 +73,26 @@ export class AiChatService {
     sessionId?: string | null,
     timezone?: string,
     context?: AiChatContext | null,
+    newSessionType: "chat" = "chat",
   ): Promise<ChatResponse> {
     const history: AiMessage[] = [];
-    debugger;
     const sId = sessionId ?? undefined;
     let currentSessionId = sId;
 
     // Cargar historial si hay sesión
-    let sessionType = "chat";
+    let sessionType: string = newSessionType;
     let lastInteractionId: string | undefined = undefined;
 
     if (sId) {
       const session = await this.aiSessionService.getSessionContext(sId);
       if (session?.history) history.push(...(session.history as AiMessage[]));
-      sessionType = session?.type ?? "chat";
+      sessionType = session?.type ?? newSessionType;
       lastInteractionId = session?.last_interaction_id ?? undefined;
     } else {
       // Crear nueva sesión
       currentSessionId = await this.aiSessionService.createSession(agentId, {
         triggerMessage: message,
-        sessionType: "chat",
+        sessionType: newSessionType,
         modelName: this.aiProvider.model,
       });
     }
@@ -93,69 +128,10 @@ export class AiChatService {
       activeDomains = [...new Set([...ALWAYS_ACTIVE, ...parsedDomains])];
     }
 
-    const activeSkills = getSkillsByDomains(activeDomains);
-    const tools = [{
-      functionDeclarations: activeSkills.map((s) => {
-        const { $schema: _, ...parameters } = zodToJsonSchema(s.declaration.schema) as Record<string, unknown>;
-        return { name: s.declaration.name, description: s.declaration.description, parameters };
-      }),
-    }];
+    const tools = [{ functionDeclarations: buildToolDeclarations(activeDomains) }];
 
-    // Calcular fecha y hora local con zona horaria del servidor/asesor
-    const now = new Date();
-    let localIso = "";
-    let offsetStr = "";
-
-    try {
-      const tz = timezone || "America/Mexico_City";
-      const formatter = new Intl.DateTimeFormat("en-US", {
-        timeZone: tz,
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      });
-      const parts = formatter.formatToParts(now);
-      const partVal = (type: string) => parts.find((p) => p.type === type)!.value;
-      
-      const year = partVal("year");
-      const month = partVal("month");
-      const day = partVal("day");
-      const hour = partVal("hour");
-      const minute = partVal("minute");
-      const second = partVal("second");
-
-      const tzFormatter = new Intl.DateTimeFormat("en-US", {
-        timeZone: tz,
-        timeZoneName: "longOffset",
-      });
-      const tzParts = tzFormatter.formatToParts(now);
-      const tzNamePart = tzParts.find((p) => p.type === "timeZoneName")?.value || "";
-      
-      if (tzNamePart === "GMT" || tzNamePart === "UTC") {
-        offsetStr = "+00:00";
-      } else {
-        const match = tzNamePart.match(/GMT([+-])(\d{1,2}):?(\d{2})?/);
-        if (match) {
-          const sign = match[1];
-          const hours = match[2].padStart(2, "0");
-          const minutes = (match[3] || "00").padStart(2, "0");
-          offsetStr = `${sign}${hours}:${minutes}`;
-        } else {
-          offsetStr = "+00:00";
-        }
-      }
-      localIso = `${year}-${month}-${day}T${hour}:${minute}:${second}${offsetStr}`;
-    } catch (_e) {
-      const offsetMin = -now.getTimezoneOffset();
-      const sign = offsetMin >= 0 ? "+" : "-";
-      const pad = (n: number) => String(Math.abs(n)).padStart(2, "0");
-      offsetStr = `${sign}${pad(Math.floor(offsetMin / 60))}:${pad(offsetMin % 60)}`;
-      localIso = new Date(now.getTime() + (offsetMin * 60 * 1000)).toISOString().slice(0, 19) + offsetStr;
-    }
+    // Fecha y hora local del asesor — implementación compartida con voz
+    const { localIso, offsetStr } = buildLocalDateTime(timezone || DEFAULT_TIMEZONE);
 
     // System instruction 100% estático — sin sustituciones dinámicas.
     // Gemini implicit caching aplica cuando el prefijo es idéntico entre requests.
@@ -203,15 +179,26 @@ export class AiChatService {
     let skillMetadata: Record<string, unknown> | undefined;
     let nextInteractionInput: string | Record<string, unknown>[] = contextPrefix + message;
 
+    // Adjuntos recolectados de los hits de RAG durante el bucle (dedupe por
+    // nota — puede haber varios chunks de la misma nota en un mismo resultado).
+    const ragAttachments: Record<string, unknown>[] = [];
+    const ragHarvestSeenIds = new Set<string>();
+    // Notas citadas explícitamente por el modelo en su respuesta final (ver CITE_MARKER_RE).
+    let citedNoteIds = new Set<string>();
+
     try {
     while (loops < MAX_LOOPS) {
       loops++;
-      const currentTools = forceNextTurnToGenerateText ? [] : tools;
+      // Siempre mandamos `tools` completo (aunque forceNextTurnToGenerateText esté activo)
+      // para no cambiar el prefix system_instruction+tools entre turnos y no perder el
+      // implicit caching de Gemini — el bloqueo de function calls se hace vía forceTextOnly.
       const result = await this.aiProvider.processInteraction(
         nextInteractionInput,
-        currentTools,
+        tools,
         systemInstruction,
         lastInteractionId,
+        history,
+        forceNextTurnToGenerateText,
       );
 
       if (result.interactionId) {
@@ -226,8 +213,10 @@ export class AiChatService {
       }
 
       if (result.text && !result.functionCalls?.length) {
-        finalText = result.text;
-        history.push({ role: AiRole.MODEL, parts: [{ text: result.text }] });
+        const { displayText, citedNoteIds: cited } = extractCitations(result.text);
+        finalText = displayText;
+        citedNoteIds = cited;
+        history.push({ role: AiRole.MODEL, parts: [{ text: displayText }] });
         break;
       }
 
@@ -241,53 +230,48 @@ export class AiChatService {
       history.push({ role: AiRole.MODEL, parts: result.rawModelParts as never[] });
 
       for (const call of result.functionCalls) {
-        const skill = getSkillByName(call.name);
-        let response: unknown;
-
         // Recuperar el id del step original de la llamada para mapearlo al response de la Interactions API
         const originalStep = result.rawModelParts?.find(
           // deno-lint-ignore no-explicit-any
           (p: any) => p.functionCall && p.functionCall.name === call.name,
         );
+        // deno-lint-ignore no-explicit-any
         const callId = (originalStep as any)?.functionCall?.id || `call_${Math.random().toString(36).substring(7)}`;
 
+        const execution = await executeSkill(call.name, call.args, ctx);
+        if (execution.metadata) skillMetadata = execution.metadata;
+        const response = execution.response;
 
-        if (skill) {
-          const validation = skill.declaration.schema.safeParse(call.args);
-          if (!validation.success) {
-            const missing = validation.error.issues
-              .map((i: { path: (string | number)[]; message: string }) => `${i.path.join(".") || "campo"}: ${i.message}`)
-              .join("; ");
-            response = { error: `Faltan datos requeridos — ${missing}. Pídelos al usuario antes de volver a llamar este skill.` };
-          } else {
-            try {
-              const rawResponse = await skill.execute(validation.data, ctx);
-              // Interceptar __skillMetadata sin enviarlo al modelo
-              if (
-                rawResponse &&
-                typeof rawResponse === "object" &&
-                "__skillMetadata" in (rawResponse as Record<string, unknown>)
-              ) {
-                const { __skillMetadata, ...rest } = rawResponse as Record<string, unknown>;
-                skillMetadata = __skillMetadata as Record<string, unknown>;
-                response = rest;
-              } else {
-                response = rawResponse;
-              }
-            } catch (e) {
-              const msg = e instanceof Error ? e.message : "Error ejecutando la herramienta.";
-              console.error(`[CHAT] skill=${call.name} threw: ${msg}`);
-              response = { error: msg };
-            }
-          }
-        } else {
-          response = { error: `Herramienta desconocida: ${call.name}` };
-        }
-
-        // Si la base de conocimiento o notas de contacto devuelven vacío, forzamos que en el siguiente turno genere texto directo
-        if (call.name === "search_knowledge" || call.name === "search_contact_notes") {
-          if (Array.isArray(response) && response.length === 0) {
+        // Si la base de conocimiento o notas de contacto/póliza devuelven vacío, forzamos que en el siguiente turno genere texto directo
+        if (RAG_SEARCH_SKILLS.includes(call.name) && Array.isArray(response)) {
+          if (response.length === 0) {
             forceNextTurnToGenerateText = true;
+          }
+          // Cosechar adjuntos de las notas encontradas por similitud, filtrando
+          // por relevancia relativa al mejor match de esta búsqueda (ver
+          // ATTACHMENT_RELEVANCE_GAP).
+          const hits = response as Record<string, unknown>[];
+          const similarities = hits
+            .map((h) => h.similarity as number | undefined)
+            .filter((s): s is number => typeof s === "number");
+          const maxSimilarity = similarities.length > 0 ? Math.max(...similarities) : undefined;
+
+          for (const hit of hits) {
+            const storagePath = (hit.storagePath ?? hit.storage_path) as string | undefined;
+            const id = (hit.noteId ?? hit.note_id ?? hit.id) as string | undefined;
+            const similarity = hit.similarity as number | undefined;
+            const isRelevantEnough = maxSimilarity === undefined || similarity === undefined ||
+              similarity >= maxSimilarity - ATTACHMENT_RELEVANCE_GAP;
+            if (storagePath && id && isRelevantEnough && !ragHarvestSeenIds.has(id)) {
+              ragHarvestSeenIds.add(id);
+              ragAttachments.push({
+                id,
+                fileName: hit.fileName ?? hit.file_name ?? hit.summary ?? "Documento",
+                storagePath,
+                sourceType: hit.sourceType ?? hit.source_type ?? "document",
+                summary: hit.summary ?? hit.content,
+              });
+            }
           }
         }
 
@@ -308,7 +292,7 @@ export class AiChatService {
         });
       }
 
-      history.push({ role: AiRole.FUNCTION as never, parts: functionResults as never[] });
+      history.push({ role: AiRole.USER, parts: functionResults as never[] });
 
       // Configurar el input para el siguiente turno de la Interactions API como el listado de steps de respuesta
       nextInteractionInput = functionResponseSteps;
@@ -351,12 +335,54 @@ export class AiChatService {
           promptTokens: loopUsage.promptTokens,
           completionTokens: loopUsage.completionTokens,
           totalTokens: loopUsage.totalTokens,
+          cachedTokens: loopUsage.cachedTokens,
           interactionId: lastInteractionId,
         },
       ],
       totalUsage,
       lastInteractionId,
     );
+
+    // attachment_list se alimenta de dos fuentes complementarias: los hits de
+    // RAG con documento adjunto (búsqueda vectorial) y las notas del contexto de
+    // pantalla. Solo se emite si ninguna skill ya produjo su propio metadata.
+    if (!skillMetadata) {
+      // Filtro autoritativo: solo adjuntar notas RAG que el modelo citó en su
+      // respuesta. Si no citó ninguna (respuesta sin RAG, o no cumplió la
+      // instrucción esta vez), se conserva el set ya filtrado por relevancia
+      // relativa como resguardo — mejor eso que ocultar adjuntos de golpe.
+      const citedRagAttachments = citedNoteIds.size > 0
+        ? ragAttachments.filter((a) => citedNoteIds.has(a.id as string))
+        : ragAttachments;
+
+      const attachments: Record<string, unknown>[] = [...citedRagAttachments];
+      const seenAttachmentIds = new Set(attachments.map((a) => a.id as string));
+
+      if (context?.data?.notes && Array.isArray(context.data.notes)) {
+        // deno-lint-ignore no-explicit-any
+        const contextAttachments = (context.data.notes as any[])
+          .filter((n: any) => n.storage_path || n.storagePath || n.fileName || n.file_name)
+          .map((n: any) => ({
+            id: n.id,
+            fileName: n.fileName || n.file_name || n.summary || "Documento",
+            storagePath: n.storagePath || n.storage_path,
+            sourceType: n.sourceType || n.source_type || "document",
+            summary: n.summary || n.content,
+          }));
+        for (const att of contextAttachments) {
+          if (att.id && seenAttachmentIds.has(att.id as string)) continue;
+          if (att.id) seenAttachmentIds.add(att.id as string);
+          attachments.push(att);
+        }
+      }
+
+      if (attachments.length > 0) {
+        skillMetadata = {
+          type: "attachment_list",
+          attachments,
+        };
+      }
+    }
 
     return { text: finalText, sessionId: currentSessionId!, usage: totalUsage, sessionUsage, metadata: skillMetadata };
 

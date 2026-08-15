@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { SkillDefinition, SkillContext } from "./skill.core.ts";
-import { resolveCatalogId } from "../../../shared/utils.ts";
+import { assertNoDuplicatePolicyNumber, resolveCatalogId } from "../../../shared/utils.ts";
 import { buildChangelogContent, buildCoveragesNote, diffPolicy, PolicyChange } from "../../document_processing/policy_diff.ts";
 import type { PolicyExtraction } from "../../document_processing/policy_extraction.schema.ts";
 
@@ -28,6 +28,9 @@ export const policyIngestionSkills: SkillDefinition[] = [
         if (newNoteId) {
           await embeddingsService.softDeleteNoteById(agentId, newNoteId, 'user_rejected');
         }
+        // Decisión resuelta — el /cancel posterior no debe volver a procesar
+        // esta nota (le pisaría el discard_reason con 'session_cancelled').
+        await aiSessionService.updateMetadata(sessionId, { ...meta, status: 'update_discarded' });
         return { cancelled: true, message: "Update discarded by advisor. Existing policy remains unchanged." };
       }
       try {
@@ -58,8 +61,13 @@ export const policyIngestionSkills: SkillDefinition[] = [
         renewal_date: z.string().optional().nullable(),  renewalDate: z.string().optional().nullable(),
         next_payment_date: z.string().optional().nullable(), nextPaymentDate: z.string().optional().nullable(),
         payment_frequency: z.string().optional().nullable(), paymentFrequency: z.string().optional().nullable(),
+        payment_method: z.string().optional().nullable(), paymentMethod: z.string().optional().nullable(),
         notes: z.string().optional().nullable(),
         deductible: z.string().optional().nullable(), global_deductible: z.string().optional().nullable(), globalDeductible: z.string().optional().nullable(),
+        coinsurance: z.string().optional().nullable(), global_coinsurance: z.string().optional().nullable(), globalCoinsurance: z.string().optional().nullable(),
+        seniority_date: z.string().optional().nullable(), seniorityDate: z.string().optional().nullable(),
+        insured_item: z.string().optional().nullable(), insuredItem: z.string().optional().nullable(),
+        policy_version: z.string().optional().nullable(), policyVersion: z.string().optional().nullable(),
         beneficiaries: z.array(BeneficiarySchema).optional().default([]),
       }),
     },
@@ -99,15 +107,23 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
   const renewalDate     = field(args, "renewal_date", "renewalDate");
   const nextPaymentDate = field(args, "next_payment_date", "nextPaymentDate");
   const paymentFreq     = field(args, "payment_frequency", "paymentFrequency");
+  const paymentMeth     = field(args, "payment_method", "paymentMethod");
   const beneficiaries   = args.beneficiaries ?? [];
 
   if (!carrierName || !branchName || !holderName) {
     return { error: "Missing required data: carrier_name, branch_name, and holder_name are required." };
   }
 
-  // ─── Leer documentMetadataId de la sesión ────────────────────────────────
+  // Re-validar duplicados con el policy_number FINAL (puede diferir del extraído
+  // originalmente si el asesor lo corrigió en el chat antes de confirmar).
+  await assertNoDuplicatePolicyNumber(policyService, agentId, policyNumber);
+
+  // ─── Leer metadata de la sesión ───────────────────────────────────────────
   const sessionMetadata = await aiSessionService.getSessionMetadata(sessionId);
   const documentMetadataId = sessionMetadata?.documentMetadataId as string | null ?? null;
+  const finalContactId = sessionMetadata?.finalContactId as string | null ?? null;
+  const contactMismatchAssignedToScreen = sessionMetadata?.contactMismatchAssignedToScreen === true;
+  const mismatchDetectedContactName = sessionMetadata?.detectedContactName as string | null ?? null;
 
   // ─── Resolver carrier ─────────────────────────────────────────────────────
   const carrierId = await findOrCreateCatalogItem(
@@ -128,14 +144,18 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
   );
 
   // ─── Resolver contacto ───────────────────────────────────────────────────
-  const contactId = await findOrCreateContact(ctx, holderName, holderRfc ?? null);
+  // `finalContactId` viene de la pantalla de origen (ver policy_ingestion.service.ts
+  // extract()/resolveContactMismatch()) — si está presente, ya fue decidido
+  // (con o sin conflicto detectado) y no se vuelve a resolver por nombre/RFC.
+  const contactId = finalContactId ?? await findOrCreateContact(ctx, holderName, holderRfc ?? null);
 
   // ─── Resolver catálogos globales ──────────────────────────────────────────
-  const [statusRow, currencyRow, paymentFrequencyId] = await Promise.all([
+  const [statusRow, currencyRow, paymentFrequencyId, paymentMethodId] = await Promise.all([
     catalogServices.policyStatusService.getByCode("ACTIVE"),
     catalogServices.currencyService.getByCode(currency === "USD" ? "USD" : "MXN"),
     paymentFreq ? resolveCatalogId(catalogServices.paymentFrequencyService, paymentFreq, { key: "name", value: "Anual" }) : Promise.resolve(null),
-  ]) as [{ id: string } | null, { id: string } | null, string | null];
+    paymentMeth ? resolveCatalogId(catalogServices.paymentMethodService, paymentMeth, { key: "code", value: "CREDIT_CARD" }) : Promise.resolve(null),
+  ]) as [{ id: string } | null, { id: string } | null, string | null, string | null];
 
   if (!statusRow?.id) throw new Error("Status ACTIVE not found in catalog.");
   if (!currencyRow?.id) throw new Error(`Currency ${currency} not found in catalog.`);
@@ -150,6 +170,7 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
     statusId: statusRow.id,
     currencyId: currencyRow.id,
     paymentFrequencyId: paymentFrequencyId || null,
+    paymentMethodId: paymentMethodId || null,
     policyNumber: policyNumber ?? null,
     premium: args.premium ?? null,
     sumInsured: args.sum_insured ?? args.sumInsured ?? null,
@@ -159,9 +180,35 @@ async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillConte
     nextPaymentDate: nextPaymentDate ?? null,
     notes: args.notes ?? null,
     deductible: args.deductible ?? args.global_deductible ?? args.globalDeductible ?? null,
+    coinsurance: args.coinsurance ?? args.global_coinsurance ?? args.globalCoinsurance ?? null,
+    seniorityDate: field(args, "seniority_date", "seniorityDate") ?? null,
+    insuredItem: field(args, "insured_item", "insuredItem") ?? null,
+    policyVersion: field(args, "policy_version", "policyVersion") ?? null,
   });
 
   if (!policy) throw new Error("Could not create policy.");
+
+  // ─── Nota de trazabilidad si el asesor forzó la asignación a otro contacto ─
+  if (contactMismatchAssignedToScreen && mismatchDetectedContactName) {
+    const mismatchNoteContent =
+      `This policy (${carrierName}${policyNumber ? ` #${policyNumber}` : ""}) was extracted from a document ` +
+      `that identified "${mismatchDetectedContactName}" as the policyholder. The advisor chose to assign it to ` +
+      `this client anyway on ${new Date().toISOString().slice(0, 10)}.`;
+    const { embeddingTotalTokens: mismatchNoteEmbTokens, embeddingCount: mismatchNoteEmbCount } =
+      await embeddingsService.saveDocument(agentId, {
+        content: mismatchNoteContent,
+        sourceType: 'text',
+        contactId,
+        policyId: policy.id,
+        noteOrigin: 'policy',
+      });
+    await aiSessionService.trackEmbeddingUsageOnly(
+      agentId, sessionId, null,
+      embeddingsService.embeddingModelName,
+      mismatchNoteEmbTokens,
+      mismatchNoteEmbCount,
+    );
+  }
 
   // ─── Agregar beneficiarios ────────────────────────────────────────────────
   if (beneficiaries.length > 0) {
@@ -223,13 +270,8 @@ async function findOrCreateCatalogItem(service: any, name: string, extra: Record
 async function findOrCreateContact(ctx: SkillContext, fullName: string, rfc: string | null): Promise<string> {
   const { agentId, contactService } = ctx;
 
-  if (rfc) {
-    const byRfc = await contactService.getByField("rfc", rfc, 1);
-    if (byRfc?.[0]?.id) return byRfc[0].id;
-  }
-
-  const similar = await contactService.findSimilarContact(agentId, fullName);
-  if (similar?.[0]?.id) return similar[0].id;
+  const match = await contactService.findMatchingContact(agentId, fullName, rfc);
+  if (match) return match.id;
 
   const created = await contactService.create({ agentId, fullName, rfc });
   if (!created?.id) throw new Error(`Could not create contact: ${fullName}`);
@@ -252,8 +294,10 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
   const carrierName = extraction.carrierName;
   const branchName = extraction.branchName;
   const productName = extraction.productName;
+  const holderName = extraction.holderName;
   const currency = extraction.currency ?? "MXN";
   const paymentFreq = extraction.paymentFrequency;
+  const paymentMeth = extraction.paymentMethod;
 
   if (!carrierName || !branchName) {
     return { error: "Missing carrier or branch in extraction data." };
@@ -269,11 +313,12 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
     { carrierId, branchId },
   );
 
-  const [statusRow, currencyRow, paymentFrequencyId] = await Promise.all([
+  const [statusRow, currencyRow, paymentFrequencyId, paymentMethodId] = await Promise.all([
     catalogServices.policyStatusService.getByCode("ACTIVE"),
     catalogServices.currencyService.getByCode(currency === "USD" ? "USD" : "MXN"),
     paymentFreq ? resolveCatalogId(catalogServices.paymentFrequencyService, paymentFreq, { key: "name", value: "Anual" }) : Promise.resolve(null),
-  ]) as [{ id: string } | null, { id: string } | null, string | null];
+    paymentMeth ? resolveCatalogId(catalogServices.paymentMethodService, paymentMeth, { key: "code", value: "CREDIT_CARD" }) : Promise.resolve(null),
+  ]) as [{ id: string } | null, { id: string } | null, string | null, string | null];
 
   if (!statusRow?.id) throw new Error("Status ACTIVE not found in catalog.");
   if (!currencyRow?.id) throw new Error(`Currency ${currency} not found in catalog.`);
@@ -283,6 +328,7 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
     statusId: statusRow.id,
     currencyId: currencyRow.id,
     paymentFrequencyId: paymentFrequencyId ?? null,
+    paymentMethodId: paymentMethodId ?? null,
     policyNumber: extraction.policyNumber ?? undefined,
     premium: extraction.premium ?? undefined,
     sumInsured: extraction.sumInsured ?? undefined,
@@ -292,6 +338,10 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
     nextPaymentDate: extraction.nextPaymentDate ?? undefined,
     notes: extraction.notes ?? undefined,
     deductible: extraction.globalDeductible ?? undefined,
+    coinsurance: extraction.globalCoinsurance ?? undefined,
+    seniorityDate: extraction.seniorityDate ?? undefined,
+    insuredItem: extraction.insuredItem ?? undefined,
+    policyVersion: extraction.policyVersion ?? undefined,
   });
 
   if (!updated) throw new Error("Could not update policy.");
@@ -301,6 +351,12 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
   if (newDocumentMetadataId) {
     await embeddingsService.updateNoteLinks(agentId, newDocumentMetadataId, updated.contactId, existingPolicyId);
   }
+
+  // La decisión pendiente quedó resuelta: si el cliente llama /cancel después
+  // (limpieza normal al cerrar el sheet o resetear el chat), el endpoint no
+  // debe tratar la sesión como abandonada ni soft-borrar la nota recién
+  // confirmada (updateMetadata REEMPLAZA la metadata — preservar el resto).
+  await aiSessionService.updateMetadata(sessionId, { ...meta, status: 'update_applied' });
 
   // Create changelog note
   const changelogContent = buildChangelogContent(
@@ -340,6 +396,10 @@ async function resolveAndUpdatePolicy(ctx: SkillContext) {
       type: "policy_updated",
       policyId: existingPolicyId,
       policyNumber: updated.policyNumber,
+      carrierName,
+      branchName,
+      holderName,
+      fieldCount: diff.length,
       changesApplied: diff.length,
       remainingDifferences: finalDiff.length,
     },

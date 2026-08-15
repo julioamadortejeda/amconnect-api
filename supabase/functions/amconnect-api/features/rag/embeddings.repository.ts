@@ -5,6 +5,7 @@ export interface InsertNoteData {
   agentId: string;
   contactId: string | null;
   policyId: string | null;
+  reminderId?: string | null;
   sourceType: string;
   content: string;
   documentMetadataId: string | null;
@@ -38,6 +39,7 @@ export class EmbeddingsRepository implements IEmbeddingsRepository {
         agent_id: data.agentId,
         contact_id: data.contactId,
         policy_id: data.policyId,
+        reminder_id: data.reminderId ?? null,
         source_type: data.sourceType,
         content: data.content,
         document_metadata_id: data.documentMetadataId,

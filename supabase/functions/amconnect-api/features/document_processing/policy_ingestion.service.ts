@@ -5,8 +5,9 @@ import { EmbeddingsService } from "../rag/embeddings.service.ts";
 import { AiSessionService } from "../ai_chat/ai_session.service.ts";
 import { StorageService } from "../../modules/storage/storage.service.ts";
 import { DocumentMetadataRepository } from "../../modules/document_metadata/document_metadata.repository.ts";
-import { AiInvokedError, AiProviderError, AppError } from "../../shared/errors.ts";
+import { AiInvokedError, AiProviderError, AppError, ConflictError } from "../../shared/errors.ts";
 import { PolicyService } from "../../modules/policy/policy.service.ts";
+import { ContactService } from "../../modules/contact/contact.service.ts";
 import {
   PolicyExtraction,
   PolicyExtractionSchema,
@@ -21,13 +22,19 @@ export interface PolicyIngestInput {
   contactId?: string | null;
 }
 
+export interface ContactMismatchInfo {
+  screenContactName: string;
+  detectedContactName: string;
+}
+
 export interface PolicyIngestResult {
   documentMetadataId: string;
   noteId: string;
   extraction: PolicyExtraction;
-  status: 'new' | 'duplicate_detected';
+  status: 'new' | 'duplicate_detected' | 'contact_mismatch';
   existingPolicyId?: string;
   diff?: PolicyChange[];
+  contactMismatch?: ContactMismatchInfo;
 }
 
 export class PolicyIngestionService {
@@ -42,6 +49,7 @@ export class PolicyIngestionService {
     // deno-lint-ignore no-explicit-any
     private catalogServices: any,
     private promptService: PromptService,
+    private contactService: ContactService,
   ) {}
 
   async extract(agentId: string, sessionId: string, input: PolicyIngestInput): Promise<PolicyIngestResult> {
@@ -166,6 +174,7 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
         this.embeddingProvider.model,
         embeddingTotalTokens,
         embeddingCount,
+        noteId,
       );
 
       if (duplicateInfo) {
@@ -187,10 +196,51 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
         };
       }
 
+      // ─── Comparar el contacto de la pantalla de origen (si vino) contra el ────
+      // titular detectado por la IA en el documento. Sin esto, `contactId` se
+      // perdía tras la extracción y `confirm_policy_ingestion` resolvía el
+      // dueño de la póliza de forma independiente por nombre/RFC extraído.
+      let contactMismatch: ContactMismatchInfo | undefined;
+      let finalContactId: string | null = contactId ?? null;
+
+      if (contactId && extraction.holderName) {
+        const detected = await this.contactService.findMatchingContact(
+          agentId, extraction.holderName, extraction.holderRfc ?? null,
+        );
+        if (detected && detected.id !== contactId) {
+          const screenContact = await this.contactService.getById(contactId);
+          contactMismatch = {
+            screenContactName: screenContact?.fullName ?? "this client",
+            detectedContactName: detected.fullName,
+          };
+          finalContactId = null;
+
+          await this.aiSessionService.updateMetadata(sessionId, {
+            status: 'contact_mismatch',
+            extraction,
+            documentMetadataId: docMeta.id,
+            noteId,
+            screenContactId: contactId,
+            screenContactName: contactMismatch.screenContactName,
+            detectedContactId: detected.id,
+            detectedContactName: detected.fullName,
+          });
+
+          return {
+            documentMetadataId: docMeta.id,
+            noteId,
+            extraction,
+            status: 'contact_mismatch' as const,
+            contactMismatch,
+          };
+        }
+      }
+
       await this.aiSessionService.updateMetadata(sessionId, {
         extraction,
         documentMetadataId: docMeta.id,
         noteId,
+        finalContactId,
       });
 
       return {
@@ -208,6 +258,39 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
         err instanceof Error ? err : undefined,
       );
     }
+  }
+
+  /**
+   * Resuelve la pregunta sí/no de contact_mismatch (ver extract()). No crea ninguna
+   * sesión ni nota nueva — solo persiste la decisión del asesor; la nota de
+   * trazabilidad se crea después, dentro de `confirm_policy_ingestion`, cuando
+   * la póliza ya existe.
+   */
+  async resolveContactMismatch(
+    agentId: string,
+    sessionId: string,
+    assignToScreenContact: boolean,
+  ): Promise<{ extraction: PolicyExtraction; documentMetadataId: string }> {
+    const meta = await this.aiSessionService.getSessionMetadata(sessionId);
+    if (meta?.status !== 'contact_mismatch') {
+      throw new ConflictError("No hay un conflicto de contacto pendiente de resolver en esta sesión.");
+    }
+
+    const screenContactId = meta.screenContactId as string;
+    const detectedContactId = meta.detectedContactId as string;
+    const finalContactId = assignToScreenContact ? screenContactId : detectedContactId;
+
+    await this.aiSessionService.updateMetadata(sessionId, {
+      ...meta,
+      status: 'contact_mismatch_resolved',
+      finalContactId,
+      contactMismatchAssignedToScreen: assignToScreenContact,
+    });
+
+    return {
+      extraction: meta.extraction as PolicyExtraction,
+      documentMetadataId: meta.documentMetadataId as string,
+    };
   }
 }
 

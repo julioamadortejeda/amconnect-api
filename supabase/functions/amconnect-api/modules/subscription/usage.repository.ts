@@ -10,15 +10,49 @@ export interface IncrementResult {
   error: { message: string; code: string } | null;
 }
 
+export interface TokenUsageParams {
+  agentId: string;
+  sessionId?: string;
+  documentMetadataId?: string;
+  noteId?: string;
+  source: "chat_text" | "chat_voice" | "extraction" | "embedding" | "summary";
+  modelName: string;
+  promptTokens: number;
+  completionTokens: number;
+  cachedTokens?: number;
+}
+
 export interface IUsageRepository {
   getMonthlyUsage(agentId: string, yearMonth: string): Promise<MonthlyUsageRow | null>;
   incrementUsage(agentId: string, field: "chat" | "ingestion"): Promise<IncrementResult>;
   decrementUsage(agentId: string, field: "chat" | "ingestion"): Promise<void>;
   getChatLimit(agentId: string): Promise<number>;
+  logTokenUsage(params: TokenUsageParams): Promise<void>;
 }
 
 export class UsageRepository implements IUsageRepository {
   constructor(private supabase: SupabaseClient) {}
+
+  async logTokenUsage(params: TokenUsageParams): Promise<void> {
+    const { error } = await this.supabase
+      .from("tokens_usage")
+      .insert({
+        agent_id: params.agentId,
+        session_id: params.sessionId ?? null,
+        document_metadata_id: params.documentMetadataId ?? null,
+        note_id: params.noteId ?? null,
+        source: params.source,
+        model_name: params.modelName,
+        prompt_tokens: params.promptTokens,
+        completion_tokens: params.completionTokens,
+        total_tokens: params.promptTokens + params.completionTokens,
+        cached_tokens: params.cachedTokens ?? 0,
+      });
+    if (error) {
+      console.error("[UsageRepository] Error inserting tokens_usage:", error);
+      throw error;
+    }
+  }
 
   async getMonthlyUsage(agentId: string, yearMonth: string): Promise<MonthlyUsageRow | null> {
     const { data } = await this.supabase
