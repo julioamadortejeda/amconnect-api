@@ -48,6 +48,8 @@ import { AI_MODEL } from "../../../shared/config.ts";
 import { PromptService } from "../../../modules/prompt/prompt.service.ts";
 import { NoteRepository } from "../../../modules/note/note.repository.ts";
 import { NoteService } from "../../../modules/note/note.service.ts";
+import { CommitmentService } from "../../../features/commitments/commitment.service.ts";
+import { CommitmentRepository } from "../../../features/commitments/commitment.repository.ts";
 
 // Switch único gratis ↔ pago: AI_BACKEND=studio (default, Gemini API con
 // GEMINI_API_KEY) | vertex (Vertex AI con VERTEX_API_KEY). Aplica a chat,
@@ -155,6 +157,7 @@ export const injectServices = async (c: Context, next: Next) => {
   const contactService = new ContactService(new ContactRepository(supabase));
   const policyService = new PolicyService(supabase, new PolicyRepository(supabase), reportedTimezone);
   const noteService = new NoteService(new NoteRepository(supabase));
+  const commitmentService = new CommitmentService(new CommitmentRepository(supabase));
   const reminderService = new ReminderService(new ReminderRepository(supabase));
   const reminderSettingService = new ReminderSettingService(
     new ReminderSettingRepository(supabase),
@@ -222,6 +225,7 @@ export const injectServices = async (c: Context, next: Next) => {
           reminderGenerationService,
           reminderSettingService,
           ragService: getRagService(),
+          commitmentService,
           embeddingsService: getEmbeddingsService(),
           catalogServices,
         },
@@ -245,6 +249,7 @@ export const injectServices = async (c: Context, next: Next) => {
           reminderGenerationService,
           reminderSettingService,
           ragService: getRagService(),
+          commitmentService,
           embeddingsService: getEmbeddingsService(),
           catalogServices,
         },
@@ -324,6 +329,7 @@ export const injectServices = async (c: Context, next: Next) => {
     contactService,
     policyService,
     noteService,
+    commitmentService,
     reminderService,
     reminderSettingService,
     reminderGenerationService,

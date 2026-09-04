@@ -1,6 +1,6 @@
 import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface.ts";
 import { AiSessionService } from "./ai_session.service.ts";
-import { AiError, AiProviderError } from "../../shared/errors.ts";
+import { AiProviderError } from "../../shared/errors.ts";
 import { buildToolDeclarations } from "../../shared/tool_declarations.ts";
 import { executeSkill } from "./skills/skill_executor.ts";
 import { SkillContext } from "./skills/skill.core.ts";
@@ -9,7 +9,7 @@ import { PromptService } from "../../modules/prompt/prompt.service.ts";
 import type { PolicyChange } from "../document_processing/policy_diff.ts";
 import { AiChatContext } from "./ai.dto.ts";
 
-const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog", "knowledge"];
+const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "commitment", "pending_task", "catalog", "knowledge"];
 const POLICY_INGESTION_DOMAINS = ["policy_ingestion"];
 const MAX_LOOPS = 6;
 
@@ -53,6 +53,29 @@ export interface ChatResponse {
   usage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number };
   sessionUsage?: { promptTokens: number; completionTokens: number; totalTokens: number };
   metadata?: Record<string, unknown>;
+}
+
+/** El bloque [CONTEXT] que se antepone al mensaje: va hasta el primer renglón en blanco. */
+const CONTEXT_PREFIX_RE = /^\[CONTEXT\][\s\S]*?\n\n/;
+
+/**
+ * Junta lo que el asesor ha ESCRITO en la conversación, para las skills que
+ * verifican citas (ver `SkillContext.advisorWords`).
+ *
+ * Descarta los turnos del modelo y los resultados de funciones —que también
+ * viajan con rol USER pero no traen texto— y le quita a cada mensaje el bloque
+ * [CONTEXT] que le antepone este servicio: son fechas y datos de pantalla que
+ * el asesor nunca tecleó, y dejarlos ahí permitiría validar una cita contra
+ * algo que él no dijo.
+ */
+function collectAdvisorWords(history: AiMessage[]): string {
+  return history
+    .filter((m) => m.role === AiRole.USER)
+    .flatMap((m) => (m.parts ?? []) as { text?: unknown }[])
+    .map((p) => p.text)
+    .filter((t): t is string => typeof t === "string")
+    .map((t) => t.replace(CONTEXT_PREFIX_RE, ""))
+    .join("\n");
 }
 
 export class AiChatService {
@@ -124,11 +147,37 @@ export class AiChatService {
       if (parsedDomains.includes("policy") && !parsedDomains.includes("catalog")) {
         parsedDomains.push("catalog");
       }
+
+      // "¿Qué tengo que hacer en septiembre?" es una sola pregunta para el
+      // asesor, pero sus pendientes viven en DOS lados: los recordatorios que
+      // él creó y los compromisos que la IA sacó de sus notas. El clasificador
+      // lee eso como agenda y devuelve solo "reminder" — y la respuesta sale
+      // incompleta sin que nadie se entere. Van juntos siempre.
+      if (parsedDomains.includes("reminder") && !parsedDomains.includes("commitment")) {
+        parsedDomains.push("commitment");
+      }
+      if (parsedDomains.includes("commitment") && !parsedDomains.includes("reminder")) {
+        parsedDomains.push("reminder");
+      }
       
       activeDomains = [...new Set([...ALWAYS_ACTIVE, ...parsedDomains])];
     }
 
-    const tools = [{ functionDeclarations: buildToolDeclarations(activeDomains) }];
+    // Sin tareas pendientes, `resolve_pending_task` ni siquiera se ofrece.
+    //
+    // No es optimización: es quitarle al modelo una salida falsa. Cuando hay
+    // que desambiguar un cliente, en el turno de la aclaración ("el segundo")
+    // el modelo llama a resolve_pending_task —con un id inventado, porque no
+    // guardó ninguna— la da por buena y le confirma al asesor un compromiso
+    // que nunca creó. Pedírselo por prompt no bastó: se probó dos veces el
+    // 2026-08-28 y en la segunda cambió una mentira por otra ("lo registré en
+    // las notas", sin llamar a nada). Si la herramienta no existe en el turno,
+    // no hay a dónde escaparse: tiene que llamar a la que de verdad escribe.
+    const tools = [{
+      functionDeclarations: buildToolDeclarations(activeDomains, {
+        exclude: pendingTasks.length === 0 ? ["resolve_pending_task"] : [],
+      }),
+    }];
 
     // Fecha y hora local del asesor — implementación compartida con voz
     const { localIso, offsetStr } = buildLocalDateTime(timezone || DEFAULT_TIMEZONE);
@@ -163,6 +212,7 @@ export class AiChatService {
       ...this.skillContext,
       timezone: timezone || "America/Mexico_City",
       timezoneOffset: offsetStr || "-06:00",
+      advisorWords: collectAdvisorWords(history),
     };
 
     const classifyTokens = {
@@ -220,8 +270,13 @@ export class AiChatService {
         break;
       }
 
+      // Respuesta vacia: ni texto ni herramientas. Se sale del bucle en vez de
+      // tronar, por lo mismo que el agotamiento de turnos — abajo hay un intento
+      // de cierre y, si tampoco sale, un mensaje honesto. Un 502 aqui le diria
+      // al asesor que no paso nada cuando puede que ya se haya escrito.
       if (!result.functionCalls?.length) {
-        throw new AiError("El modelo no devolvió texto ni function calls.");
+        console.warn("[AiChat] El modelo no devolvió texto ni function calls");
+        break;
       }
 
       // Ejecutar function calls
@@ -298,6 +353,44 @@ export class AiChatService {
       nextInteractionInput = functionResponseSteps;
     }
 
+    // Se acabaron los turnos y el modelo sigue pidiendo herramientas.
+    //
+    // Antes esto tronaba con AiError y el asesor veía un error genérico —
+    // después de que el asistente YA hizo el trabajo: creó el compromiso, buscó
+    // al cliente, lo que fuera. Todo eso quedó escrito en la base y él se quedó
+    // creyendo que nada pasó, porque lo único que vio fue el error.
+    //
+    // Un turno más con las function calls bloqueadas: el modelo tiene el
+    // historial completo con lo que ya ejecutó, así que puede contarlo. Se
+    // mandan `tools` igual —sin cambiar el prefijo no se pierde el caching— y
+    // el bloqueo va por forceTextOnly, el mismo camino que ya usa el RAG vacío.
+    if (!finalText) {
+      console.warn(`[AiChat] MAX_LOOPS (${MAX_LOOPS}) agotado — turno final sin herramientas`);
+
+      const cierre = await this.aiProvider.processInteraction(
+        nextInteractionInput,
+        tools,
+        systemInstruction,
+        lastInteractionId,
+        history,
+        true,
+      );
+
+      if (cierre.usage) {
+        loopUsage.promptTokens += cierre.usage.promptTokens;
+        loopUsage.completionTokens += cierre.usage.completionTokens;
+        loopUsage.totalTokens += cierre.usage.totalTokens;
+        loopUsage.cachedTokens += cierre.usage.cachedTokens ?? 0;
+      }
+
+      if (cierre.text) {
+        const { displayText, citedNoteIds: cited } = extractCitations(cierre.text);
+        finalText = displayText;
+        citedNoteIds = cited;
+        history.push({ role: AiRole.MODEL, parts: [{ text: displayText }] });
+      }
+    }
+
     } catch (e) {
       if (e instanceof AiProviderError && currentSessionId) {
         await this.aiSessionService.markSessionProviderError(currentSessionId, e.message);
@@ -305,8 +398,18 @@ export class AiChatService {
       throw e;
     }
 
+    // Ultimo recurso: ni siquiera el turno de cierre produjo texto.
+    //
+    // Sigue sin ser un 502. Para cuando llegamos aqui el asistente pudo haber
+    // escrito de verdad —un compromiso, un recordatorio, una nota— y un error
+    // le diria al asesor lo contrario. Se contesta con la verdad: no se pudo
+    // resumir, revisa. Sin inventar que se hizo algo ni jurar que no se hizo
+    // nada, porque desde aqui no se sabe cual de las dos.
     if (!finalText) {
-      throw new AiError("El asistente no pudo generar una respuesta.");
+      console.warn("[AiChat] El turno de cierre tampoco devolvió texto");
+      finalText = "Me quedé sin poder resumirte lo que hice. Puede que sí haya " +
+        "quedado registrado — revisa tu agenda o vuelve a pedírmelo para confirmar.";
+      history.push({ role: AiRole.MODEL, parts: [{ text: finalText }] });
     }
 
     const totalUsage = {

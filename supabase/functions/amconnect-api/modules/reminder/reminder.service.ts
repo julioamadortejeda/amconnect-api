@@ -175,6 +175,21 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     return items ? items.map((r) => this.toDTO(r)) : null;
   }
 
+  /**
+   * Cuantos pendientes quedan mas alla de la ventana consultada. Lo usa
+   * `get_upcoming_reminders` para no presentar una lista recortada como si
+   * fuera toda la agenda.
+   */
+  async countPendingAfter(agentId: string, afterDate: string): Promise<number> {
+    const { data: excludedStatuses } = await this.reminderRepo.client
+      .from("reminder_statuses")
+      .select("id")
+      .in("code", ["DONE", "CANCELLED"]);
+
+    const excludedIds = excludedStatuses ? excludedStatuses.map((s) => s.id) : [];
+    return await this.reminderRepo.countPendingAfter(agentId, afterDate, excludedIds);
+  }
+
   async searchReminders(agentId: string, queryText: string, statusCode?: string): Promise<ReminderResponseDTO[] | null> {
     const items = await this.reminderRepo.searchReminders(agentId, queryText, statusCode);
     return items ? items.map((r) => this.toDTO(r)) : null;

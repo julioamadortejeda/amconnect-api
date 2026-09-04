@@ -280,17 +280,68 @@ export class AiSessionService {
     // deno-lint-ignore any
     const ttsModel = data.tts_model ? (Array.isArray(data.tts_model) ? data.tts_model[0] : data.tts_model) as any : null;
 
-    const calcCosts = (promptTokens: number, cachedTokens: number, completionTokens: number, model: any) => {
+    // El audio y el texto NO cuestan lo mismo en los modelos live: para
+    // gemini-live-2.5-flash-native-audio el texto de entrada vale $0.50/1M y el
+    // audio $3.00 — seis veces más. Cobrar todo a la tarifa de audio inflaba la
+    // factura 3.5x en una sesión real de voz, porque el prompt es casi todo
+    // texto (instrucciones + las 43 declaraciones de herramientas, que la Live
+    // API reenvía en cada turno).
+    //
+    // `desglose` es opcional a propósito: los modelos que no distinguen
+    // modalidad dejan las columnas de audio en NULL y todo se cobra a la tarifa
+    // de texto, que es su única tarifa.
+    const calcCosts = (
+      promptTokens: number,
+      cachedTokens: number,
+      completionTokens: number,
+      // deno-lint-ignore no-explicit-any
+      model: any,
+      desglose?: {
+        textPromptTokens: number;
+        audioPromptTokens: number;
+        textCompletionTokens: number;
+        audioCompletionTokens: number;
+      },
+    ) => {
       if (!model) return { inputCostUsd: 0, cacheReadCostUsd: 0, outputCostUsd: 0, totalCostUsd: 0 };
-      const nonCached = Math.max(0, promptTokens - cachedTokens);
-      const inputCostUsd = (nonCached * Number(model.input_cost_per_1m)) / 1_000_000;
+
+      const tarifaTexto = Number(model.input_cost_per_1m);
+      const tarifaAudioIn = model.audio_input_cost_per_1m != null
+        ? Number(model.audio_input_cost_per_1m)
+        : tarifaTexto;
+      const tarifaSalidaTexto = Number(model.output_cost_per_1m);
+      const tarifaAudioOut = model.audio_output_cost_per_1m != null
+        ? Number(model.audio_output_cost_per_1m)
+        : tarifaSalidaTexto;
+
       const cacheReadCostUsd = (cachedTokens * Number(model.cache_read_cost_per_1m ?? 0)) / 1_000_000;
-      const outputCostUsd = (completionTokens * Number(model.output_cost_per_1m)) / 1_000_000;
+
+      // Sin desglose —o con uno que no suma nada, que es lo que traen las filas
+      // viejas— se cae al comportamiento anterior en vez de cobrar cero.
+      const hayDesglose = desglose &&
+        (desglose.textPromptTokens + desglose.audioPromptTokens) > 0;
+
+      if (!hayDesglose) {
+        const nonCached = Math.max(0, promptTokens - cachedTokens);
+        const inputCostUsd = (nonCached * tarifaTexto) / 1_000_000;
+        const outputCostUsd = (completionTokens * tarifaSalidaTexto) / 1_000_000;
+        return { inputCostUsd, cacheReadCostUsd, outputCostUsd, totalCostUsd: inputCostUsd + cacheReadCostUsd + outputCostUsd };
+      }
+
+      // Lo cacheado se descuenta del texto: el prefijo que se repite entre
+      // turnos son las instrucciones y las herramientas, nunca el audio.
+      const textoSinCache = Math.max(0, desglose.textPromptTokens - cachedTokens);
+      const inputCostUsd =
+        (textoSinCache * tarifaTexto + desglose.audioPromptTokens * tarifaAudioIn) / 1_000_000;
+      const outputCostUsd =
+        (desglose.textCompletionTokens * tarifaSalidaTexto +
+          desglose.audioCompletionTokens * tarifaAudioOut) / 1_000_000;
+
       return { inputCostUsd, cacheReadCostUsd, outputCostUsd, totalCostUsd: inputCostUsd + cacheReadCostUsd + outputCostUsd };
     };
 
-    const chatCosts = calcCosts(usage.chat.promptTokens, usage.chat.cachedTokens, usage.chat.completionTokens, chatModel);
-    const extractionCosts = calcCosts(usage.extraction.promptTokens, usage.extraction.cachedTokens, usage.extraction.completionTokens, chatModel);
+    const chatCosts = calcCosts(usage.chat.promptTokens, usage.chat.cachedTokens, usage.chat.completionTokens, chatModel, usage.chat);
+    const extractionCosts = calcCosts(usage.extraction.promptTokens, usage.extraction.cachedTokens, usage.extraction.completionTokens, chatModel, usage.extraction);
 
     let embeddingCostUsd = 0;
     if (embeddingModel) {

@@ -36,10 +36,18 @@ export const contactSkills: SkillDefinition[] = [
         // respuesta ya trae completa) y no cambió nada, pero sí se quedaba en
         // el historial de la sesión: en voz Live el contexto se recobra en
         // cada turno, así que el texto muerto se paga una y otra vez.
-        __skillMetadata: {
-          type: "contact_list",
-          contacts: slim,
-        },
+        //
+        // Sin resultados no hay tarjeta: cero contactos pintaba un "Matching
+        // Contacts" con encabezado y nada debajo. Que no haya coincidencias ya
+        // lo dice el modelo con palabras.
+        ...(slim.length > 0
+          ? {
+            __skillMetadata: {
+              type: "contact_list",
+              contacts: slim,
+            },
+          }
+          : {}),
       };
     },
   },
@@ -144,10 +152,15 @@ export const contactSkills: SkillDefinition[] = [
       const slim = (contacts ?? []).map(slimContact);
       return {
         contacts: slim,
-        __skillMetadata: {
-          type: "contact_list",
-          contacts: slim,
-        },
+        // Mismo criterio que search_contact: sin filas no hay tarjeta.
+        ...(slim.length > 0
+          ? {
+            __skillMetadata: {
+              type: "contact_list",
+              contacts: slim,
+            },
+          }
+          : {}),
       };
     },
   },

@@ -10,12 +10,30 @@ import { KnowledgeIngestionService } from "../../document_processing/knowledge_i
 import { AiSessionService } from "../ai_session.service.ts";
 import { CatalogServices } from "../../../modules/catalog/catalog.service.ts";
 import { UsageService } from "../../../modules/subscription/usage.service.ts";
+import { CommitmentService } from "../../commitments/commitment.service.ts";
 
 export interface SkillContext {
   agentId: string;
   sessionId: string;
   timezone: string;
   timezoneOffset: string;
+  /**
+   * TODO lo que el asesor ha escrito en esta conversación, para las skills que
+   * verifican que el modelo copió sus palabras en vez de inventarlas.
+   *
+   * La conversación entera y no el último mensaje: entre que el asesor dice la
+   * frase y el modelo tiene lo que necesita para guardarla pueden pasar varios
+   * turnos —"¿cuál de los dos Julios?" / "al segundo"— y contra ese "al segundo"
+   * no coincide ninguna cita. Verificar solo el turno actual hacía imposible
+   * cualquier registro que necesitara una aclaración.
+   *
+   * Solo turnos del asesor: si entrara lo que dijo el modelo, podría citarse a
+   * sí mismo y la verificación no verificaría nada.
+   *
+   * Opcional porque en voz no existe: el contexto se arma una vez al abrir la
+   * sesión, no por turno. Quien lo use tiene que funcionar sin él.
+   */
+  advisorWords?: string;
   contactService: ContactService;
   knowledgeIngestionService: KnowledgeIngestionService;
   usageService: UsageService;
@@ -27,6 +45,7 @@ export interface SkillContext {
   embeddingsService: EmbeddingsService;
   aiSessionService: AiSessionService;
   catalogServices: CatalogServices;
+  commitmentService: CommitmentService;
 }
 
 /**

@@ -17,7 +17,15 @@ import { AiSessionService } from "./ai_session.service.ts";
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
 
-const ALL_DOMAINS = ["contact", "policy", "reminder", "pending_task", "catalog", "knowledge"];
+const ALL_DOMAINS = [
+  "contact",
+  "policy",
+  "reminder",
+  "pending_task",
+  "commitment",
+  "catalog",
+  "knowledge",
+];
 
 // Catalog CRUD de aseguradoras/ramos/productos (~786 tokens, 11% del payload de
 // tools) es un flujo administrativo poco realista por voz — se mantiene solo
@@ -32,6 +40,15 @@ const VOICE_EXCLUDED_SKILLS = [
   "update_branch",
   "create_product",
   "update_product",
+  // El chat de texto quita `resolve_pending_task` del turno cuando no hay
+  // tareas pendientes: dejarlo disponible le da al modelo una salida falsa —
+  // llama a resolver con un id inventado, la da por buena y le confirma al
+  // asesor un compromiso que nunca creo (comprobado el 2026-08-28; pedirselo
+  // por prompt no basto). En voz la lista de tools se arma UNA vez al abrir la
+  // sesion, asi que no se puede condicionar por turno; y como la voz nunca
+  // inyecta tareas pendientes en el [CONTEXT], el modelo jamas tiene un id
+  // legitimo que resolver. Fuera siempre.
+  "resolve_pending_task",
 ];
 
 function buildVoiceTools(): { function_declarations: FunctionDeclaration[] }[] {

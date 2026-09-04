@@ -1,6 +1,9 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { AppError, internalError } from "../../shared/errors.ts";
 
+/** Edad máxima de una tarea pendiente para seguir inyectándola en el contexto. */
+const PENDING_TASK_TTL_MS = 12 * 60 * 60 * 1000;
+
 export interface CreateSessionData {
   agentId: string;
   triggerMessage: string;
@@ -66,10 +69,10 @@ export interface IAiSessionRepository {
   insertChatMessages(rows: ChatMessageRow[]): Promise<void>;
   logTokenUsage(rows: TokenUsageRow | TokenUsageRow[]): Promise<void>;
   getSessionTokenUsageDetails(sessionId: string): Promise<{
-    chat: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number };
-    extraction: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number };
-    embedding: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number };
-    summary: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number };
+    chat: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    extraction: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    embedding: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    summary: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
   }>;
   getSessionWithRates(sessionId: string): Promise<Record<string, any> | null>;
 }
@@ -104,21 +107,33 @@ export class AiSessionRepository implements IAiSessionRepository {
   }
 
   async getSessionTokenUsageDetails(sessionId: string): Promise<{
-    chat: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number };
-    extraction: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number };
-    embedding: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number };
-    summary: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number };
+    chat: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    extraction: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    embedding: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    summary: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
   }> {
     const { data } = await this.supabase
       .from("tokens_usage")
-      .select("source, prompt_tokens, completion_tokens, total_tokens, cached_tokens")
+      .select("source, prompt_tokens, completion_tokens, total_tokens, cached_tokens, text_prompt_tokens, audio_prompt_tokens, text_completion_tokens, audio_completion_tokens")
       .eq("session_id", sessionId);
 
     const usage = {
-      chat: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0 },
-      extraction: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0 },
-      embedding: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0 },
-      summary: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0 },
+      chat: {
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0,
+        textPromptTokens: 0, audioPromptTokens: 0, textCompletionTokens: 0, audioCompletionTokens: 0,
+      },
+      extraction: {
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0,
+        textPromptTokens: 0, audioPromptTokens: 0, textCompletionTokens: 0, audioCompletionTokens: 0,
+      },
+      embedding: {
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0,
+        textPromptTokens: 0, audioPromptTokens: 0, textCompletionTokens: 0, audioCompletionTokens: 0,
+      },
+      summary: {
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0,
+        textPromptTokens: 0, audioPromptTokens: 0, textCompletionTokens: 0, audioCompletionTokens: 0,
+      },
     };
 
     if (!data) return usage;
@@ -128,27 +143,36 @@ export class AiSessionRepository implements IAiSessionRepository {
       const completion = row.completion_tokens ?? 0;
       const total = row.total_tokens ?? 0;
       const cached = row.cached_tokens ?? 0;
+      // El desglose por modalidad viaja aparte porque el audio y el texto NO
+      // cuestan lo mismo en los modelos live (migración 20260903060000).
+      const textPrompt = row.text_prompt_tokens ?? 0;
+      const audioPrompt = row.audio_prompt_tokens ?? 0;
+      const textCompletion = row.text_completion_tokens ?? 0;
+      const audioCompletion = row.audio_completion_tokens ?? 0;
+
+      const acumular = (b: {
+        promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number;
+        textPromptTokens: number; audioPromptTokens: number;
+        textCompletionTokens: number; audioCompletionTokens: number;
+      }) => {
+        b.promptTokens += prompt;
+        b.completionTokens += completion;
+        b.totalTokens += total;
+        b.cachedTokens += cached;
+        b.textPromptTokens += textPrompt;
+        b.audioPromptTokens += audioPrompt;
+        b.textCompletionTokens += textCompletion;
+        b.audioCompletionTokens += audioCompletion;
+      };
 
       if (row.source === "chat_text" || row.source === "chat_voice") {
-        usage.chat.promptTokens += prompt;
-        usage.chat.completionTokens += completion;
-        usage.chat.totalTokens += total;
-        usage.chat.cachedTokens += cached;
+        acumular(usage.chat);
       } else if (row.source === "extraction") {
-        usage.extraction.promptTokens += prompt;
-        usage.extraction.completionTokens += completion;
-        usage.extraction.totalTokens += total;
-        usage.extraction.cachedTokens += cached;
+        acumular(usage.extraction);
       } else if (row.source === "embedding") {
-        usage.embedding.promptTokens += prompt;
-        usage.embedding.completionTokens += completion;
-        usage.embedding.totalTokens += total;
-        usage.embedding.cachedTokens += cached;
+        acumular(usage.embedding);
       } else if (row.source === "summary") {
-        usage.summary.promptTokens += prompt;
-        usage.summary.completionTokens += completion;
-        usage.summary.totalTokens += total;
-        usage.summary.cachedTokens += cached;
+        acumular(usage.summary);
       }
     }
     return usage;
@@ -251,12 +275,27 @@ export class AiSessionRepository implements IAiSessionRepository {
     return data?.length ?? 0;
   }
 
+  /**
+   * Solo las de las últimas horas: una tarea a medias envejece mal.
+   *
+   * Estas filas se inyectan en el contexto de CADA mensaje de la sesión, y
+   * nada las caducaba. Una de hace seis días seguía en `pending` (real,
+   * 2026-08-28) — si la app reusa esa sesión, el asistente arrastra para
+   * siempre un "me falta la fecha de José" que el asesor dio por muerto hace
+   * una semana, y paga sus tokens en cada turno.
+   *
+   * La ventana es corta a propósito: una tarea pendiente es el hilo de una
+   * conversación en curso ("te falta decirme la fecha"), no un pendiente del
+   * asesor. Para eso están los compromisos, que sí viven en su propia pantalla.
+   */
   async getActivePendingTasks(sessionId: string): Promise<PendingTaskRow[]> {
+    const desde = new Date(Date.now() - PENDING_TASK_TTL_MS).toISOString();
     const { data } = await this.supabase
       .from("ai_pending_tasks")
       .select("id, task_type, payload")
       .eq("session_id", sessionId)
-      .eq("status", "pending");
+      .eq("status", "pending")
+      .gte("created_at", desde);
     return (data ?? []).map((t: Record<string, unknown>) => ({
       id: t.id as string,
       taskType: t.task_type as string,
@@ -274,13 +313,37 @@ export class AiSessionRepository implements IAiSessionRepository {
     return data.id;
   }
 
+  /**
+   * Pide la fila de vuelta y truena si no volvió ninguna.
+   *
+   * Un update que no coincide con nada NO es un error en PostgREST: devuelve
+   * cero filas y `error` en null. La skill lo leía como éxito y contestaba
+   * `{ resolved: true }` siempre. El 2026-08-28 el modelo llamó esta skill con
+   * un UUID inventado —no tenía ninguna tarea pendiente en contexto—, recibió
+   * el éxito, dio por hecho el trabajo y le confirmó al asesor un compromiso
+   * que jamás se guardó.
+   *
+   * Es el mismo agujero que tapa `assertHasChanges` en las skills de update:
+   * una escritura vacía tiene que ser distinguible de una exitosa.
+   */
   async resolvePendingTask(pendingTaskId: string, sessionId: string): Promise<void> {
-    const { error } = await this.supabase
+    const { data, error } = await this.supabase
       .from("ai_pending_tasks")
       .update({ status: "confirmed", updated_at: new Date().toISOString() })
       .eq("id", pendingTaskId)
-      .eq("session_id", sessionId);
+      .eq("session_id", sessionId)
+      .select("id")
+      .maybeSingle();
     if (error) throw new Error("No se pudo resolver la tarea pendiente.");
+    if (!data) {
+      // Sin el id en el mensaje: se lo devolvemos al modelo, que lo acaba de
+      // inventar, y repetírselo lo invita a insistir con el mismo.
+      throw new Error(
+        "There is no pending task with that id in this session. Do NOT call resolve_pending_task " +
+          "with an id you did not receive from the context: nothing was resolved. If you still have " +
+          "to record what the advisor asked for, call the skill that actually performs it.",
+      );
+    }
   }
 
 
@@ -311,7 +374,7 @@ export class AiSessionRepository implements IAiSessionRepository {
         tts_prompt_tokens,
         tts_completion_tokens,
         tts_total_tokens,
-        chat_model:model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m, cache_read_cost_per_1m),
+        chat_model:model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m, cache_read_cost_per_1m, audio_input_cost_per_1m, audio_output_cost_per_1m),
         embedding_model:embedding_model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m),
         tts_model:tts_model_name(model_name, provider, display_name, input_cost_per_1m, output_cost_per_1m)
       `)

@@ -4,6 +4,7 @@ import { DeviceTokenController } from "../controllers/device_token.controller.ts
 import { ContactController } from "../controllers/contact.controller.ts";
 import { PolicyController } from "../controllers/policy.controller.ts";
 import { ReminderController } from "../controllers/reminder.controller.ts";
+import { CommitmentController } from "../controllers/commitment.controller.ts";
 import { ReminderSettingController } from "../controllers/reminder_setting.controller.ts";
 import { AiController } from "../controllers/ai.controller.ts";
 import { VoiceChatController } from "../controllers/voice_chat.controller.ts";
@@ -81,6 +82,10 @@ apiRouter.post("/policies/:id/beneficiaries", PolicyController.addBeneficiary);
 apiRouter.delete("/notes/:id", PolicyController.deleteNote);
 
 // ─── Reminders ────────────────────────────────────────────────────────────────
+// Compromisos: lo que quedó pendiente con cada cliente, extraído de las notas.
+apiRouter.get("/commitments", CommitmentController.getAll);
+apiRouter.patch("/commitments/:id/close", CommitmentController.close);
+
 apiRouter.get("/reminders", ReminderController.getAll);
 apiRouter.get("/reminders/upcoming", ReminderController.getUpcoming);
 // Antes de /reminders/:id — si no, "settings" se leería como un id.

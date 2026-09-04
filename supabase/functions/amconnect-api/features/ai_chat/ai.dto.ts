@@ -50,8 +50,20 @@ export const AiIngestFileSchema = z.object({
 
 export type AiIngestFileDTO = z.infer<typeof AiIngestFileSchema>;
 
+/**
+ * Tope de una nota de texto.
+ *
+ * No es una defensa de costo —eso ya lo cubre la cuota de ingesta a partir de
+ * QUICK_NOTE_MAX_LENGTH— sino de calidad: el texto de un PDF pegado produce una
+ * nota mala, compromisos malos y ensucia el RAG. El límite es alto a propósito
+ * para no cortar una transcripción legítima de una junta con un cliente.
+ */
+export const NOTE_MAX_LENGTH = 2000;
+
 export const AiIngestTextSchema = z.object({
-  content: z.string().min(1, "El campo 'content' es requerido."),
+  content: z.string()
+    .min(1, "El campo 'content' es requerido.")
+    .max(NOTE_MAX_LENGTH),
   sourceType: z.enum(["whatsapp", "text"], {
     errorMap: () => ({ message: "sourceType debe ser: whatsapp | text." }),
   }),

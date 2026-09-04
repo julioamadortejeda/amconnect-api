@@ -343,6 +343,8 @@ export type Database = {
       }
       ai_models: {
         Row: {
+          audio_input_cost_per_1m: number | null
+          audio_output_cost_per_1m: number | null
           cache_read_cost_per_1m: number
           display_name: string | null
           input_cost_per_1m: number
@@ -352,6 +354,8 @@ export type Database = {
           provider: string
         }
         Insert: {
+          audio_input_cost_per_1m?: number | null
+          audio_output_cost_per_1m?: number | null
           cache_read_cost_per_1m?: number
           display_name?: string | null
           input_cost_per_1m?: number
@@ -361,6 +365,8 @@ export type Database = {
           provider: string
         }
         Update: {
+          audio_input_cost_per_1m?: number | null
+          audio_output_cost_per_1m?: number | null
           cache_read_cost_per_1m?: number
           display_name?: string | null
           input_cost_per_1m?: number
@@ -633,6 +639,75 @@ export type Database = {
             columns: ["agent_id"]
             isOneToOne: false
             referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      client_commitments: {
+        Row: {
+          agent_id: string
+          contact_id: string | null
+          created_at: string
+          deleted_at: string | null
+          due_from: string | null
+          due_to: string | null
+          id: string
+          is_active: boolean
+          label: string
+          quote: string
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by_session_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          agent_id: string
+          contact_id?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          due_from?: string | null
+          due_to?: string | null
+          id?: string
+          is_active?: boolean
+          label: string
+          quote: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by_session_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          agent_id?: string
+          contact_id?: string | null
+          created_at?: string
+          deleted_at?: string | null
+          due_from?: string | null
+          due_to?: string | null
+          id?: string
+          is_active?: boolean
+          label?: string
+          quote?: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by_session_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_commitments_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_commitments_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
             referencedColumns: ["id"]
           },
         ]
@@ -1643,10 +1718,13 @@ export type Database = {
       }
       cron_check_due_reminders: { Args: never; Returns: undefined }
       cron_generate_due_reminders: { Args: never; Returns: undefined }
+      daitch_mokotoff: { Args: { "": string }; Returns: string[] }
       decrement_monthly_usage: {
         Args: { p_agent_id: string; p_field: string }
         Returns: undefined
       }
+      dmetaphone: { Args: { "": string }; Returns: string }
+      dmetaphone_alt: { Args: { "": string }; Returns: string }
       get_notification_secret: { Args: never; Returns: string }
       get_supabase_url: { Args: never; Returns: string }
       get_vault_secret: { Args: { p_name: string }; Returns: string }
@@ -1714,6 +1792,10 @@ export type Database = {
               similarity: number
             }[]
           }
+      search_commitment_ids: {
+        Args: { p_agent_id: string; p_query: string }
+        Returns: string[]
+      }
       search_contacts: {
         Args: { p_agent_id: string; p_query: string; p_threshold?: number }
         Returns: {
@@ -1739,8 +1821,15 @@ export type Database = {
           summary: string
         }[]
       }
+      search_reminder_ids: {
+        Args: { p_agent_id: string; p_query: string }
+        Returns: string[]
+      }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
+      soundex: { Args: { "": string }; Returns: string }
+      text_soundex: { Args: { "": string }; Returns: string }
+      unaccent: { Args: { "": string }; Returns: string }
     }
     Enums: {
       [_ in never]: never

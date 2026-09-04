@@ -16,6 +16,7 @@ import {
   AiIngestFileSchema,
   AiIngestPolicySchema,
   AiIngestTextSchema,
+  NOTE_MAX_LENGTH,
   AiProcessDocumentRequestSchema,
   AiResolveContactMismatchSchema,
 } from "../../features/ai_chat/ai.dto.ts";
@@ -177,6 +178,17 @@ export class AiController {
     const usageService = c.get("usage_service") as UsageService;
 
     const body = await c.req.json();
+    // Antes del parse para poder dar un errorCode propio: un ZodError se aplana
+    // a VALIDATION_FAILED con "Datos de entrada inválidos", que no le dice al
+    // asesor qué hacer con su nota.
+    if (typeof body?.content === "string" && body.content.length > NOTE_MAX_LENGTH) {
+      throw new AppError(
+        "La nota excede el máximo de caracteres.",
+        422,
+        "NOTE_TOO_LONG",
+      );
+    }
+
     const { content, sourceType, contactId, policyId, reminderId, makeGeneral, isClientNote } = AiIngestTextSchema.parse(body);
 
     // Solo las notas rápidas de cliente (isClientNote) se libran de la cuota

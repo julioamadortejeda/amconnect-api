@@ -38,7 +38,20 @@ export const pendingTaskSkills: SkillDefinition[] = [
     },
     async execute(args, ctx) {
       await ctx.aiSessionService.resolvePendingTask(args.pending_task_id as string, ctx.sessionId);
-      return { resolved: true };
+      // La instrucción es explícita por la misma razón que el sobre `ok: false`
+      // de skill_executor: una fila de `ai_pending_tasks` se parece demasiado a
+      // un registro de verdad —trae task_type "create_commitment", contact_id y
+      // descripción— y el modelo la toma por el guardado. Comprobado el
+      // 2026-08-28: hizo save_pending_task + resolve_pending_task, no llamó a
+      // create_commitment, y le confirmó al asesor un compromiso inexistente.
+      return {
+        resolved: true,
+        instruction:
+          "This was BOOKKEEPING ONLY. Nothing was created, updated or saved by this call, and a " +
+          "pending task is NOT a record the advisor can see. If they asked you to record something, " +
+          "call the skill that actually performs it NOW, in this same turn, before you answer. Never " +
+          "tell the advisor something was registered on the strength of this call.",
+      };
     },
   },
 ];

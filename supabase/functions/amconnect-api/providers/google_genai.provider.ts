@@ -228,7 +228,15 @@ export class GoogleGenAiProvider implements IAiProvider {
       );
     }
 
-    const parsed = JSON.parse(response.text);
+    // Mismo riesgo que en classifyMessage: responseMimeType no garantiza JSON
+    // bien formado. Aqui si es un fallo real —no hay extraccion sin datos— pero
+    // el SyntaxError crudo no dice de donde vino.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(response.text);
+    } catch {
+      throw new AiError("El modelo devolvió una respuesta que no es JSON válido.");
+    }
 
     return {
       data: schema.parse(parsed),
@@ -281,7 +289,29 @@ Advisor message: "${message}"`;
       wrapGeminiError(e, "classifyMessage");
     }
 
-    const parsed = JSON.parse(response.text ?? "{}");
+    // El clasificador NUNCA debe tumbar la conversación.
+    //
+    // `responseMimeType: "application/json"` es una peticion, no una garantia:
+    // el modelo puede cortar la respuesta a medias o dejar una coma colgando y
+    // JSON.parse tira SyntaxError. Sin este catch, ese error subia sin tocar
+    // nada hasta el controller y el asesor recibia un 500 — reproducido en
+    // LOCAL el 2026-09-04, con "...tment",\n  ]\n}" como respuesta del
+    // clasificador. No se ha observado en produccion; puede estar pasando sin
+    // que nadie lo relacione, porque el asesor solo ve "Error interno".
+    //
+    // El fallback son TODOS los dominios, no ninguno. La unica funcion del
+    // clasificador es RECORTAR la lista de herramientas; si falla, lo correcto
+    // es no recortar. Con lista vacia el modelo se queda sin las herramientas
+    // que necesitaba y contesta que no puede hacer nada, que es peor que un
+    // error: parece una respuesta.
+    let parsed: { domains?: string[] };
+    try {
+      parsed = JSON.parse(response.text ?? "{}");
+    } catch {
+      console.warn("[classifyMessage] JSON inválido del clasificador — se usan todos los dominios");
+      parsed = { domains: availableDomains };
+    }
+
     return {
       domains: parsed.domains ?? [],
       usage: response.usageMetadata

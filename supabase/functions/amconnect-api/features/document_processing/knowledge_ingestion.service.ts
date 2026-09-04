@@ -9,7 +9,7 @@ import { AiInvokedError, AiProviderError, AppError, ValidationError } from "../.
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
 
 // Solo para archivos binarios (pdf/imagen/audio): extraer texto fiel, sin resumir
-const RawExtractionSchema = z.object({
+const RawExtractionBase = z.object({
   summary: z.string().describe("1-2 sentence human-readable description of the document content in the SAME LANGUAGE as the source document. Describe what was found in a way useful for an insurance advisor to quickly understand the note without reading the full content."),
   content: z.string().describe("Full verbatim text extracted from the document, in the same language as the source. Do NOT summarize — transcribe everything faithfully."),
   responseMessage: z.string().describe("A friendly confirmation message in the advisor's preferred language (as instructed in the system prompt), indicating the document was successfully processed. Max 30 words."),
@@ -91,12 +91,12 @@ export class KnowledgeIngestionService {
 
     // From this point forward, any error must be AiInvokedError so the controller
     // marks the session as failed instead of deleting it.
-    let extraction: z.infer<typeof RawExtractionSchema>;
+    let extraction: z.infer<typeof RawExtractionBase>;
     let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } | undefined;
     try {
       const result = await this.aiProvider.generateStructuredData(
         prompt,
-        RawExtractionSchema,
+        RawExtractionBase,
         inlineData,
       );
       extraction = result.data;
@@ -146,6 +146,9 @@ export class KnowledgeIngestionService {
         embeddingCount += genResult.embeddingCount;
       }
 
+
+      // Compromisos: solo de audio e imagen, NUNCA de PDF.
+      //
       await this.aiSessionService.trackIngestionUsage(
         agentId,
         sessionId,
@@ -199,6 +202,14 @@ export class KnowledgeIngestionService {
     try {
       if (isQuickNote) {
         // Texto ya lo bastante corto para leerse tal cual — sin llamada de IA.
+        //
+        // Durante unos días TODAS las notas pasaron por la IA, porque de ahí se
+        // extraían compromisos y los del asesor atareado viven justo en las
+        // notas cortas. Costó lo que tenía que costar: una acción que era
+        // instantánea se puso a esperar a un modelo, el diálogo de nota rápida
+        // se cerraba sin que pareciera pasar nada, y llegó a fallar el guardado.
+        // Los compromisos se crean ahora en el asistente y la nota volvió a ser
+        // lo que era: un registro del expediente.
         aiResult = {
           data: {
             summary: content,

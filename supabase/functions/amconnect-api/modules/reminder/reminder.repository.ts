@@ -65,8 +65,25 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
       }
     }
 
+    // Los ids salen de search_reminder_ids y no de un `ilike` aqui porque
+    // `ilike` NO ignora acentos: el asesor teclea "diagnostico" sin acento y el
+    // recordatorio dice "diagnóstico", y la busqueda devolvia cero en silencio
+    // (migracion 20260903030000). El select de arriba se queda intacto — la
+    // funcion solo decide QUE filas, no que columnas.
     if (queryText) {
-      q = q.or(`title.ilike.%${queryText}%,description.ilike.%${queryText}%`);
+      const { data: ids, error: idsError } = await this.supabase
+        .rpc("search_reminder_ids", { p_agent_id: agentId, p_query: queryText });
+
+      if (idsError) {
+        console.error("[ReminderRepository.searchReminders] rpc:", idsError);
+        return null;
+      }
+
+      const lista = (ids ?? []) as unknown as string[];
+      // Sin coincidencias es una lista vacia, no "sin filtro": omitir el filtro
+      // aqui devolveria TODOS los recordatorios como si todos coincidieran.
+      if (lista.length === 0) return [];
+      q = q.in("id", lista);
     }
 
     const { data, error } = await q.order("due_date", { ascending: true });
@@ -137,5 +154,39 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
       return null;
     }
     return data as unknown as ReminderResponseDTO[];
+  }
+
+  /**
+   * Cuantos recordatorios pendientes quedan DESPUES de una fecha.
+   *
+   * Existe para que `get_upcoming_reminders` pueda decir que su ventana por
+   * defecto recorto algo. Sin este numero, "que tengo pendiente" contestaba con
+   * los proximos 7 dias y se veia igual de completa que la respuesta completa:
+   * un recordatorio a 12 dias simplemente no aparecia y nadie se enteraba.
+   *
+   * `head: true` — solo interesa el conteo, no traer las filas.
+   */
+  async countPendingAfter(
+    agentId: string,
+    afterDate: string,
+    excludedStatusIds: string[],
+  ): Promise<number> {
+    let query = this.supabase
+      .from("reminders")
+      .select("id", { count: "exact", head: true })
+      .eq("agent_id", agentId)
+      .eq("is_active", true)
+      .gt("due_date", afterDate);
+
+    if (excludedStatusIds.length > 0) {
+      query = query.not("status_id", "in", `(${excludedStatusIds.join(",")})`);
+    }
+
+    const { count, error } = await query;
+    if (error) {
+      console.error("[ReminderRepository.countPendingAfter]:", error);
+      return 0;
+    }
+    return count ?? 0;
   }
 }

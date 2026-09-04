@@ -1,5 +1,6 @@
 import { Context, Next } from "hono";
 import { createClient } from "@supabase/supabase-js";
+import type { Database } from "../../types/supabase.ts";
 import { UnauthorizedError } from "../../shared/errors.ts";
 
 export const authMiddleware = async (c: Context, next: Next) => {
@@ -14,7 +15,7 @@ export const authMiddleware = async (c: Context, next: Next) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") as string;
   const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY") as string;
 
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: authHeader } },
     auth: { persistSession: false },
   });

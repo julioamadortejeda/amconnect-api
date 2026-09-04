@@ -59,7 +59,7 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "create_reminder",
-      description: "Creates a new general reminder or task (not assigned to a specific client, or optionally assigned via contact_id). CRITICAL: Do not aggressively or automatically search for, resolve, or link a contact_id or policy_id to the reminder unless the user explicitly asks to associate it with a client or policy. Pronouns like 'me', 'mi', 'mis', 'tengo que', 'recuérdame' signal a personal/general task — keep contact_id and policy_id undefined in that case. If the user asks for a personal reminder or simple task (e.g. 'recuerdame enviar documentacion de mi poliza RC'), leave contact_id and policy_id as undefined. Only use them when explicitly requested. If the title or description are not explicitly provided by the user, you must intelligently generate an appropriate title (a very short summary like 'Llamar a Juan', 'Ir a junta') and a detailed description/summary from the context of what the advisor requested. Status is automatically set to CREATED.",
+      description: "Creates a new general reminder or task (not assigned to a specific client, or optionally assigned via contact_id). A reminder is pinned to ONE specific day and alerts the advisor, so it needs that day: if the advisor gave a fuzzy window ('en unos días', 'la próxima semana', 'en diciembre') or no date at all, do NOT ask them to pick one — use create_commitment instead. CRITICAL: Do not aggressively or automatically search for, resolve, or link a contact_id or policy_id to the reminder unless the user explicitly asks to associate it with a client or policy. Pronouns like 'me', 'mi', 'mis', 'tengo que', 'recuérdame' signal a personal/general task — keep contact_id and policy_id undefined in that case. If the user asks for a personal reminder or simple task (e.g. 'recuerdame enviar documentacion de mi poliza RC'), leave contact_id and policy_id as undefined. Only use them when explicitly requested. If the title or description are not explicitly provided by the user, you must intelligently generate an appropriate title (a very short summary like 'Llamar a Juan', 'Ir a junta') and a detailed description/summary from the context of what the advisor requested. Status is automatically set to CREATED.",
       schema: z.object({
         type_id: z.string().optional().describe("UUID of the reminder type (obtained from get_reminder_types)"),
         reminder_type_id: z.string().optional().describe("Alternative name for type_id (UUID of the reminder type)"),
@@ -144,6 +144,20 @@ export const reminderSkills: SkillDefinition[] = [
 
       const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, fromEff, toEff);
       const slim = (reminders ?? []).map((r) => slimReminder(r, ctx));
+
+      // Cuántos pendientes quedan DESPUÉS de la ventana consultada.
+      //
+      // Se cuenta SIEMPRE, no solo cuando `usedDefault`. Medido el 2026-09-03:
+      // ante "¿qué tengo pendiente?" —sin ninguna referencia de tiempo— el
+      // modelo NO dejó los campos vacíos como pide la descripción de la skill;
+      // calculó él mismo una ventana de 7 días y la mandó en `from`/`to`. Con
+      // eso `usedDefault` era false y el aviso no salía nunca, que es
+      // exactamente el caso que venía a cubrir: un horizonte que el asesor
+      // jamás pidió, ocultando un recordatorio a 12 días.
+      //
+      // El conteo es `head: true`, así que cuesta una consulta sin filas.
+      const fueraDeRango = await ctx.reminderService.countPendingAfter(ctx.agentId, toEff);
+
       return {
         queriedRange: {
           from: utcToLocalIso(fromEff, ctx.timezone),
@@ -152,6 +166,24 @@ export const reminderSkills: SkillDefinition[] = [
             ? "No explicit range was requested — this is the DEFAULT 7-day window. If the user asked about a narrower timeframe (e.g. today), filter by dueDate before answering."
             : undefined,
         },
+        // Aparece siempre que de verdad quede algo fuera, sin importar quién
+        // fijó la ventana: así el modelo no puede presentar una lista recortada
+        // como si fuera toda la agenda.
+        ...(fueraDeRango > 0
+          ? {
+            beyondRange: {
+              count: fueraDeRango,
+              instruction:
+                `${fueraDeRango} more pending reminder(s) fall AFTER the window above. ` +
+                "If the advisor named this timeframe themselves ('este mes', 'hoy'), you may " +
+                "leave them out silently — they asked for that period. But if they did NOT " +
+                "name one ('que tengo pendiente', 'que traigo'), the window is YOURS, not " +
+                "theirs: say which period you are showing, say there are more further out, " +
+                "and offer to list them. Passing your own cut off as their whole agenda is a " +
+                "false answer told with full confidence.",
+            },
+          }
+          : {}),
         reminders: slim,
         __skillMetadata: {
           type: "reminder_list",
