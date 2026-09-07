@@ -45,12 +45,19 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
     return super.paginate(filters, page, pageSize, { column: "due_date", ascending: true, nullsFirst: false });
   }
 
-  async searchReminders(agentId: string, queryText: string, statusCode?: string): Promise<ReminderResponseDTO[] | null> {
+  async searchReminders(
+    agentId: string,
+    queryText: string,
+    statusCode?: string,
+    contactId?: string,
+  ): Promise<ReminderResponseDTO[] | null> {
     let q = this.supabase
       .from("reminders")
       .select(REMINDER_SELECT)
       .eq("agent_id", agentId)
       .eq("is_active", true);
+
+    if (contactId) q = q.eq("contact_id", contactId);
 
     if (statusCode) {
       const { data: statusData } = await this.supabase
@@ -135,14 +142,28 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
     if (error) throw internalError("No se pudo registrar el log de notificación.", `log notification failed for ${reminderId}: ${error.message}`);
   }
 
-  async getUpcomingReminders(agentId: string, fromDate: string, toDate: string, excludedStatusIds: string[]): Promise<ReminderResponseDTO[] | null> {
+  /**
+   * `fromDate`/`toDate` en null es "sin ese limite", no un error: cuando la
+   * pregunta va acotada a un cliente no hay ventana que valga. Un recordatorio
+   * de Julio dentro de tres meses sigue siendo un pendiente de Julio, y
+   * recortarlo a los proximos 7 dias lo esconde sin decirlo.
+   */
+  async getUpcomingReminders(
+    agentId: string,
+    fromDate: string | null,
+    toDate: string | null,
+    excludedStatusIds: string[],
+    contactId?: string,
+  ): Promise<ReminderResponseDTO[] | null> {
     let query = this.supabase
       .from("reminders")
       .select(REMINDER_SELECT)
       .eq("agent_id", agentId)
-      .eq("is_active", true)
-      .gte("due_date", fromDate)
-      .lte("due_date", toDate);
+      .eq("is_active", true);
+
+    if (fromDate) query = query.gte("due_date", fromDate);
+    if (toDate) query = query.lte("due_date", toDate);
+    if (contactId) query = query.eq("contact_id", contactId);
 
     if (excludedStatusIds.length > 0) {
       query = query.not("status_id", "in", `(${excludedStatusIds.join(",")})`);
@@ -166,10 +187,48 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
    *
    * `head: true` — solo interesa el conteo, no traer las filas.
    */
+  /**
+   * Cuantos recordatorios pendientes quedan ANTES de una fecha.
+   *
+   * Hermano de `countPendingAfter`, y hacia el lado que faltaba. Medido el
+   * 2026-09-04: "que tengo pendiente de Zarah el proximo mes" contestaba que en
+   * octubre no habia nada y se callaba el del domingo siguiente, porque caia
+   * antes de la ventana y nadie lo miraba. En la pregunta general el mismo
+   * hueco esconde lo VENCIDO, que es lo mas urgente de la agenda.
+   *
+   * `head: true` — solo el conteo.
+   */
+  async countPendingBefore(
+    agentId: string,
+    beforeDate: string,
+    excludedStatusIds: string[],
+    contactId?: string,
+  ): Promise<number> {
+    let query = this.supabase
+      .from("reminders")
+      .select("id", { count: "exact", head: true })
+      .eq("agent_id", agentId)
+      .eq("is_active", true)
+      .lt("due_date", beforeDate);
+
+    if (excludedStatusIds.length > 0) {
+      query = query.not("status_id", "in", `(${excludedStatusIds.join(",")})`);
+    }
+    if (contactId) query = query.eq("contact_id", contactId);
+
+    const { count, error } = await query;
+    if (error) {
+      console.error("[ReminderRepository.countPendingBefore]:", error);
+      return 0;
+    }
+    return count ?? 0;
+  }
+
   async countPendingAfter(
     agentId: string,
     afterDate: string,
     excludedStatusIds: string[],
+    contactId?: string,
   ): Promise<number> {
     let query = this.supabase
       .from("reminders")
@@ -177,6 +236,11 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
       .eq("agent_id", agentId)
       .eq("is_active", true)
       .gt("due_date", afterDate);
+
+    // El aviso de "quedan N mas alla de la ventana" tiene que contar lo mismo
+    // que se listo. Sin este filtro, una pregunta por Julio avisaria de
+    // pendientes de otros clientes.
+    if (contactId) query = query.eq("contact_id", contactId);
 
     if (excludedStatusIds.length > 0) {
       query = query.not("status_id", "in", `(${excludedStatusIds.join(",")})`);

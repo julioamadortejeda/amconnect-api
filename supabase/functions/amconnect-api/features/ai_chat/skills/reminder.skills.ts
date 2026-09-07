@@ -126,23 +126,33 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "get_upcoming_reminders",
-      description: "Retrieves the advisor's upcoming reminders within a date range. Only returns pending or in progress reminders. CRITICAL: If the user gives a relative time expression (e.g. 'today', 'this week', 'next 2 days', 'hoy', 'esta semana'), you MUST resolve it into local 'from'/'to' ISO 8601 bounds using the current date/time and timezone offset from the [CONTEXT] block. For 'today' (hoy) -> 'from' is today at 00:00:00 and 'to' is today at 23:59:59 using the local offset. If no time reference is given, leave both fields empty to query the default next 7 days. The response includes 'queriedRange' with the exact window consulted — before answering, verify each reminder's dueDate actually falls within the timeframe the user asked about.",
+      description: "Retrieves the advisor's upcoming reminders within a date range. Only returns pending or in progress reminders. CRITICAL: If the user gives a relative time expression (e.g. 'today', 'this week', 'next 2 days', 'hoy', 'esta semana'), you MUST resolve it into local 'from'/'to' ISO 8601 bounds using the current date/time and timezone offset from the [CONTEXT] block. For 'today' (hoy) -> 'from' is today at 00:00:00 and 'to' is today at 23:59:59 using the local offset. If no time reference is given, leave both fields empty to query the default next 7 days. The response includes 'queriedRange' with the exact window consulted — before answering, verify each reminder's dueDate actually falls within the timeframe the user asked about. WHEN THE QUESTION IS ABOUT ONE PERSON ('que tengo pendiente de Julio', 'que le debo a Maria', 'de que quedamos con Rafael'), resolve them with search_contact first and pass their id as contact_id. WITHOUT contact_id this tool returns the advisor's ENTIRE agenda, and you would be reading them other clients' reminders as if they belonged to that person. With contact_id and no from/to, the answer is EVERY pending reminder for that contact with no date limit — that is what asking about a person means, so do NOT invent a window of your own.",
       schema: z.object({
         from: z.string().optional().describe("Local start range (ISO 8601, e.g. '2026-07-04T00:00:00-06:00'). MUST be calculated relative to [CONTEXT]'s local time when querying a relative timeframe."),
         to: z.string().optional().describe("Local end range (ISO 8601, e.g. '2026-07-04T23:59:59-06:00'). MUST be calculated relative to [CONTEXT]'s local time when querying a relative timeframe."),
+        contact_id: z.string().optional().describe("UUID of a contact, taken from search_contact. Send it whenever the advisor's question is about one person, so the answer stays scoped to them instead of returning the whole agenda."),
       }),
     },
-    async execute({ from, to }, ctx) {
+    async execute({ from, to, contact_id }, ctx) {
+      const contactId = contact_id as string | undefined;
+
       // Rango efectivo explícito: si el modelo no manda bounds se aplica el
       // mismo default del service (próximos 7 días), pero informándolo en la
       // respuesta para que el modelo sepa qué ventana está viendo y no
       // presente tareas de mañana como pendientes de "hoy".
-      const usedDefault = !from && !to;
+      //
+      // Con `contact_id` la ventana por defecto NO aplica. Reportado por el
+      // asesor de pruebas: preguntar por los pendientes de un cliente traía
+      // los suyos y además la agenda próxima de todos los demás. Acotado a una
+      // persona, "pendiente" no significa "esta semana" — significa todo lo que
+      // le queda abierto, así esté a tres meses.
+      const scoped = !!contactId;
+      const usedDefault = !from && !to && !scoped;
       const defaults = daysFromNowRange(7);
-      const fromEff = (from as string | undefined) ?? defaults.from;
-      const toEff = (to as string | undefined) ?? defaults.to;
+      const fromEff = (from as string | undefined) ?? (scoped ? null : defaults.from);
+      const toEff = (to as string | undefined) ?? (scoped ? null : defaults.to);
 
-      const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, fromEff, toEff);
+      const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, fromEff, toEff, contactId);
       const slim = (reminders ?? []).map((r) => slimReminder(r, ctx));
 
       // Cuántos pendientes quedan DESPUÉS de la ventana consultada.
@@ -156,16 +166,47 @@ export const reminderSkills: SkillDefinition[] = [
       // jamás pidió, ocultando un recordatorio a 12 días.
       //
       // El conteo es `head: true`, así que cuesta una consulta sin filas.
-      const fueraDeRango = await ctx.reminderService.countPendingAfter(ctx.agentId, toEff);
+      // Sin tope superior no hay nada "más allá de la ventana" que contar, y la
+      // consulta se ahorra.
+      const fueraDeRango = toEff
+        ? await ctx.reminderService.countPendingAfter(ctx.agentId, toEff, contactId)
+        : 0;
+
+      // Y hacia atrás, que era el lado ciego. Medido el 2026-09-04: "qué tengo
+      // pendiente de Zarah el próximo mes" contestó que en octubre no había
+      // nada y se calló el del domingo siguiente, porque caía ANTES de la
+      // ventana y nadie lo miraba. En la pregunta general el mismo hueco
+      // esconde lo vencido — lo más urgente de la agenda.
+      const antesDeRango = fromEff
+        ? await ctx.reminderService.countPendingBefore(ctx.agentId, fromEff, contactId)
+        : 0;
+
+      // Cuando la ventana arranca en el futuro ("el próximo mes"), lo que queda
+      // antes mezcla lo vencido con lo que todavía está por venir. Se separan
+      // para poder nombrar los vencidos por su nombre en vez de decir "algunos".
+      // Con la ventana por defecto, que arranca ahora, ya son lo mismo y la
+      // segunda consulta no se hace.
+      const ahora = new Date();
+      const ventanaArrancaEnElPasado = !!fromEff && new Date(fromEff).getTime() <= ahora.getTime();
+      const vencidos = antesDeRango === 0
+        ? 0
+        : ventanaArrancaEnElPasado
+        ? antesDeRango
+        : await ctx.reminderService.countPendingBefore(ctx.agentId, ahora.toISOString(), contactId);
 
       return {
         queriedRange: {
-          from: utcToLocalIso(fromEff, ctx.timezone),
-          to: utcToLocalIso(toEff, ctx.timezone),
+          from: fromEff ? utcToLocalIso(fromEff, ctx.timezone) : null,
+          to: toEff ? utcToLocalIso(toEff, ctx.timezone) : null,
           note: usedDefault
             ? "No explicit range was requested — this is the DEFAULT 7-day window. If the user asked about a narrower timeframe (e.g. today), filter by dueDate before answering."
-            : undefined,
+            : (scoped && !from && !to
+              ? "Scoped to ONE contact with no date limit: this is every pending reminder that contact has, near or far. Nothing was cut off by a window."
+              : undefined),
         },
+        // Para que el modelo no presente una lista de un solo cliente como si
+        // fuera la agenda completa del asesor.
+        ...(scoped ? { scope: "contact" as const } : {}),
         // Aparece siempre que de verdad quede algo fuera, sin importar quién
         // fijó la ventana: así el modelo no puede presentar una lista recortada
         // como si fuera toda la agenda.
@@ -181,6 +222,25 @@ export const reminderSkills: SkillDefinition[] = [
                 "theirs: say which period you are showing, say there are more further out, " +
                 "and offer to list them. Passing your own cut off as their whole agenda is a " +
                 "false answer told with full confidence.",
+            },
+          }
+          : {}),
+        // El hermano de beyondRange. Un pendiente vencido no es algo que el
+        // asesor haya elegido excluir al nombrar un periodo: preguntó por unas
+        // fechas, no pidió esconder lo que ya se le pasó.
+        ...(antesDeRango > 0
+          ? {
+            beforeRange: {
+              count: antesDeRango,
+              overdueCount: vencidos,
+              instruction: `${antesDeRango} pending reminder(s) fall BEFORE the window above, so they are NOT in the list you just received. ` +
+                (vencidos > 0
+                  ? `${vencidos} of them are already OVERDUE — the due date passed and they are still open. ` +
+                    "Overdue work is the most urgent thing on the agenda and this list cannot show it: say how many there are " +
+                    "and offer to list them, even when the advisor named the timeframe themselves. "
+                  : "They are simply earlier than the period asked about, so mention that they exist and offer to list them " +
+                    "instead of letting your answer read as if nothing else were pending. ") +
+                "To list them, call this tool again with a 'from' earlier than the current window.",
             },
           }
           : {}),
@@ -279,13 +339,14 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "search_reminders",
-      description: "Searches for reminders by text matching in title or description, optionally allowing filtering by status code.",
+      description: "Searches for reminders by text matching in title or description, optionally allowing filtering by status code, and optionally narrowed to a single client. When the advisor's question names a person, resolve them with search_contact and pass contact_id — otherwise the search spans their whole portfolio and returns other clients' reminders.",
       schema: z.object({
         query: z.string().describe("Text to search for in title or description"),
         status: z.string().optional().describe(STATUS_FILTER_DESC),
+        contact_id: z.string().optional().describe("UUID of a contact, taken from search_contact. Send it when the question is about one person so the search stays scoped to them."),
       }),
     },
-    async execute({ query, status }, ctx) {
+    async execute({ query, status, contact_id }, ctx) {
       // Mismo motivo que en update_reminder: si llega el UUID del estado se
       // traduce a su code, que es lo que filtra el repositorio. Sin esto la
       // búsqueda no truena — devuelve vacío, que es peor.
@@ -294,7 +355,12 @@ export const reminderSkills: SkillDefinition[] = [
         const all = await ctx.catalogServices.reminderStatusService.getAll();
         statusCode = all?.find((s) => s.id === statusCode)?.code as string | undefined;
       }
-      const items = await ctx.reminderService.searchReminders(ctx.agentId, query as string, statusCode);
+      const items = await ctx.reminderService.searchReminders(
+        ctx.agentId,
+        query as string,
+        statusCode,
+        contact_id as string | undefined,
+      );
       return (items ?? []).map((r) => slimReminder(r, ctx));
     },
   },

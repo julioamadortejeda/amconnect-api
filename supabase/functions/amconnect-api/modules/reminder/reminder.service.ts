@@ -159,19 +159,27 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     return row ? this.toDTO(row) : null;
   }
 
-  async getUpcoming(agentId: string, fromDate?: string, toDate?: string): Promise<ReminderResponseDTO[] | null> {
+  /**
+   * Tres valores distintos en las fechas, a proposito:
+   * `undefined` = nadie pidio ventana, se aplica el default de 7 dias.
+   * `null`      = sin limite por ese lado, decidido por quien llama.
+   * una fecha   = esa.
+   *
+   * La diferencia importa desde que se puede preguntar por un cliente: ahi la
+   * respuesta correcta es todo lo que le queda pendiente, no lo de esta semana.
+   */
+  async getUpcoming(
+    agentId: string,
+    fromDate?: string | null,
+    toDate?: string | null,
+    contactId?: string,
+  ): Promise<ReminderResponseDTO[] | null> {
     const defaultRange = daysFromNowRange(7);
-    const from = fromDate ?? defaultRange.from;
-    const to = toDate ?? defaultRange.to;
+    const from = fromDate === undefined ? defaultRange.from : fromDate;
+    const to = toDate === undefined ? defaultRange.to : toDate;
 
-    const { data: excludedStatuses } = await this.reminderRepo.client
-      .from("reminder_statuses")
-      .select("id")
-      .in("code", ["DONE", "CANCELLED"]);
-
-    const excludedIds = excludedStatuses ? excludedStatuses.map((s) => s.id) : [];
-
-    const items = await this.reminderRepo.getUpcomingReminders(agentId, from, to, excludedIds);
+    const excludedIds = await this.excludedStatusIds();
+    const items = await this.reminderRepo.getUpcomingReminders(agentId, from, to, excludedIds, contactId);
     return items ? items.map((r) => this.toDTO(r)) : null;
   }
 
@@ -180,18 +188,36 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
    * `get_upcoming_reminders` para no presentar una lista recortada como si
    * fuera toda la agenda.
    */
-  async countPendingAfter(agentId: string, afterDate: string): Promise<number> {
-    const { data: excludedStatuses } = await this.reminderRepo.client
+  async countPendingAfter(agentId: string, afterDate: string, contactId?: string): Promise<number> {
+    const excludedIds = await this.excludedStatusIds();
+    return await this.reminderRepo.countPendingAfter(agentId, afterDate, excludedIds, contactId);
+  }
+
+  /**
+   * Cuantos pendientes quedan ANTES de la ventana consultada. Con la ventana
+   * por defecto —que arranca "ahora"— esto es exactamente lo vencido.
+   */
+  async countPendingBefore(agentId: string, beforeDate: string, contactId?: string): Promise<number> {
+    const excludedIds = await this.excludedStatusIds();
+    return await this.reminderRepo.countPendingBefore(agentId, beforeDate, excludedIds, contactId);
+  }
+
+  /** DONE y CANCELLED no son pendientes: fuera de listados y de conteos. */
+  private async excludedStatusIds(): Promise<string[]> {
+    const { data } = await this.reminderRepo.client
       .from("reminder_statuses")
       .select("id")
       .in("code", ["DONE", "CANCELLED"]);
-
-    const excludedIds = excludedStatuses ? excludedStatuses.map((s) => s.id) : [];
-    return await this.reminderRepo.countPendingAfter(agentId, afterDate, excludedIds);
+    return data ? data.map((s) => s.id) : [];
   }
 
-  async searchReminders(agentId: string, queryText: string, statusCode?: string): Promise<ReminderResponseDTO[] | null> {
-    const items = await this.reminderRepo.searchReminders(agentId, queryText, statusCode);
+  async searchReminders(
+    agentId: string,
+    queryText: string,
+    statusCode?: string,
+    contactId?: string,
+  ): Promise<ReminderResponseDTO[] | null> {
+    const items = await this.reminderRepo.searchReminders(agentId, queryText, statusCode, contactId);
     return items ? items.map((r) => this.toDTO(r)) : null;
   }
 }
