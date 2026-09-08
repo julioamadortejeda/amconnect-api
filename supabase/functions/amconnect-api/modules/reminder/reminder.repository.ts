@@ -86,11 +86,11 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
         return null;
       }
 
-      const lista = (ids ?? []) as unknown as string[];
-      // Sin coincidencias es una lista vacia, no "sin filtro": omitir el filtro
+      const idList = (ids ?? []) as unknown as string[];
+      // Sin coincidencias es una idList vacia, no "sin filtro": omitir el filtro
       // aqui devolveria TODOS los recordatorios como si todos coincidieran.
-      if (lista.length === 0) return [];
-      q = q.in("id", lista);
+      if (idList.length === 0) return [];
+      q = q.in("id", idList);
     }
 
     const { data, error } = await q.order("due_date", { ascending: true });

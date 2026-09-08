@@ -26,13 +26,13 @@ import { DEV_PROMPTS } from "../supabase/functions/amconnect-api/prompts/dev_pro
 
 const DB = Deno.env.get("SUPABASE_DB_URL") ??
   "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-const MIGRACIONES = new URL("../supabase/migrations/", import.meta.url).pathname;
-const SOMBRA = "prompt_shadow";
+const MIGRATIONS_DIR = new URL("../supabase/migrations/", import.meta.url).pathname;
+const SHADOW = "prompt_shadow";
 
-const rojo = (s: string) => `\x1b[31m${s}\x1b[0m`;
-const verde = (s: string) => `\x1b[32m${s}\x1b[0m`;
-const gris = (s: string) => `\x1b[90m${s}\x1b[0m`;
-const ambar = (s: string) => `\x1b[33m${s}\x1b[0m`;
+const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
+const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
+const gray = (s: string) => `\x1b[90m${s}\x1b[0m`;
+const amber = (s: string) => `\x1b[33m${s}\x1b[0m`;
 
 async function psql(sql: string, args: string[] = []): Promise<string> {
   const cmd = new Deno.Command("psql", {
@@ -66,14 +66,14 @@ function statements(sql: string): string[] {
     }
     // Comentario de linea
     if (sql.startsWith("--", i)) {
-      const fin = sql.indexOf("\n", i);
-      i = fin === -1 ? sql.length : fin;
+      const end = sql.indexOf("\n", i);
+      i = end === -1 ? sql.length : end;
       continue;
     }
     // Comentario de bloque
     if (sql.startsWith("/*", i)) {
-      const fin = sql.indexOf("*/", i + 2);
-      i = fin === -1 ? sql.length : fin + 2;
+      const end = sql.indexOf("*/", i + 2);
+      i = end === -1 ? sql.length : end + 2;
       continue;
     }
     // Cadena entre comillas simples ('' escapa)
@@ -100,39 +100,39 @@ function statements(sql: string): string[] {
 
 async function main() {
   // 1 · Sombra limpia
-  await psql(`drop schema if exists ${SOMBRA} cascade; create schema ${SOMBRA};`);
+  await psql(`drop schema if exists ${SHADOW} cascade; create schema ${SHADOW};`);
 
   // 2 · Replicar, en orden, todo lo que toque system_prompts
-  const archivos = [...Deno.readDirSync(MIGRACIONES)]
+  const files = [...Deno.readDirSync(MIGRATIONS_DIR)]
     .filter((e) => e.isFile && e.name.endsWith(".sql"))
     .map((e) => e.name)
     .sort();
 
-  let aplicados = 0;
-  let tocan = 0;
-  for (const archivo of archivos) {
-    const sql = Deno.readTextFileSync(MIGRACIONES + archivo);
-    const relevantes = statements(sql).filter((s) => s.includes("system_prompts"));
-    if (relevantes.length === 0) continue;
-    tocan++;
-    for (const st of relevantes) {
+  let applied = 0;
+  let touched = 0;
+  for (const file of files) {
+    const sql = Deno.readTextFileSync(MIGRATIONS_DIR + file);
+    const relevant = statements(sql).filter((s) => s.includes("system_prompts"));
+    if (relevant.length === 0) continue;
+    touched++;
+    for (const st of relevant) {
       try {
         // `extensions` va en el path porque uuid_generate_v4() vive ahi en
         // Supabase, y el `create table` de system_prompts la usa como default.
-        await psql(`set search_path to ${SOMBRA}, public, extensions; ${st};`);
-        aplicados++;
+        await psql(`set search_path to ${SHADOW}, public, extensions; ${st};`);
+        applied++;
       } catch (e) {
-        console.error(rojo(`\n✗ ${archivo}`));
-        console.error(gris((e as Error).message));
-        await psql(`drop schema if exists ${SOMBRA} cascade;`);
+        console.error(red(`\n✗ ${file}`));
+        console.error(gray((e as Error).message));
+        await psql(`drop schema if exists ${SHADOW} cascade;`);
         Deno.exit(2);
       }
     }
   }
-  console.log(gris(`Replicados ${aplicados} statements de ${tocan} migraciones.\n`));
+  console.log(gray(`Replicados ${applied} statements de ${touched} migraciones.\n`));
 
   // 3 · Comparar base contra sombra
-  const crudo = await psql(
+  const rawRows = await psql(
     `select coalesce(s.code, p.code) as code,
             case when s.code is null then 'SOBRA_EN_BASE'
                  when p.code is null then 'FALTA_EN_BASE'
@@ -140,44 +140,44 @@ async function main() {
                  else 'ok' end as estado,
             coalesce(length(p.prompt), 0) as len_base,
             coalesce(length(s.prompt), 0) as len_mig
-       from ${SOMBRA}.system_prompts s
+       from ${SHADOW}.system_prompts s
        full outer join public.system_prompts p on p.code = s.code
       order by 1`,
     ["-t", "-A", "-F", "|"],
   );
 
-  const filas = crudo.trim().split("\n").filter(Boolean)
+  const rows = rawRows.trim().split("\n").filter(Boolean)
     .map((l) => { const [code, estado, base, mig] = l.split("|"); return { code, estado, base: +base, mig: +mig }; });
 
-  const malas = filas.filter((f) => f.estado !== "ok");
+  const bad = rows.filter((f) => f.estado !== "ok");
 
   console.log("BASE vs MIGRACIONES");
-  if (malas.length === 0) {
-    console.log(verde(`  ✓ los ${filas.length} prompts salen de las migraciones\n`));
+  if (bad.length === 0) {
+    console.log(green(`  ✓ los ${rows.length} prompts salen de las migraciones\n`));
   } else {
-    for (const f of malas) {
-      console.log(rojo(`  ✗ ${f.code}`) + gris(`  base:${f.base}  migraciones:${f.mig}  → ${f.estado}`));
+    for (const f of bad) {
+      console.log(red(`  ✗ ${f.code}`) + gray(`  base:${f.base}  migraciones:${f.mig}  → ${f.estado}`));
     }
-    console.log(gris("\n  Hay texto en la base que ninguna migracion escribio, o al reves.\n"));
+    console.log(gray("\n  Hay texto en la base que ninguna migracion escribio, o al reves.\n"));
   }
 
   // 4 · Comparar archivo contra base (informativo)
-  console.log("DEV_PROMPTS vs BASE" + gris("  (un archivo adelantado es normal: falta promoverlo)"));
-  let distintos = 0;
-  for (const f of filas.filter((x) => x.estado !== "FALTA_EN_BASE")) {
-    const archivo = DEV_PROMPTS[f.code];
-    if (archivo === undefined) { console.log(ambar(`  · ${f.code}`) + gris("  no esta en dev_prompts.ts")); distintos++; continue; }
+  console.log("DEV_PROMPTS vs BASE" + gray("  (un archivo adelantado es normal: falta promoverlo)"));
+  let differences = 0;
+  for (const f of rows.filter((x) => x.estado !== "FALTA_EN_BASE")) {
+    const fromFile = DEV_PROMPTS[f.code];
+    if (fromFile === undefined) { console.log(amber(`  · ${f.code}`) + gray("  no esta en dev_prompts.ts")); differences++; continue; }
     const base = (await psql(`select prompt from public.system_prompts where code = '${f.code}'`, ["-t", "-A"])).replace(/\n$/, "");
-    if (archivo !== base) {
-      const quien = archivo.length > base.length ? "archivo adelantado" : "archivo atrasado";
-      console.log(ambar(`  · ${f.code}`) + gris(`  archivo:${archivo.length}  base:${base.length}  → ${quien}`));
-      distintos++;
+    if (fromFile !== base) {
+      const direction = fromFile.length > base.length ? "archivo adelantado" : "archivo atrasado";
+      console.log(amber(`  · ${f.code}`) + gray(`  archivo:${fromFile.length}  base:${base.length}  → ${direction}`));
+      differences++;
     }
   }
-  if (distintos === 0) console.log(verde("  ✓ identicos"));
+  if (differences === 0) console.log(green("  ✓ identicos"));
 
-  await psql(`drop schema if exists ${SOMBRA} cascade;`);
-  Deno.exit(malas.length > 0 ? 1 : 0);
+  await psql(`drop schema if exists ${SHADOW} cascade;`);
+  Deno.exit(bad.length > 0 ? 1 : 0);
 }
 
 await main();

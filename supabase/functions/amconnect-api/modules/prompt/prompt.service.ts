@@ -47,11 +47,11 @@ export class PromptService {
    * positivos en cada llamada.
    */
   private static parsePrompt(code: string, raw: string, vars: Record<string, string>): string {
-    const declarados = new Set((raw.match(/\{\{[a-zA-Z_][a-zA-Z0-9_]*\}\}/g) ?? []));
-    const faltantes = [...declarados].filter((p) => !(p.slice(2, -2) in vars));
-    if (faltantes.length > 0) {
+    const declared = new Set((raw.match(/\{\{[a-zA-Z_][a-zA-Z0-9_]*\}\}/g) ?? []));
+    const missing = [...declared].filter((p) => !(p.slice(2, -2) in vars));
+    if (missing.length > 0) {
       throw new Error(
-        `[PromptService] '${code}' declara ${faltantes.join(", ")} y nadie mando su valor.`,
+        `[PromptService] '${code}' declara ${missing.join(", ")} y nadie mando su valor.`,
       );
     }
 
@@ -62,16 +62,16 @@ export class PromptService {
     // dominios justo en esa ventana. Aceptar ambas la vuelve inofensiva. La
     // rama simple se puede borrar cuando produccion ya no tenga llaves simples.
     let out = raw;
-    const sinUsar: string[] = [];
-    for (const [clave, valor] of Object.entries(vars)) {
-      const antes = out;
-      out = out.replaceAll(`{{${clave}}}`, valor).replaceAll(`{${clave}}`, valor);
-      if (out === antes) sinUsar.push(clave);
+    const unused: string[] = [];
+    for (const [key, value] of Object.entries(vars)) {
+      const before = out;
+      out = out.replaceAll(`{{${key}}}`, value).replaceAll(`{${key}}`, value);
+      if (out === before) unused.push(key);
     }
     // No es fatal —el prompt sale correcto igual— pero casi siempre es una
     // variable mal escrita del lado de quien llama.
-    if (sinUsar.length > 0) {
-      console.warn(`[PromptService] '${code}' recibio variables que no aparecen en el texto: ${sinUsar.join(", ")}`);
+    if (unused.length > 0) {
+      console.warn(`[PromptService] '${code}' recibio variables que no aparecen en el texto: ${unused.join(", ")}`);
     }
 
     return out;

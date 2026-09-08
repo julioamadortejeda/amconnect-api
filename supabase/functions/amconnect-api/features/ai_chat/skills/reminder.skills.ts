@@ -168,7 +168,7 @@ export const reminderSkills: SkillDefinition[] = [
       // El conteo es `head: true`, así que cuesta una consulta sin filas.
       // Sin tope superior no hay nada "más allá de la ventana" que contar, y la
       // consulta se ahorra.
-      const fueraDeRango = toEff
+      const afterCount = toEff
         ? await ctx.reminderService.countPendingAfter(ctx.agentId, toEff, contactId)
         : 0;
 
@@ -177,22 +177,22 @@ export const reminderSkills: SkillDefinition[] = [
       // nada y se calló el del domingo siguiente, porque caía ANTES de la
       // ventana y nadie lo miraba. En la pregunta general el mismo hueco
       // esconde lo vencido — lo más urgente de la agenda.
-      const antesDeRango = fromEff
+      const beforeCount = fromEff
         ? await ctx.reminderService.countPendingBefore(ctx.agentId, fromEff, contactId)
         : 0;
 
       // Cuando la ventana arranca en el futuro ("el próximo mes"), lo que queda
       // antes mezcla lo vencido con lo que todavía está por venir. Se separan
-      // para poder nombrar los vencidos por su nombre en vez de decir "algunos".
+      // para poder nombrar los overdueCount por su nombre en vez de decir "algunos".
       // Con la ventana por defecto, que arranca ahora, ya son lo mismo y la
       // segunda consulta no se hace.
-      const ahora = new Date();
-      const ventanaArrancaEnElPasado = !!fromEff && new Date(fromEff).getTime() <= ahora.getTime();
-      const vencidos = antesDeRango === 0
+      const now = new Date();
+      const windowStartsInPast = !!fromEff && new Date(fromEff).getTime() <= now.getTime();
+      const overdueCount = beforeCount === 0
         ? 0
-        : ventanaArrancaEnElPasado
-        ? antesDeRango
-        : await ctx.reminderService.countPendingBefore(ctx.agentId, ahora.toISOString(), contactId);
+        : windowStartsInPast
+        ? beforeCount
+        : await ctx.reminderService.countPendingBefore(ctx.agentId, now.toISOString(), contactId);
 
       return {
         queriedRange: {
@@ -210,12 +210,12 @@ export const reminderSkills: SkillDefinition[] = [
         // Aparece siempre que de verdad quede algo fuera, sin importar quién
         // fijó la ventana: así el modelo no puede presentar una lista recortada
         // como si fuera toda la agenda.
-        ...(fueraDeRango > 0
+        ...(afterCount > 0
           ? {
             beyondRange: {
-              count: fueraDeRango,
+              count: afterCount,
               instruction:
-                `${fueraDeRango} more pending reminder(s) fall AFTER the window above. ` +
+                `${afterCount} more pending reminder(s) fall AFTER the window above. ` +
                 "If the advisor named this timeframe themselves ('este mes', 'hoy'), you may " +
                 "leave them out silently — they asked for that period. But if they did NOT " +
                 "name one ('que tengo pendiente', 'que traigo'), the window is YOURS, not " +
@@ -228,14 +228,14 @@ export const reminderSkills: SkillDefinition[] = [
         // El hermano de beyondRange. Un pendiente vencido no es algo que el
         // asesor haya elegido excluir al nombrar un periodo: preguntó por unas
         // fechas, no pidió esconder lo que ya se le pasó.
-        ...(antesDeRango > 0
+        ...(beforeCount > 0
           ? {
             beforeRange: {
-              count: antesDeRango,
-              overdueCount: vencidos,
-              instruction: `${antesDeRango} pending reminder(s) fall BEFORE the window above, so they are NOT in the list you just received. ` +
-                (vencidos > 0
-                  ? `${vencidos} of them are already OVERDUE — the due date passed and they are still open. ` +
+              count: beforeCount,
+              overdueCount: overdueCount,
+              instruction: `${beforeCount} pending reminder(s) fall BEFORE the window above, so they are NOT in the list you just received. ` +
+                (overdueCount > 0
+                  ? `${overdueCount} of them are already OVERDUE — the due date passed and they are still open. ` +
                     "Overdue work is the most urgent thing on the agenda and this list cannot show it: say how many there are " +
                     "and offer to list them, even when the advisor named the timeframe themselves. "
                   : "They are simply earlier than the period asked about, so mention that they exist and offer to list them " +

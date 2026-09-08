@@ -53,16 +53,16 @@ export const commitmentSkills: SkillDefinition[] = [
         closedOnly: params.closed_only as boolean | undefined,
       });
 
-      // Que filtros ESTRECHARON la busqueda. Importa cuando el resultado sale
-      // vacio: sin filtros, vacio significa "no tiene compromisos"; con
-      // filtros significa "ninguno pasa ESTE filtro", que es otra cosa.
-      const filtros: string[] = [];
-      if (params.query) filtros.push("query");
-      if (params.contact_id) filtros.push("contact_id");
-      if (params.from || params.to) filtros.push("the date window");
-      if (params.overdue_only) filtros.push("overdue_only");
+      // Que filters ESTRECHARON la busqueda. Importa cuando el resultado sale
+      // vacio: sin filters, vacio significa "no tiene compromisos"; con
+      // filters significa "ninguno pasa ESTE filtro", que es otra cosa.
+      const filters: string[] = [];
+      if (params.query) filters.push("query");
+      if (params.contact_id) filters.push("contact_id");
+      if (params.from || params.to) filters.push("the date window");
+      if (params.overdue_only) filters.push("overdue_only");
 
-      const vacioConFiltros = items.length === 0 && filtros.length > 0;
+      const emptyBecauseOfFilters = items.length === 0 && filters.length > 0;
 
       return {
         // Le promete al modelo que un vacio es un vacio de verdad, para que no
@@ -86,11 +86,11 @@ export const commitmentSkills: SkillDefinition[] = [
         // modelo de texto —que en las mismas condiciones cerro 4 de 4— y no se
         // le puede pedir que razone mejor; lo que se puede es no dejarlo
         // concluir de mas.
-        exhaustive: !vacioConFiltros,
-        ...(vacioConFiltros
+        exhaustive: !emptyBecauseOfFilters,
+        ...(emptyBecauseOfFilters
           ? {
             instruction:
-              `Empty because of the filters you sent (${filtros.join(", ")}), NOT because the ` +
+              `Empty because of the filters you sent (${filters.join(", ")}), NOT because the ` +
               "advisor has no commitments. A contact_id can be the wrong person when two clients " +
               "share a first name, a date window hides everything outside it, and a query only " +
               "matches those exact words. Call get_commitments again with NO filters and read the " +
