@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { languageName } from "../../shared/locale.ts";
 import { IAiProvider } from "../../core/ai_provider.interface.ts";
 import { IEmbeddingProvider } from "../../core/embedding_provider.interface.ts";
 import { EmbeddingsService, NoteSourceType } from "../rag/embeddings.service.ts";
@@ -83,8 +84,7 @@ export class KnowledgeIngestionService {
     if (sourceType === "image") dbPromptCode = "knowledge_image_system";
     else if (sourceType === "audio") dbPromptCode = "knowledge_audio_system";
 
-    const rawLocale = advisorLocale.split(/[-_]/)[0].toLowerCase();
-    const cleanLangName = rawLocale === 'en' ? 'English' : 'Spanish';
+    const cleanLangName = languageName(advisorLocale);
 
     const prompt = await this.promptService.getPrompt(dbPromptCode, {
       advisor_language: cleanLangName,
@@ -223,7 +223,7 @@ export class KnowledgeIngestionService {
         const lengthNote = isLong
           ? `\n\n[Note: This is an excerpt of a longer text (${content.length} total characters). Generate a label and message that reflect the overall content based on this excerpt.]`
           : "";
-        const cleanLangName = rawLocale === 'en' ? 'English' : 'Spanish';
+        const cleanLangName = languageName(advisorLocale);
 
         const prompt = await this.promptService.getPrompt("knowledge_text_metadata_system", {
           advisor_language: cleanLangName,

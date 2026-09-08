@@ -4,6 +4,7 @@ import { VoiceChatService } from "../../features/ai_chat/voice_chat.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
 import { resolveTimezone } from "../../shared/datetime.ts";
 import { AI_BACKEND_NAME } from "../../shared/config.ts";
+import { localeFromHeader } from "../../shared/locale.ts";
 
 export class VoiceChatController {
   static async connect(c: Context): Promise<Response> {
@@ -43,7 +44,8 @@ export class VoiceChatController {
     }
 
     // Start session asynchronously — the WebSocket upgrade response is returned immediately
-    voiceChatService.startSession(agentId, timezone, socket, resumeSessionId).catch((err: unknown) => {
+    const advisorLocale = localeFromHeader(c.req.header("Accept-Language"));
+    voiceChatService.startSession(agentId, timezone, socket, resumeSessionId, advisorLocale).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : "Voice session error";
       console.error("[VOICE] Session startup error:", msg);
       try {
@@ -86,7 +88,7 @@ export class VoiceChatController {
     await usageService.checkChatQuotaOnly(agentId);
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
-    const config = await voiceChatService.initSession(agentId, timezone, resumeSessionId, context);
+    const config = await voiceChatService.initSession(agentId, timezone, resumeSessionId, context, localeFromHeader(c.req.header("Accept-Language")));
 
     return c.json(config);
   }
@@ -108,7 +110,7 @@ export class VoiceChatController {
     await usageService.checkChatQuotaOnly(agentId);
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
-    const config = await voiceChatService.initSession(agentId, timezone, resumeSessionId, context);
+    const config = await voiceChatService.initSession(agentId, timezone, resumeSessionId, context, localeFromHeader(c.req.header("Accept-Language")));
 
     const tokenData = await voiceChatService.createEphemeralToken(
       config.systemInstruction,

@@ -8,6 +8,7 @@ import { buildLocalDateTime, DEFAULT_TIMEZONE } from "../../shared/datetime.ts";
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
 import type { PolicyChange } from "../document_processing/policy_diff.ts";
 import { AiChatContext } from "./ai.dto.ts";
+import { languageName } from "../../shared/locale.ts";
 
 const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "commitment", "pending_task", "catalog", "knowledge"];
 const POLICY_INGESTION_DOMAINS = ["policy_ingestion"];
@@ -97,6 +98,7 @@ export class AiChatService {
     timezone?: string,
     context?: AiChatContext | null,
     newSessionType: "chat" = "chat",
+    advisorLocale?: string,
   ): Promise<ChatResponse> {
     const history: AiMessage[] = [];
     const sId = sessionId ?? undefined;
@@ -182,10 +184,22 @@ export class AiChatService {
     // Fecha y hora local del asesor — implementación compartida con voz
     const { localIso, offsetStr } = buildLocalDateTime(timezone || DEFAULT_TIMEZONE);
 
-    // System instruction 100% estático — sin sustituciones dinámicas.
-    // Gemini implicit caching aplica cuando el prefijo es idéntico entre requests.
+    // System instruction estático POR ASESOR: la única sustitución es
+    // {{advisor_language}}, y su valor no cambia entre las peticiones de un
+    // mismo asesor, así que el prefijo sigue siendo idéntico y el implicit
+    // caching de Gemini sigue aplicando (medido el 2026-09-07: 12,078 tokens
+    // cacheados de 13,270 en el tercer turno). Cada idioma genera su propio
+    // prefijo, y cada uno se cachea por separado.
+    //
+    // Nada mas se sustituye aquí: lo que cambia por request —fecha, pending
+    // tasks, pantalla activa— va en el mensaje del usuario, abajo.
     const dbPromptCode = isPolicyIngestion ? "policy_ingestion_system" : "ai_chat_system";
-    const systemInstruction = await this.promptService.getPrompt(dbPromptCode);
+    // El idioma configurado del asesor no dicta la respuesta —eso lo decide su
+    // mensaje— pero desempata cuando el mensaje no tiene idioma: "el segundo",
+    // "ok", un nombre. Ver shared/locale.ts.
+    const systemInstruction = await this.promptService.getPrompt(dbPromptCode, {
+      advisor_language: languageName(advisorLocale),
+    });
 
     // Contexto dinámico (fecha/hora, pending tasks) va en el mensaje del usuario,
     // no en systemInstruction, para no romper el caching del prefix estático.

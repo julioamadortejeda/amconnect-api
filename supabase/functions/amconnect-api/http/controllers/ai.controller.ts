@@ -1,4 +1,5 @@
 import { Context } from "hono";
+import { localeFromHeader } from "../../shared/locale.ts";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { AiProviderError, AppError } from "../../shared/errors.ts";
 import { AiChatService } from "../../features/ai_chat/ai_chat.service.ts";
@@ -31,7 +32,8 @@ export class AiController {
     try {
       const timezone = resolveTimezone(c.req.header("x-timezone"), c.req.header("x-timezone-offset"));
       const service: AiChatService = c.get("services").aiChatService;
-      const response = await service.processMessage(message, agentId, sessionId, timezone, context, "chat");
+      const advisorLocale = localeFromHeader(c.req.header("Accept-Language"));
+      const response = await service.processMessage(message, agentId, sessionId, timezone, context, "chat", advisorLocale);
       return sendSuccess(c, { ...response, aiBackend: AI_BACKEND_NAME });
     } catch (err) {
       if (err instanceof AiProviderError) {
@@ -150,7 +152,7 @@ export class AiController {
     const storageService = c.get("storage_service") as StorageService;
     storageService.validateMimeType(mimeType);
 
-    const advisorLocale = c.req.header('Accept-Language')?.split(',')[0]?.split(';')[0]?.trim() ?? 'es';
+    const advisorLocale = localeFromHeader(c.req.header('Accept-Language'));
 
     const { aiSessionService, knowledgeIngestionService } = c.get("services");
     const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {
@@ -199,7 +201,7 @@ export class AiController {
       await usageService.checkAndIncrementIngestion(agentId);
     }
 
-    const advisorLocale = c.req.header('Accept-Language')?.split(',')[0]?.split(';')[0]?.trim() ?? 'es';
+    const advisorLocale = localeFromHeader(c.req.header('Accept-Language'));
 
     const { aiSessionService, knowledgeIngestionService } = c.get("services");
     const sessionId = await (aiSessionService as AiSessionService).createSession(agentId, {

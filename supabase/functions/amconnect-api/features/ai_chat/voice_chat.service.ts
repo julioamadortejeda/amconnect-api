@@ -16,6 +16,7 @@ import { buildLocalDateTime, calcTimezoneOffset } from "../../shared/datetime.ts
 import { AiSessionService } from "./ai_session.service.ts";
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
+import { languageName } from "../../shared/locale.ts";
 
 const ALL_DOMAINS = [
   "contact",
@@ -96,7 +97,7 @@ export class VoiceChatService {
     private usageService: UsageService,
   ) {}
 
-  async startSession(agentId: string, timezone: string, clientSocket: WebSocket, resumeSessionId?: string): Promise<void> {
+  async startSession(agentId: string, timezone: string, clientSocket: WebSocket, resumeSessionId?: string, advisorLocale?: string): Promise<void> {
     console.warn(`[VOICE] Starting session — agent=${agentId} timezone=${timezone}${resumeSessionId ? ` resume=${resumeSessionId}` : ""}`);
 
     // ── Late-bound state (filled after async init, referenced via closure) ──
@@ -233,7 +234,9 @@ export class VoiceChatService {
     let systemInstruction: string;
     let dynamicContext: string;
     try {
-      systemInstruction = await this.promptService.getPrompt("voice_chat_system");
+      systemInstruction = await this.promptService.getPrompt("voice_chat_system", {
+        advisor_language: languageName(advisorLocale),
+      });
       dynamicContext = buildVoiceContext(timezone);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to load prompt";
@@ -355,7 +358,7 @@ export class VoiceChatService {
     }
   }
 
-  async initSession(agentId: string, timezone: string, resumeSessionId?: string, context?: any) {
+  async initSession(agentId: string, timezone: string, resumeSessionId?: string, context?: any, advisorLocale?: string) {
     let sessionId = "";
     let historyText = "";
     if (resumeSessionId) {
@@ -388,7 +391,9 @@ export class VoiceChatService {
       contextText = `\n\nActive screen context (${context.type}${context.id ? ` ID: ${context.id}` : ""}):\n${JSON.stringify(context.data, null, 2)}`;
     }
 
-    const systemInstruction = await this.promptService.getPrompt("voice_chat_system");
+    const systemInstruction = await this.promptService.getPrompt("voice_chat_system", {
+      advisor_language: languageName(advisorLocale),
+    });
     const dynamicContext = buildVoiceContext(timezone) + contextText + historyText;
 
     const tools = buildVoiceTools();
