@@ -73,7 +73,7 @@ function getBackendApiKey(): string {
   return apiKey;
 }
 
-function buildAiProvider(promptService?: PromptService): GoogleGenAiProvider {
+function buildAiProvider(promptService: PromptService): GoogleGenAiProvider {
   const apiKey = getBackendApiKey();
   return useVertexBackend()
     ? new VertexAiProvider(apiKey, AI_MODEL, promptService)

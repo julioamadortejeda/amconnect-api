@@ -86,8 +86,9 @@ export class KnowledgeIngestionService {
     const rawLocale = advisorLocale.split(/[-_]/)[0].toLowerCase();
     const cleanLangName = rawLocale === 'en' ? 'English' : 'Spanish';
 
-    const prompt = (await this.promptService.getPrompt(dbPromptCode))
-      .replaceAll('{{advisor_language}}', cleanLangName);
+    const prompt = await this.promptService.getPrompt(dbPromptCode, {
+      advisor_language: cleanLangName,
+    });
 
     // From this point forward, any error must be AiInvokedError so the controller
     // marks the session as failed instead of deleting it.
@@ -224,11 +225,11 @@ export class KnowledgeIngestionService {
           : "";
         const cleanLangName = rawLocale === 'en' ? 'English' : 'Spanish';
 
-        const promptTemplate = await this.promptService.getPrompt("knowledge_text_metadata_system");
-        const prompt = promptTemplate
-          .replace("{excerpt}", excerpt)
-          .replace("{lengthNote}", lengthNote)
-          .replaceAll('{{advisor_language}}', cleanLangName);
+        const prompt = await this.promptService.getPrompt("knowledge_text_metadata_system", {
+          advisor_language: cleanLangName,
+          excerpt,
+          lengthNote,
+        });
 
         aiResult = await this.aiProvider.generateStructuredData(prompt, TextMetadataSchema);
       }

@@ -89,7 +89,7 @@ export class VertexAiProvider extends GoogleGenAiProvider {
   constructor(
     apiKey: string,
     model: string,
-    promptService?: PromptService,
+    promptService: PromptService,
   ) {
     super(
       new GoogleGenAI({ vertexai: true, apiKey }),

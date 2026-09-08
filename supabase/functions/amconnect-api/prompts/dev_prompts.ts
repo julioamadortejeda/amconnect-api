@@ -125,11 +125,11 @@ The advisor's current local date/time, timezone offset, and optional screen cont
 - catalog: System catalogs such as insurance carriers, branches, and products. Creation of new companies or branches.
 - knowledge: Search for general information in free notes, audio transcripts, WhatsApp, or files uploaded by the advisor.
 
-Available domains to classify: {availableDomains}
+Available domains to classify: {{availableDomains}}
 
 Respond ONLY with a JSON format: { "domains": ["domain1", "domain2"] }
 
-Advisor message: "{message}"`,
+Advisor message: "{{message}}"`,
 
   policy_ingestion_system: `You are AmConnect processing the ingestion of an insurance policy.
 The system already extracted the information from the PDF document. Your job depends on the scenario:
@@ -199,5 +199,5 @@ Analyze the following text. Then generate:
 CRITICAL: The summary (step 1) MUST be in the same language as the source text. Only the responseMessage (step 2) must be in {{advisor_language}}.
 
 Text content:
-{excerpt}{lengthNote}`,
+{{excerpt}}{{lengthNote}}`,
 };

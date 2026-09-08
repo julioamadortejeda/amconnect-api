@@ -31,7 +31,7 @@ export class GoogleGenAiProvider implements IAiProvider {
   constructor(
     protected ai: GoogleGenAI,
     public model: string,
-    protected promptService?: PromptService,
+    protected promptService: PromptService,
     public apiKey?: string,
   ) {}
 
@@ -255,27 +255,14 @@ export class GoogleGenAiProvider implements IAiProvider {
     message: string,
     availableDomains: string[],
   ): Promise<{ domains: string[]; usage?: TokenUsage }> {
-    let promptTemplate: string;
-    if (this.promptService) {
-      promptTemplate = await this.promptService.getPrompt("message_classifier_system");
-    } else {
-      promptTemplate = `Classify the following message from an insurance advisor in Mexico into one or more of these domains:
-- contact: Information about clients, prospects, or personal contacts. Searching for phones, emails, CURP, RFC, addresses, birthdays, etc.
-- policy: Information about insurance policies, policy numbers, coverages, sum insured, beneficiaries, participants.
-- reminder: Tasks, events, reminders, appointments, calls, follow-up dates, pending work.
-- catalog: System catalogs such as insurance carriers, branches, and products. Creation of new companies or branches.
-- knowledge: Search for general information in free notes, audio transcripts, WhatsApp, or files uploaded by the advisor.
-
-Available domains to classify: {availableDomains}
-
-Respond ONLY with a JSON format: { "domains": ["domain1", "domain2"] }
-
-Advisor message: "${message}"`;
-    }
-
-    const prompt = promptTemplate
-      .replace("{availableDomains}", availableDomains.join(", "))
-      .replace("{message}", message);
+    // Sin rama de respaldo: el DI construye SIEMPRE el PromptService
+    // (di/index.ts) y se lo pasa a los dos providers, asi que el `if` que habia
+    // aqui nunca corria — y dentro cargaba una copia entera del prompt del
+    // clasificador escrita en TypeScript, sin migracion y ya desfasada.
+    const prompt = await this.promptService.getPrompt("message_classifier_system", {
+      availableDomains: availableDomains.join(", "),
+      message,
+    });
 
     // deno-lint-ignore no-explicit-any
     let response: any;
