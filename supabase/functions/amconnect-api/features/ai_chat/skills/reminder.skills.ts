@@ -195,14 +195,13 @@ export const reminderSkills: SkillDefinition[] = [
         : await ctx.reminderService.countPendingBefore(ctx.agentId, now.toISOString(), contactId);
 
       return {
+        // Solo la ventana y quien la fijo. Que hacer cuando es la default
+        // —filtrar por dueDate si el asesor pidio algo mas angosto— es politica
+        // constante y vive en READING TOOL RESULTS del prompt.
         queriedRange: {
           from: fromEff ? utcToLocalIso(fromEff, ctx.timezone) : null,
           to: toEff ? utcToLocalIso(toEff, ctx.timezone) : null,
-          note: usedDefault
-            ? "No explicit range was requested — this is the DEFAULT 7-day window. If the user asked about a narrower timeframe (e.g. today), filter by dueDate before answering."
-            : (scoped && !from && !to
-              ? "Scoped to ONE contact with no date limit: this is every pending reminder that contact has, near or far. Nothing was cut off by a window."
-              : undefined),
+          ...(usedDefault ? { isDefault: true } : {}),
         },
         // Para que el modelo no presente una lista de un solo cliente como si
         // fuera la agenda completa del asesor.
@@ -210,39 +209,12 @@ export const reminderSkills: SkillDefinition[] = [
         // Aparece siempre que de verdad quede algo fuera, sin importar quién
         // fijó la ventana: así el modelo no puede presentar una lista recortada
         // como si fuera toda la agenda.
-        ...(afterCount > 0
-          ? {
-            beyondRange: {
-              count: afterCount,
-              instruction:
-                `${afterCount} more pending reminder(s) fall AFTER the window above. ` +
-                "If the advisor named this timeframe themselves ('este mes', 'hoy'), you may " +
-                "leave them out silently — they asked for that period. But if they did NOT " +
-                "name one ('que tengo pendiente', 'que traigo'), the window is YOURS, not " +
-                "theirs: say which period you are showing, say there are more further out, " +
-                "and offer to list them. Passing your own cut off as their whole agenda is a " +
-                "false answer told with full confidence.",
-            },
-          }
-          : {}),
+        ...(afterCount > 0 ? { beyondRange: { count: afterCount } } : {}),
         // El hermano de beyondRange. Un pendiente vencido no es algo que el
         // asesor haya elegido excluir al nombrar un periodo: preguntó por unas
         // fechas, no pidió esconder lo que ya se le pasó.
         ...(beforeCount > 0
-          ? {
-            beforeRange: {
-              count: beforeCount,
-              overdueCount: overdueCount,
-              instruction: `${beforeCount} pending reminder(s) fall BEFORE the window above, so they are NOT in the list you just received. ` +
-                (overdueCount > 0
-                  ? `${overdueCount} of them are already OVERDUE — the due date passed and they are still open. ` +
-                    "Overdue work is the most urgent thing on the agenda and this list cannot show it: say how many there are " +
-                    "and offer to list them, even when the advisor named the timeframe themselves. "
-                  : "They are simply earlier than the period asked about, so mention that they exist and offer to list them " +
-                    "instead of letting your answer read as if nothing else were pending. ") +
-                "To list them, call this tool again with a 'from' earlier than the current window.",
-            },
-          }
+          ? { beforeRange: { count: beforeCount, overdue: overdueCount } }
           : {}),
         reminders: slim,
         __skillMetadata: {

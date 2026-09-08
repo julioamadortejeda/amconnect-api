@@ -44,14 +44,9 @@ export const pendingTaskSkills: SkillDefinition[] = [
       // descripción— y el modelo la toma por el guardado. Comprobado el
       // 2026-08-28: hizo save_pending_task + resolve_pending_task, no llamó a
       // create_commitment, y le confirmó al asesor un compromiso inexistente.
-      return {
-        resolved: true,
-        instruction:
-          "This was BOOKKEEPING ONLY. Nothing was created, updated or saved by this call, and a " +
-          "pending task is NOT a record the advisor can see. If they asked you to record something, " +
-          "call the skill that actually performs it NOW, in this same turn, before you answer. Never " +
-          "tell the advisor something was registered on the strength of this call.",
-      };
+      // Solo el hecho. Que esto sea puro bookkeeping y que no cuente como
+      // registro es politica constante y vive en READING TOOL RESULTS.
+      return { resolved: true };
     },
   },
 ];

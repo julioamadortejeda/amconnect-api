@@ -87,26 +87,12 @@ export const commitmentSkills: SkillDefinition[] = [
         // le puede pedir que razone mejor; lo que se puede es no dejarlo
         // concluir de mas.
         exhaustive: !emptyBecauseOfFilters,
-        ...(emptyBecauseOfFilters
-          ? {
-            instruction:
-              `Empty because of the filters you sent (${filters.join(", ")}), NOT because the ` +
-              "advisor has no commitments. A contact_id can be the wrong person when two clients " +
-              "share a first name, a date window hides everything outside it, and a query only " +
-              "matches those exact words. Call get_commitments again with NO filters and read the " +
-              "labels and client names yourself before telling them anything is missing.",
-          }
-          : {}),
+        // Que filtros lo vaciaron es el dato; que hacer al respecto es politica
+        // y vive en READING TOOL RESULTS del prompt.
+        ...(emptyBecauseOfFilters ? { emptyBecauseOf: filters } : {}),
         count: items.length,
-        ...(params.closed_only
-          ? {
-            undoHint:
-              "The ones marked closedByYouInThisConversation are the ones YOU just closed. When " +
-              "the advisor corrects you — 'solo era el primero', 'ese no', 'el del documento " +
-              "todavia no' — reopen from among those, never from the older ones they closed " +
-              "themselves.",
-          }
-          : {}),
+        // El hecho ya viaja por compromiso en closedByYouInThisConversation; que
+        // hacer con esa marca es politica y vive en el prompt.
         commitments: items.map((c) => ({
           id: c.id,
           contactId: c.contactId,
