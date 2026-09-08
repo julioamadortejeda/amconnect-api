@@ -182,8 +182,8 @@ export const contactSkills: SkillDefinition[] = [
       name: "update_contact",
       description: "Updates data of an existing contact. Use search_contact first to obtain the contact_id if unknown. Does NOT handle notes — use add_note_to_client for that.",
       schema: z.object({
-        contact_id: z.string({ required_error: "The UUID of the contact to update is required. Use search_contact first if unknown." })
-          .describe("UUID of the contact to update"),
+        contact_id: z.string({ required_error: "The UUID of the contact to update is required." })
+          .describe("UUID of the contact to update, obtained from search_contact."),
         full_name: z.string().optional(),
         email: z.string().optional(),
         phone: z.string().optional(),

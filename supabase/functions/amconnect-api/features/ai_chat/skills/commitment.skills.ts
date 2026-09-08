@@ -201,7 +201,8 @@ export const commitmentSkills: SkillDefinition[] = [
         contact_id: z.string().optional().describe(
           "UUID of the client to attach — the reason this skill usually exists. PASS IT: calling this " +
             "with only commitment_id changes nothing and fails. Take the UUID from the search_contact " +
-            "results already in this conversation; do not search again unless you lost them.",
+            "results already in this conversation; do not search again unless you lost them. NEVER ask " +
+            "the advisor for it, and never call create_commitment again — the commitment already exists.",
         ),
         label: z.string().optional().describe("A better wording of what is pending."),
         due_from: z.string().optional().describe(
@@ -221,16 +222,14 @@ export const commitmentSkills: SkillDefinition[] = [
         dueFrom: (params.due_from ?? params.from) as string | undefined,
         dueTo: (params.due_to ?? params.to) as string | undefined,
       };
-      // Mensaje propio antes del genérico: el de assertHasChanges dice "pregunta
-      // al asesor qué quiere cambiar", que aquí es exactamente lo que NO debe
-      // hacer — el dato que falta es un UUID que el asesor no conoce. Sin esto
-      // el modelo recibía el rechazo y creaba el compromiso OTRA VEZ (duplicado).
+      // Mensaje propio antes del generico: el de assertHasChanges dice "pregunta
+      // al asesor que quiere cambiar", que aqui seria justo lo contrario —el dato
+      // que falta es un UUID que el asesor no conoce— y sin esto el modelo
+      // recibia el rechazo y creaba el compromiso OTRA VEZ (duplicado). La
+      // recuperacion vive en la descripcion de contact_id, que el modelo ya
+      // tiene delante; aqui solo el hecho.
       if (Object.values(changes).every((v) => v === undefined)) {
-        throw new Error(
-          "update_commitment needs the field you are changing. To attach the client — the usual " +
-            "case — pass contact_id with the UUID you got from search_contact. Do NOT ask the " +
-            "advisor for it, and do NOT call create_commitment again: the commitment already exists.",
-        );
+        throw new Error("update_commitment received no field to change.");
       }
       // Regla del CLAUDE.md: sin esto una actualización vacía es indistinguible
       // de una exitosa y el modelo le confirma al asesor un cambio que no pasó.
@@ -333,14 +332,7 @@ export const commitmentSkills: SkillDefinition[] = [
       // dos compromisos. Nada de lo que dijo era falso por si solo; lo falso
       // era la cuenta.
       if (result.outcome === "already_closed") {
-        return {
-          error: `"${result.commitment.label}" was ALREADY closed before this call — nothing changed. ` +
-            "Do NOT count it as something you just did, and do not mention it as closed unless the " +
-            "advisor asked about it. If you meant a different commitment, call get_commitments " +
-            "with no filters and pick the right id.",
-          alreadyClosed: true,
-          label: result.commitment.label,
-        };
+        return { alreadyClosed: true, label: result.commitment.label };
       }
 
       return {

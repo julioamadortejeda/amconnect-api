@@ -68,7 +68,7 @@ export const reminderSkills: SkillDefinition[] = [
           .describe("A very short, summarized title of the reminder (e.g., 'Llamar a Julio', 'Ir a junta'). If not provided, generate a concise short title matching this style based on the user request."),
         description: z.string().optional()
           .describe("Detailed description or notes for the reminder. You must always generate a detailed description outlining the context/purpose of the reminder based on what the user requested if they did not provide one."),
-        due_date: z.string({ required_error: "The due date is required. Use ISO 8601 format with timezone offset matching the advisor's local time (e.g., 2026-06-02T15:00:00-06:00)" })
+        due_date: z.string({ required_error: "The due date is required." })
           .describe("Due date and time in ISO 8601 format with timezone offset matching the advisor's local time (e.g., 2026-06-02T15:00:00-06:00). Must use exactly 'due_date'"),
         contact_id: z.string().optional().describe("UUID of the related contact. ONLY provide this if the user explicitly requested to link a specific client, otherwise leave undefined."),
         policy_id: z.string().optional().describe("UUID of the related policy. ONLY provide this if the user explicitly requested to link a specific policy, otherwise leave undefined."),
@@ -242,14 +242,14 @@ export const reminderSkills: SkillDefinition[] = [
         description: z.string().optional().describe("Concise summary of the task. Do NOT bloat or append follow-up details here; use the 'comment' parameter instead."),
         due_date: z.string().optional().describe("New due date in ISO 8601 format with timezone offset matching the advisor's local time (e.g., 2026-06-02T15:00:00-06:00)"),
         type_id: z.string().optional().describe("UUID of the new type (call get_reminder_types if you don't know it)"),
-        status: z.string().optional().describe(`${STATUS_UPDATE_DESC} If setting to CANCELLED, a comment is MANDATORY.`),
+        status: z.string().optional().describe(`${STATUS_UPDATE_DESC} If setting to CANCELLED, a comment is MANDATORY: ask the advisor why they are cancelling it and pass that reason in comment.`),
         comment: z.string().optional().describe("Any follow-up details, notes, updates, or additions requested by the user. Pass the complete text of the new update/note here."),
       }),
     },
     async execute(args, ctx) {
       const params = args as any;
       if (params.status === "CANCELLED" && (!params.comment || !params.comment.trim())) {
-        return { error: "El comentario es obligatorio para cancelar un recordatorio. Por favor, solicita o proporciona un comentario explicativo." };
+        return { error: "A comment is mandatory to cancel a reminder." };
       }
       // El modelo manda indistintamente el `code` o el `id` del estado, y no es
       // capricho: get_reminder_statuses devuelve los dos, y esta misma skill

@@ -38,14 +38,15 @@ export const pendingTaskSkills: SkillDefinition[] = [
     },
     async execute(args, ctx) {
       await ctx.aiSessionService.resolvePendingTask(args.pending_task_id as string, ctx.sessionId);
-      // La instrucción es explícita por la misma razón que el sobre `ok: false`
-      // de skill_executor: una fila de `ai_pending_tasks` se parece demasiado a
-      // un registro de verdad —trae task_type "create_commitment", contact_id y
-      // descripción— y el modelo la toma por el guardado. Comprobado el
-      // 2026-08-28: hizo save_pending_task + resolve_pending_task, no llamó a
-      // create_commitment, y le confirmó al asesor un compromiso inexistente.
       // Solo el hecho. Que esto sea puro bookkeeping y que no cuente como
       // registro es politica constante y vive en READING TOOL RESULTS.
+      //
+      // Que la regla exista se debe a esto: una fila de `ai_pending_tasks` se
+      // parece demasiado a un registro de verdad —trae task_type
+      // "create_commitment", contact_id y descripcion— y el modelo la toma por
+      // el guardado. Comprobado el 2026-08-28: hizo save_pending_task +
+      // resolve_pending_task, no llamo a create_commitment, y le confirmo al
+      // asesor un compromiso inexistente.
       return { resolved: true };
     },
   },

@@ -86,7 +86,7 @@ export const catalogSkills: SkillDefinition[] = [
     },
     async execute(args, ctx) {
       const carrierId = (args.carrier_id ?? args.id) as string | undefined;
-      if (!carrierId) return { error: "The UUID of the carrier is required. Use search_carrier to obtain it." };
+      if (!carrierId) return { error: "The UUID of the carrier is required." };
       return await ctx.catalogServices.carrierService.update(carrierId, {
         name: args.name,
         shortName: args.short_name,
@@ -107,7 +107,7 @@ export const catalogSkills: SkillDefinition[] = [
     },
     async execute(args, ctx) {
       const branchId = (args.branch_id ?? args.id) as string | undefined;
-      if (!branchId) return { error: "The UUID of the branch is required. Use search_branch to obtain it." };
+      if (!branchId) return { error: "The UUID of the branch is required." };
       return await ctx.catalogServices.branchService.update(branchId, {
         name: args.name,
         code: args.code,
@@ -159,7 +159,7 @@ export const catalogSkills: SkillDefinition[] = [
     },
     async execute(args, ctx) {
       const productId = (args.product_id ?? args.id) as string | undefined;
-      if (!productId) return { error: "The UUID of the product is required. Use search_product to obtain it." };
+      if (!productId) return { error: "The UUID of the product is required." };
       return await ctx.catalogServices.productService.update(productId, {
         name: args.name,
         carrierId: args.carrier_id,
@@ -175,9 +175,9 @@ export const catalogSkills: SkillDefinition[] = [
       schema: z.object({
         name: z.string({ required_error: "The name of the product is required" })
           .describe("Name of the product (e.g., 'Plan Familiar Plus')"),
-        carrier_id: z.string({ required_error: "The carrier UUID is required. Use search_carrier or create_carrier to obtain it." })
+        carrier_id: z.string({ required_error: "The carrier UUID is required." })
           .describe("UUID of the carrier (obtained from search_carrier or create_carrier)"),
-        branch_id: z.string({ required_error: "The branch UUID is required. Use search_branch or create_branch to obtain it." })
+        branch_id: z.string({ required_error: "The branch UUID is required." })
           .describe("UUID of the branch (obtained from search_branch or create_branch)"),
       }),
     },

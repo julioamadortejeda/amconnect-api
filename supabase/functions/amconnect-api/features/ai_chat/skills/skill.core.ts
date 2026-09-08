@@ -57,8 +57,9 @@ export interface SkillContext {
  * y le confirma al asesor un cambio que nunca ocurrió — pasó el 2026-08-13 con
  * "ponlo en progreso" sobre un recordatorio, que siguió en CREATED.
  *
- * Al lanzar, `executeSkill` responde con el sobre `ok: false` + la instrucción
- * de no reportarlo como hecho.
+ * Al lanzar, `executeSkill` responde con el sobre `ok: false`. Que hacer con ese
+ * campo —decirlo claro y no reportarlo como hecho— lo dice el prompt, en
+ * READING TOOL RESULTS y en WRITE ACTIONS; aqui solo se lanza el hecho.
  *
  * [fields] son los campos que para ESA skill cuentan como cambio — no siempre
  * son los que llegan a la tabla: en recordatorios un `comment` solo no toca la
@@ -70,8 +71,7 @@ export function assertHasChanges(fields: Record<string, unknown>): void {
   );
   if (!hasAny) {
     throw new Error(
-      "Nothing to update: no field to change was provided. Ask the advisor what exactly " +
-        "they want to change, then call this skill again including that field.",
+      "Nothing to update: no field to change was provided.",
     );
   }
 }

@@ -29,8 +29,11 @@ export async function executeSkill(
     const missing = validation.error.issues
       .map((i: { path: (string | number)[]; message: string }) => `${i.path.join(".") || "field"}: ${i.message}`)
       .join("; ");
+    // Solo que falto: el "preguntale al asesor en vez de inventarlo" ya es regla
+    // del prompt ("NEVER invent or copy values between fields to satisfy
+    // required fields"), y cada schema dice en su required_error que espera.
     return {
-      response: { error: `Missing required data — ${missing}. Ask the user before calling this skill again.` },
+      response: { error: `Missing required data — ${missing}` },
     };
   }
 
@@ -54,18 +57,13 @@ export async function executeSkill(
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error executing skill.";
     console.error(`[SKILL] "${name}" threw: ${msg}`);
-    // El sobre de fallo es explícito a propósito: un `error` suelto con un
-    // mensaje corto en español se le ha colado al modelo como si fuera un
-    // resultado válido, y terminó confirmándole al asesor un cambio que nunca
-    // ocurrió. `ok: false` + la instrucción no dejan lugar a interpretación.
+    // `ok: false` es explicito a proposito: un `error` suelto con un mensaje
+    // corto se le colo al modelo como si fuera un resultado valido y termino
+    // confirmandole al asesor un cambio que nunca ocurrio. El campo es lo que
+    // rompe esa ambiguedad —no se puede leer como exito— y que hacer con el lo
+    // dice el prompt, en READING TOOL RESULTS y en WRITE ACTIONS.
     return {
-      response: {
-        ok: false,
-        error: msg,
-        instruction:
-          "This action FAILED and nothing was saved. Tell the advisor plainly that it could not be " +
-          "completed, and why. NEVER report this as done or successful.",
-      },
+      response: { ok: false, error: msg },
     };
   }
 }

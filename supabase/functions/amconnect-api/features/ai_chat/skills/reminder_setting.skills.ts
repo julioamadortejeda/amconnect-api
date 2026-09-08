@@ -25,7 +25,7 @@ export const reminderSettingSkills: SkillDefinition[] = [
         "After changing it, tell the advisor the new value and mention that the other branches keep their previous setting.",
       schema: z.object({
         reminder_type_code: z.string().optional()
-          .describe("Type code from get_reminder_settings: PAYMENT, RENEWAL, ANNIVERSARY or BIRTHDAY"),
+          .describe("Type code from get_reminder_settings: PAYMENT, RENEWAL, ANNIVERSARY or BIRTHDAY. Call that skill first if you do not have it, and ask the advisor which one they mean when it is not clear."),
         reminder_type_id: z.string().optional().describe("Accepted alias: UUID of the reminder type"),
         branch_id: z.string().optional()
           .describe("UUID of the branch (from search_branch) to set an exception for. Omit for the advisor's default."),
@@ -41,7 +41,7 @@ export const reminderSettingSkills: SkillDefinition[] = [
       if (!typeCode && !typeId) {
         return {
           error:
-            "The reminder type is required. Call get_reminder_settings to see the available codes, and ask the advisor which one they mean if it is not clear.",
+            "The reminder type is required.",
         };
       }
 
