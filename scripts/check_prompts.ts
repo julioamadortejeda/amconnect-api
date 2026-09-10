@@ -18,6 +18,11 @@
  *   ARCHIVO vs BASE      -> informativo. Un prompt adelantado en
  *                           dev_prompts.ts es el flujo normal: se itera en el
  *                           archivo y se promueve con migracion cuando queda.
+ *   CHAT vs VOZ          -> una regla que existe en uno y falta en el otro.
+ *                           Los dos prompts comparten ~50 de sus 57 lineas,
+ *                           copiadas a mano. El 2026-09-07 cambie la regla de
+ *                           idioma y no cayo en voz, porque voz la redacta
+ *                           distinto; lo vi de casualidad revisando conteos.
  *
  * Uso:  deno task prompts:check     (o directo con deno run -A)
  */
@@ -176,8 +181,55 @@ async function main() {
   }
   if (differences === 0) console.log(green("  ✓ identicos"));
 
+  // 5 · Chat contra voz
+  //
+  // Se compara por TEMA, no por texto: la clave es el arranque de cada regla,
+  // asi que "Respond naturally and professionally." y su version hablada
+  // ("...in short conversational sentences") cuentan como la misma regla
+  // adaptada, no como una que falta.
+  const soloChat = ["attachment / file citation rule", "rag source citation rule", "language instruction"];
+  const soloVoz = ["voice formatting", "critical voice mode language rule"];
+
+  // 32 caracteres sin puntuacion: suficiente para distinguir reglas distintas y
+  // corto para que "Respond naturally and professionally." y su version hablada
+  // ("...professionally, in short conversational sentences") caigan en la misma.
+  const clave = (l: string) =>
+    l.replace(/^-\s*/, "").toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim().slice(0, 32);
+
+  const reglas = async (code: string) => {
+    const txt = (await psql(`select prompt from public.system_prompts where code = '${code}'`, ["-t", "-A"]))
+      .replace(/\n$/, "");
+    const mapa = new Map<string, string>();
+    for (const l of txt.split("\n")) {
+      const limpia = l.trim();
+      if (limpia.length > 12) mapa.set(clave(limpia), limpia);
+    }
+    return mapa;
+  };
+
+  const chat = await reglas("ai_chat_system");
+  const voz = await reglas("voice_chat_system");
+  // Las excepciones pasan por la misma normalizacion que las reglas, o no
+  // coincidirian nunca: la clave va sin puntuacion y recortada a 32.
+  const permitida = (k: string, lista: string[]) => lista.some((a) => k.startsWith(clave(a)));
+
+  const faltanEnVoz = [...chat.keys()].filter((k) => !voz.has(k) && !permitida(k, soloChat));
+  const faltanEnChat = [...voz.keys()].filter((k) => !chat.has(k) && !permitida(k, soloVoz));
+  const adaptadas = [...chat.keys()].filter((k) => voz.has(k) && chat.get(k) !== voz.get(k));
+
+  console.log("\nCHAT vs VOZ" + gray(`  (${chat.size} reglas en chat, ${voz.size} en voz)`));
+  if (faltanEnVoz.length === 0 && faltanEnChat.length === 0) {
+    console.log(green("  ✓ ninguna regla existe en uno y falta en el otro"));
+  } else {
+    for (const k of faltanEnVoz) console.log(red("  ✗ falta en VOZ") + gray(`   ${chat.get(k)!.slice(0, 76)}`));
+    for (const k of faltanEnChat) console.log(red("  ✗ falta en CHAT") + gray(`  ${voz.get(k)!.slice(0, 76)}`));
+  }
+  if (adaptadas.length > 0) {
+    console.log(gray(`  ${adaptadas.length} adaptadas a proposito (mismo tema, texto distinto)`));
+  }
+
   await psql(`drop schema if exists ${SHADOW} cascade;`);
-  Deno.exit(bad.length > 0 ? 1 : 0);
+  Deno.exit(bad.length > 0 || faltanEnVoz.length > 0 || faltanEnChat.length > 0 ? 1 : 0);
 }
 
 await main();
