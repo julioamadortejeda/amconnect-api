@@ -133,6 +133,17 @@ export class SupabaseRepository<T> implements IRepository<T> {
         dataQuery = (dataQuery as any).is(field, null);
         // deno-lint-ignore no-explicit-any
         countQuery = (countQuery as any).is(field, null);
+      } else if (Array.isArray(value)) {
+        // Un arreglo significa "cualquiera de estos", no un valor literal.
+        // Lo usa la búsqueda de texto: la función SQL devuelve los ids que
+        // coinciden y se paginan aquí, en vez de traerlos todos y recortar
+        // después. Un arreglo VACÍO no es "sin filtro" — es "ninguno
+        // coincidió", y `.in()` con lista vacía devuelve cero filas, que es
+        // exactamente lo correcto.
+        // deno-lint-ignore no-explicit-any
+        dataQuery = (dataQuery as any).in(field, value);
+        // deno-lint-ignore no-explicit-any
+        countQuery = (countQuery as any).in(field, value);
       } else if (value !== undefined) {
         // deno-lint-ignore no-explicit-any
         dataQuery = (dataQuery as any).eq(field, value);

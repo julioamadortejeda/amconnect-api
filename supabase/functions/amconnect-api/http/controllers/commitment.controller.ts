@@ -20,6 +20,10 @@ export class CommitmentController {
       to: c.req.query("to") ?? undefined,
       contactId: c.req.query("contactId") ?? undefined,
       overdueOnly: c.req.query("overdueOnly") === "true",
+      // El filtro de texto ya existía para el asistente (search_commitment_ids);
+      // faltaba exponerlo para que la agenda pueda buscar en su pestaña de
+      // compromisos con el mismo criterio que en la de recordatorios.
+      query: c.req.query("query")?.trim() || undefined,
     });
 
     return sendSuccess(c, items);

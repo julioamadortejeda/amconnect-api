@@ -3,6 +3,7 @@ import { SupabaseRepository } from "../../core/base_repository.ts";
 import { PaginatedResult } from "../../core/repository.interface.ts";
 import { ReminderResponseDTO } from "./reminder.dto.ts";
 import { AppError, internalError } from "../../shared/errors.ts";
+import { handleSupabaseError } from "../../shared/errors.ts";
 
 export interface DueReminderRow {
   id: string;
@@ -43,6 +44,24 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
     pageSize = 20,
   ): Promise<PaginatedResult<ReminderResponseDTO>> {
     return super.paginate(filters, page, pageSize, { column: "due_date", ascending: true, nullsFirst: false });
+  }
+
+  /**
+   * Solo los ids que coinciden con el texto. Existe aparte de `searchReminders`
+   * porque el listado paginado no quiere las filas: quiere el conjunto para
+   * pasárselo a `paginate` y que la página la arme Postgres, en vez de traerlo
+   * todo y recortar en memoria.
+   */
+  async searchIds(agentId: string, queryText: string): Promise<string[]> {
+    const { data, error } = await this.supabase
+      .rpc("search_reminder_ids", { p_agent_id: agentId, p_query: queryText });
+
+    // NO devolver [] al fallar: el listado lo leería como "ninguno coincidió" y
+    // le diría al asesor que no hay nada, cuando lo que hubo fue un error.
+    // Mentirle sobre sus datos es peor que mostrarle una falla.
+    if (error) handleSupabaseError(error, "reminder.searchIds");
+
+    return (data ?? []) as unknown as string[];
   }
 
   async searchReminders(

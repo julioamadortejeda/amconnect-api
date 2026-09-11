@@ -211,6 +211,11 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     return data ? data.map((s) => s.id) : [];
   }
 
+  /** Ids que coinciden con el texto, para el listado paginado. */
+  async searchIds(agentId: string, queryText: string): Promise<string[]> {
+    return await this.reminderRepo.searchIds(agentId, queryText);
+  }
+
   async searchReminders(
     agentId: string,
     queryText: string,

@@ -12,9 +12,15 @@ export class ReminderController {
     const { page, pageSize } = parsePagination(c);
     // ?policyId= acota al historial de una póliza (incluye los ya cerrados).
     const policyId = c.req.query("policyId");
+    // ?query= busca por VARIAS palabras, sin acentos y en cualquier orden
+    // (search_reminder_ids). Se resuelve a ids y se paginan: la página la arma
+    // Postgres, no el cliente. Ver la nota del filtro por arreglo en
+    // core/base_repository.ts.
+    const query = c.req.query("query")?.trim();
     const filters: Record<string, unknown> = { agent_id: agentId };
     if (policyId) filters.policy_id = policyId;
     const service: ReminderService = c.get("services").reminderService;
+    if (query) filters.id = await service.searchIds(agentId, query);
     const data = await service.paginate(filters, page, pageSize);
     return sendSuccess(c, data);
   }
