@@ -50,6 +50,7 @@ import { NoteRepository } from "../../../modules/note/note.repository.ts";
 import { NoteService } from "../../../modules/note/note.service.ts";
 import { CommitmentService } from "../../../features/commitments/commitment.service.ts";
 import { CommitmentRepository } from "../../../features/commitments/commitment.repository.ts";
+import { localeFromHeader } from "../../../shared/locale.ts";
 
 // Switch único gratis ↔ pago: AI_BACKEND=studio (default, Gemini API con
 // GEMINI_API_KEY) | vertex (Vertex AI con VERTEX_API_KEY). Aplica a chat,
@@ -142,6 +143,19 @@ export const injectServices = async (c: Context, next: Next) => {
   if (clientTimezone && clientTimezone !== agentStatus.timezone) {
     agentService.syncTimezone(agentId, clientTimezone).catch((error) => {
       console.error("[DI] no se pudo guardar el timezone del asesor:", error?.message ?? error);
+    });
+  }
+
+  // El idioma viaja igual y se guarda por la misma razón: el cron escribe
+  // títulos que el asesor lee ("Pago de Prima · ...") y no tiene request. Misma
+  // cautela que arriba — solo si el cliente mandó el header de verdad, para que
+  // un webhook o un curl sin Accept-Language no le pise el idioma.
+  const localeHeader = c.req.header("Accept-Language");
+  const clientLocale = localeHeader ? localeFromHeader(localeHeader) : null;
+
+  if (clientLocale && clientLocale !== agentStatus.locale) {
+    agentService.syncLocale(agentId, clientLocale).catch((error) => {
+      console.error("[DI] no se pudo guardar el idioma del asesor:", error?.message ?? error);
     });
   }
 

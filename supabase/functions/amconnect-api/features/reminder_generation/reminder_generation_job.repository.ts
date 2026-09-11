@@ -27,6 +27,7 @@ export interface IReminderGenerationJobRepository {
   findActivePolicies(offset: number, limit: number): Promise<JobPolicyRow[]>;
   findContactsWithBirthdate(offset: number, limit: number): Promise<JobContactRow[]>;
   findAgentTimezones(): Promise<Map<string, string | null>>;
+  findAgentLocales(): Promise<Map<string, string | null>>;
 }
 
 export class ReminderGenerationJobRepository implements IReminderGenerationJobRepository {
@@ -78,6 +79,23 @@ export class ReminderGenerationJobRepository implements IReminderGenerationJobRe
       (data ?? []).map((row) => {
         const r = row as { id: string; timezone: string | null };
         return [r.id, r.timezone ?? null];
+      }),
+    );
+  }
+
+  /** El idioma en que se escriben los títulos. Ver agents.locale. */
+  async findAgentLocales(): Promise<Map<string, string | null>> {
+    const { data, error } = await this.supabase
+      .from("agents")
+      .select("id, locale")
+      .eq("is_active", true);
+
+    if (error) handleSupabaseError(error, "reminder_generation_job.findAgentLocales");
+
+    return new Map(
+      (data ?? []).map((row) => {
+        const r = row as { id: string; locale: string | null };
+        return [r.id, r.locale ?? null];
       }),
     );
   }

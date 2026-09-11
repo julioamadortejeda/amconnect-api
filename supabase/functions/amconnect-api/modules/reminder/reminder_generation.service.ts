@@ -1,7 +1,8 @@
 import { todayInTimezone } from "../../shared/datetime.ts";
 import { daysUntil, nextOccurrence } from "../../shared/payment_schedule.ts";
 import {
-  REMINDER_TITLES,
+  reminderTitle,
+  estimatedDateNote,
   YEARLY_INTERVAL_MONTHS,
 } from "./reminder_generation.constants.ts";
 import type {
@@ -48,6 +49,8 @@ interface Candidate {
   /** The date the series lands on, YYYY-MM-DD. */
   occurrence: string;
   branchId: string | null;
+  /** Solo cuando la fecha se dedujo: le dice al asesor que no la leyó nadie. */
+  description?: string;
 }
 
 // Returns "YYYY-MM-DDT00:00:00±HH:MM" — local midnight in the advisor's timezone.
@@ -57,8 +60,8 @@ function toLocalMidnight(dateStr: string, timezoneOffset: string): string {
   return `${dateStr.substring(0, 10)}T00:00:00${timezoneOffset}`;
 }
 
-function titleFor(typeCode: string, label: string): string {
-  return REMINDER_TITLES[typeCode]?.(label) ?? label;
+function titleFor(typeCode: string, label: string, locale: string): string {
+  return reminderTitle(typeCode, label, locale);
 }
 
 /**
@@ -81,6 +84,7 @@ export class ReminderGenerationService {
     agentId: string,
     timezoneOffset = "-06:00",
     resolver?: ReminderSettingResolver,
+    locale = "es",
   ): Promise<ReminderGenerationResult> {
     const settings = resolver ?? await this.settingService.buildResolver();
     const today = todayInTimezone(timezoneOffset);
@@ -95,11 +99,26 @@ export class ReminderGenerationService {
       frequencyMonths = frequencyMonths === undefined ? info?.frequencyMonths ?? null : frequencyMonths;
     }
 
-    const series: Array<{ typeCode: string; anchor?: string | null; intervalMonths: number }> = [
+    const series: Array<{ typeCode: string; anchor?: string | null; intervalMonths: number; estimated?: boolean }> = [
       {
         typeCode: "PAYMENT",
-        anchor: policy.nextPaymentDate,
+        // Sin `next_payment_date` el aviso de cobro no llegaba NUNCA — no es que
+        // tardara: la serie se saltaba por falta de ancla. Y muchas carátulas no
+        // imprimen esa fecha, solo el inicio y la frecuencia (2 de 3 pólizas de
+        // prueba). Se deduce del inicio, que es donde cae el aniversario de pago.
+        //
+        // SOLO si la frecuencia se conoce y es recurrente. Sin ese candado, una
+        // póliza de pago único heredaría el default anual de abajo y le
+        // inventaría al asesor un cobro que no existe — y un recordatorio falso
+        // es peor que uno faltante: lo manda a cobrarle a alguien que ya pagó.
+        // (`payment_frequencies` no tiene fila SINGLE, así que el pago único
+        // llega aquí con `frequencyMonths` nulo y queda fuera solo.)
+        anchor: policy.nextPaymentDate ??
+          (frequencyMonths && frequencyMonths > 0 ? policy.startDate : null),
         intervalMonths: frequencyMonths && frequencyMonths > 0 ? frequencyMonths : YEARLY_INTERVAL_MONTHS,
+        // El asesor tiene que poder distinguir la fecha que alguien leyó de la
+        // que dedujo el sistema, antes de llamarle a un cliente.
+        estimated: !policy.nextPaymentDate,
       },
       {
         typeCode: "RENEWAL",
@@ -128,9 +147,10 @@ export class ReminderGenerationService {
 
       candidates.push({
         typeCode: entry.typeCode,
-        title: titleFor(entry.typeCode, label),
+        title: titleFor(entry.typeCode, label, locale),
         occurrence,
         branchId: branchId ?? null,
+        ...(entry.estimated ? { description: estimatedDateNote(locale) } : {}),
       });
     }
 
@@ -143,6 +163,7 @@ export class ReminderGenerationService {
     agentId: string,
     timezoneOffset = "-06:00",
     resolver?: ReminderSettingResolver,
+    locale = "es",
   ): Promise<ReminderGenerationResult> {
     if (!contact.birthdate) return { created: [], existing: [] };
 
@@ -159,7 +180,7 @@ export class ReminderGenerationService {
 
     const candidate: Candidate = {
       typeCode: "BIRTHDAY",
-      title: titleFor("BIRTHDAY", contact.fullName ?? "cliente"),
+      title: titleFor("BIRTHDAY", contact.fullName ?? "cliente", locale),
       occurrence,
       branchId: null,
     };
@@ -218,6 +239,7 @@ export class ReminderGenerationService {
         owner,
         typeId: type.id,
         title: candidate.title,
+        description: candidate.description,
         dueDate,
         occurrenceDate: candidate.occurrence,
       }, createdStatusId);

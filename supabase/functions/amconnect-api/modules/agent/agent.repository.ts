@@ -10,6 +10,7 @@ export interface IAgentRepository {
   findById(agentId: string): Promise<Record<string, unknown> | null>;
   update(agentId: string, data: AgentUpdateData): Promise<Record<string, unknown> | null>;
   updateTimezone(agentId: string, timezone: string): Promise<void>;
+  updateLocale(agentId: string, locale: string): Promise<void>;
 }
 
 export class AgentRepository implements IAgentRepository {
@@ -49,5 +50,14 @@ export class AgentRepository implements IAgentRepository {
       .eq("id", agentId);
 
     if (error) handleSupabaseError(error, "agents.updateTimezone");
+  }
+
+  async updateLocale(agentId: string, locale: string): Promise<void> {
+    const { error } = await this.supabase
+      .from("agents")
+      .update({ locale })
+      .eq("id", agentId);
+
+    if (error) handleSupabaseError(error, "agents.updateLocale");
   }
 }

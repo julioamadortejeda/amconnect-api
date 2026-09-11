@@ -21,6 +21,8 @@ export interface AgentStatusInfo {
   trialEndsAt: string | null;
   /** IANA timezone ya guardada, para saber si el header trae algo distinto. */
   timezone: string | null;
+  /** Idioma ya guardado. Mismo motivo que el timezone: compararlo con el header. */
+  locale: string | null;
 }
 
 export interface SubscriptionPlanRow {
@@ -83,7 +85,7 @@ export class SubscriptionRepository implements ISubscriptionRepository {
   async getAgentStatus(agentId: string): Promise<AgentStatusInfo | null> {
     const { data: agent, error } = await this.supabase
       .from("agents")
-      .select("subscription_status, trial_ends_at, timezone")
+      .select("subscription_status, trial_ends_at, timezone, locale")
       .eq("id", agentId)
       .single();
 
@@ -92,6 +94,7 @@ export class SubscriptionRepository implements ISubscriptionRepository {
       subscriptionStatus: agent.subscription_status,
       trialEndsAt: agent.trial_ends_at ?? null,
       timezone: agent.timezone ?? null,
+      locale: agent.locale ?? null,
     };
   }
 

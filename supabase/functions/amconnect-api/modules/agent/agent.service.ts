@@ -28,4 +28,13 @@ export class AgentService {
   async syncTimezone(agentId: string, timezone: string): Promise<void> {
     await this.repository.updateTimezone(agentId, timezone);
   }
+
+  /**
+   * Guarda el idioma que reporta el cliente, por la misma razón que el
+   * timezone: el cron de recordatorios escribe títulos visibles para el asesor
+   * y no tiene request del cual leer `Accept-Language`.
+   */
+  async syncLocale(agentId: string, locale: string): Promise<void> {
+    await this.repository.updateLocale(agentId, locale);
+  }
 }

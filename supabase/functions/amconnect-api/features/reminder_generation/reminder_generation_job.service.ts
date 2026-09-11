@@ -61,6 +61,12 @@ export class ReminderGenerationJobService {
       return offset;
     };
 
+    // El idioma del asesor, guardado del Accept-Language de su última petición.
+    // Sin él los títulos salen en español para todos — un asesor con la app en
+    // inglés recibía "Pago de Prima · ...".
+    const locales = await this.jobRepository.findAgentLocales();
+    const localeFor = (agentId: string): string => locales.get(agentId) ?? "es";
+
     const resolverFor = async (agentId: string): Promise<ReminderSettingResolver> => {
       const cached = resolvers.get(agentId);
       if (cached) return cached;
@@ -90,6 +96,7 @@ export class ReminderGenerationJobService {
             policy.agentId,
             offsetFor(policy.agentId),
             await resolverFor(policy.agentId),
+            localeFor(policy.agentId),
           );
           remindersCreated += result.created.length;
         } catch (error) {
@@ -113,6 +120,7 @@ export class ReminderGenerationJobService {
             contact.agentId,
             offsetFor(contact.agentId),
             await resolverFor(contact.agentId),
+            localeFor(contact.agentId),
           );
           remindersCreated += result.created.length;
         } catch (error) {

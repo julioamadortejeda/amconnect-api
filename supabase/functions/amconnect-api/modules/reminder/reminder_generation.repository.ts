@@ -26,6 +26,8 @@ export interface CreateReminderData {
   dueDate: string;
   /** Ocurrencia del calendario que cubre; no cambia si se reagenda. */
   occurrenceDate: string;
+  /** Solo cuando la fecha se dedujo en vez de leerse de la carátula. */
+  description?: string;
 }
 
 /** The bits of a policy the schedule depends on, resolved from its product. */
@@ -146,6 +148,7 @@ export class ReminderGenerationRepository implements IReminderGenerationReposito
         contact_id: data.owner.contactId ?? null,
         type_id: data.typeId,
         title: data.title,
+        description: data.description ?? null,
         due_date: data.dueDate,
         occurrence_date: data.occurrenceDate,
         status_id: createdStatusId,
