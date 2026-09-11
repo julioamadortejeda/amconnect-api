@@ -27,6 +27,25 @@ Route → Controller → Service → Repository → Supabase
 - Errores de Supabase: pasar SIEMPRE por `handleSupabaseError` — no inspeccionar `error.code` a mano.
 - Validación de body: `Schema.parse(...)` y dejar que el middleware formatee el `ZodError`. No repetir el bloque `safeParse + issues.map(...)` en cada handler.
 
+## 2.1 Texto que el backend ESCRIBE para el asesor — decisión pendiente
+
+Hay dos mecanismos de traducción y los dos resuelven lo mismo: el backend manda un identificador y la app pone las palabras.
+
+| Caso | Qué manda el backend | Quién traduce |
+|---|---|---|
+| Errores de respuesta | `errorCode` + mensaje español de respaldo | la app, con `error_translator.dart` (§2) |
+| Valores de catálogo | el `code` en inglés | la app, con `CatalogL10n` |
+
+Existe un tercer caso que **no encaja en ninguno**: texto que el backend **escribe en una columna** y el asesor lee después. Hoy es uno solo — los títulos y descripciones que genera el cron de recordatorios (`Pago de Prima · GM000…`).
+
+**Por qué no puede seguir el patrón:** `reminders.title` es `NOT NULL` y texto libre, así que algo tiene que quedar guardado. Y no lo lee solo la app: `search_reminder_ids` busca dentro de él cuando el asesor pregunta por texto, y el asistente se lo dice en voz o en chat. Si la app compusiera el título en pantalla y la columna guardara un código, el asistente y la pantalla estarían en desacuerdo sobre el mismo recordatorio.
+
+**Lo que se hace hoy (2026-09-10):** el cron lo compone ya resuelto en el idioma del asesor, leyendo `agents.locale` —persistida desde `Accept-Language` igual que el timezone, y por el mismo motivo: el cron no tiene request. Las tablas viven en `modules/reminder/reminder_generation.constants.ts`.
+
+**Lo que cuesta:** queda congelado al crearse. Si el asesor cambia la app de idioma, los recordatorios que ya existen conservan el anterior; solo los nuevos salen en el idioma nuevo.
+
+**La decisión pendiente:** eso es un tercer mecanismo de i18n en el backend, y se inventó para este caso. El día que otro flujo necesite escribir texto traducido para el asesor, **decidir dónde vive** en vez de copiar esa tabla. Alternativa sobre la mesa: que la app componga el título de los generados —se distinguen porque tienen `occurrence_date`— y resolver primero qué se guarda en la columna para que el asistente lea lo mismo.
+
 ## 3. Base de datos
 
 - **Soft delete siempre**: `is_active = false` + `deleted_at`. Nunca `DELETE`.
