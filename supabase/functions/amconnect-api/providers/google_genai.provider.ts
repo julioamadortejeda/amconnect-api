@@ -12,6 +12,7 @@ import {
 import { AiError, AiProviderError } from "../shared/errors.ts";
 import { normalizeHistoryRoles } from "../shared/ai_history.ts";
 import { PromptService } from "../modules/prompt/prompt.service.ts";
+import { withAiRetry } from "../shared/retry.ts";
 
 export function wrapGeminiError(e: unknown, context: string): never {
   // deno-lint-ignore no-explicit-any
@@ -44,7 +45,7 @@ export class GoogleGenAiProvider implements IAiProvider {
     // deno-lint-ignore no-explicit-any
     let response: any;
     try {
-      response = await this.ai.models.generateContent({
+      response = await withAiRetry("processUserRequest", () => this.ai.models.generateContent({
         model: this.model,
         // Último filtro antes de salir a Gemini: un solo rol inválido en el
         // historial tumba la petición completa. Va aquí y no en cada llamador
@@ -61,7 +62,7 @@ export class GoogleGenAiProvider implements IAiProvider {
           // cache implícito del prefix) y solo deshabilitamos que el modelo las use.
           ...(forceTextOnly ? { toolConfig: { functionCallingConfig: { mode: "NONE" } } } : {}),
         } as never,
-      });
+      }));
     } catch (e) {
       wrapGeminiError(e, "processUserRequest");
     }
@@ -206,11 +207,11 @@ export class GoogleGenAiProvider implements IAiProvider {
     // deno-lint-ignore no-explicit-any
     let response: any;
     try {
-      response = await this.ai.models.generateContent({
+      response = await withAiRetry("generateStructuredData", () => this.ai.models.generateContent({
         model: this.model,
         contents: [{ role: "user", parts }],
         config: { responseMimeType: "application/json", responseSchema: jsonSchema as never },
-      });
+      }));
     } catch (e) {
       wrapGeminiError(e, "generateStructuredData");
     }
@@ -267,11 +268,11 @@ export class GoogleGenAiProvider implements IAiProvider {
     // deno-lint-ignore no-explicit-any
     let response: any;
     try {
-      response = await this.ai.models.generateContent({
+      response = await withAiRetry("classifyMessage", () => this.ai.models.generateContent({
         model: this.model,
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: { responseMimeType: "application/json" },
-      });
+      }));
     } catch (e) {
       wrapGeminiError(e, "classifyMessage");
     }

@@ -122,6 +122,27 @@ El caso que la motivó (2026-09-05): el asesor pregunta *"¿qué tengo pendiente
 - `deno.json` siempre con `"lock": false`.
 - No usar RPCs de Postgres para lo que se resuelve en TypeScript.
 
+## 6.1 Qué va en español y qué en inglés
+
+Cinco casos, y cada uno tiene su razón. Se me fue dos veces en la misma semana, así que aquí queda escrito.
+
+| Qué | Idioma | Por qué |
+|---|---|---|
+| Comentarios | **español** | los lee quien mantiene el código |
+| Identificadores (variables, funciones) | **inglés** | como el código de alrededor: `excludedIds`, `fromEff`, `statusCode` |
+| Logs (`console.warn/error`) | **inglés** | 44 de 47 ya lo están |
+| Texto que lee el MODELO (prompts, descripciones de skills, errores de skill) | **inglés** | §4, y porque razona mejor |
+| Mensajes para el ASESOR | `errorCode` + español | la app traduce por código (§2) |
+
+La excepción razonable: cuando una línea nueva va **pegada a otra que ya existe** en el otro idioma, gana el vecino. Dos líneas gemelas en idiomas distintos se leen peor que dos en el idioma "equivocado" — por eso `[DI] no se pudo guardar el idioma del asesor` está en español, junto a la de timezone que ya estaba así.
+
+**Antes de commitear**, para no depender de que alguien lo note en la revisión:
+
+```bash
+# identificadores en español en lo que vas a subir
+git diff --cached -U0 | grep -E "^\+" | grep -nE "\b(const|let|final|var) [a-z]*(cion|dad|ado|ando|iendo|eza|ncia)[a-zA-Z]*\b"
+```
+
 ## 7. Configuración y Cambio de Proveedor/Modelo de IA
 
 - **Cambio de Backend (AI Studio vs Vertex AI)**:
