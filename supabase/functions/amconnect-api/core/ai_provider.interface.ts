@@ -76,10 +76,15 @@ export interface IAiProvider {
   ): Promise<{ data: T; usage?: TokenUsage }>;
 
 
+  // `language`: nombre en inglés del idioma en que el asesor escribió ESTE
+  // mensaje ("Spanish", "English"), o undefined cuando el mensaje no trae
+  // idioma propio —un nombre suelto, "ok", "el segundo", una fecha— y también
+  // cuando el clasificador falló. Quien lo use tiene que decidir con qué se
+  // queda en ese caso; adivinar aquí sería inventarlo.
   classifyMessage(
     message: string,
     availableDomains: string[],
-  ): Promise<{ domains: string[]; usage?: TokenUsage }>;
+  ): Promise<{ domains: string[]; language?: string; usage?: TokenUsage }>;
 
   createEphemeralToken(
     model: string,

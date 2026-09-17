@@ -255,7 +255,7 @@ export class GoogleGenAiProvider implements IAiProvider {
   async classifyMessage(
     message: string,
     availableDomains: string[],
-  ): Promise<{ domains: string[]; usage?: TokenUsage }> {
+  ): Promise<{ domains: string[]; language?: string; usage?: TokenUsage }> {
     // Sin rama de respaldo: el DI construye SIEMPRE el PromptService
     // (di/index.ts) y se lo pasa a los dos providers, asi que el `if` que habia
     // aqui nunca corria — y dentro cargaba una copia entera del prompt del
@@ -292,7 +292,7 @@ export class GoogleGenAiProvider implements IAiProvider {
     // es no recortar. Con lista vacia el modelo se queda sin las herramientas
     // que necesitaba y contesta que no puede hacer nada, que es peor que un
     // error: parece una respuesta.
-    let parsed: { domains?: string[] };
+    let parsed: { domains?: string[]; language?: string | null };
     try {
       parsed = JSON.parse(response.text ?? "{}");
     } catch {
@@ -302,6 +302,12 @@ export class GoogleGenAiProvider implements IAiProvider {
 
     return {
       domains: parsed.domains ?? [],
+      // El prompt pide null cuando el mensaje no trae idioma propio, pero el
+      // modelo también puede omitir el campo o mandar "" — todo eso es lo
+      // mismo: no se sabe, y quien llama resuelve.
+      language: typeof parsed.language === "string" && parsed.language.trim() !== ""
+        ? parsed.language.trim()
+        : undefined,
       usage: response.usageMetadata
         ? {
           promptTokens: response.usageMetadata.promptTokenCount ?? 0,

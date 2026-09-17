@@ -59,6 +59,27 @@ export interface ChatResponse {
 /** El bloque [CONTEXT] que se antepone al mensaje: va hasta el primer renglón en blanco. */
 const CONTEXT_PREFIX_RE = /^\[CONTEXT\][\s\S]*?\n\n/;
 
+/** El `Reply language` del bloque [CONTEXT], que se guarda con cada turno. */
+const REPLY_LANGUAGE_RE = /\| Reply language: ([^\n|]+)/;
+
+/**
+ * El idioma en que se contestó por última vez en esta conversación.
+ *
+ * Se lee del historial y no de una columna nueva: el bloque [CONTEXT] viaja
+ * dentro del mensaje del asesor y se persiste con él, así que el dato ya está
+ * ahí. Se recorre de atrás hacia adelante para quedarse con el más reciente.
+ */
+function lastReplyLanguage(history: AiMessage[]): string | undefined {
+  for (let i = history.length - 1; i >= 0; i--) {
+    for (const part of (history[i].parts ?? []) as { text?: unknown }[]) {
+      if (typeof part.text !== "string") continue;
+      const match = part.text.match(REPLY_LANGUAGE_RE);
+      if (match) return match[1].trim();
+    }
+  }
+  return undefined;
+}
+
 /**
  * Junta lo que el asesor ha ESCRITO en la conversación, para las skills que
  * verifican citas (ver `SkillContext.advisorWords`).
@@ -129,14 +150,16 @@ export class AiChatService {
     const isPolicyIngestion = sessionType === "policy_ingestion";
     let activeDomains: string[];
     let classifyUsage;
+    let detectedLanguage: string | undefined;
 
     if (isPolicyIngestion) {
       activeDomains = POLICY_INGESTION_DOMAINS;
     } else {
       // TODO: Previously 'catalog' was always active. Kept as dynamic load to save tokens.
       const ALWAYS_ACTIVE = ["pending_task", "knowledge"];
-      const { domains, usage } = await this.aiProvider.classifyMessage(message, AVAILABLE_DOMAINS);
+      const { domains, usage, language } = await this.aiProvider.classifyMessage(message, AVAILABLE_DOMAINS);
       classifyUsage = usage;
+      detectedLanguage = language;
       
       const parsedDomains = domains.length > 0 ? domains : AVAILABLE_DOMAINS;
       
@@ -184,26 +207,41 @@ export class AiChatService {
     // Fecha y hora local del asesor — implementación compartida con voz
     const { localIso, offsetStr } = buildLocalDateTime(timezone || DEFAULT_TIMEZONE);
 
-    // System instruction estático POR ASESOR: la única sustitución es
-    // {{advisor_language}}, y su valor no cambia entre las peticiones de un
-    // mismo asesor, así que el prefijo sigue siendo idéntico y el implicit
-    // caching de Gemini sigue aplicando (medido el 2026-09-07: 12,078 tokens
-    // cacheados de 13,270 en el tercer turno). Cada idioma genera su propio
-    // prefijo, y cada uno se cachea por separado.
+    // System instruction ESTÁTICO: ya no le queda ni una sustitución. Hasta el
+    // 2026-09-14 traía {{advisor_language}}, que partía el prefijo en uno por
+    // idioma; ahora el idioma viaja como dato del turno (abajo) y el texto es
+    // idéntico para todos los asesores, así que el implicit caching de Gemini
+    // lo comparte entre todos (medido el 2026-09-07 con el prefijo por asesor:
+    // 12,078 tokens cacheados de 13,270 en el tercer turno).
     //
-    // Nada mas se sustituye aquí: lo que cambia por request —fecha, pending
+    // Nada se sustituye aquí: lo que cambia por request —fecha, idioma, pending
     // tasks, pantalla activa— va en el mensaje del usuario, abajo.
     const dbPromptCode = isPolicyIngestion ? "policy_ingestion_system" : "ai_chat_system";
-    // El idioma configurado del asesor no dicta la respuesta —eso lo decide su
-    // mensaje— pero desempata cuando el mensaje no tiene idioma: "el segundo",
-    // "ok", un nombre. Ver shared/locale.ts.
-    const systemInstruction = await this.promptService.getPrompt(dbPromptCode, {
-      advisor_language: languageName(advisorLocale),
-    });
+    const systemInstruction = await this.promptService.getPrompt(dbPromptCode, {});
 
     // Contexto dinámico (fecha/hora, pending tasks) va en el mensaje del usuario,
     // no en systemInstruction, para no romper el caching del prefix estático.
-    const contextLines = [`[CONTEXT] Current date/time: ${localIso} | Timezone offset: ${offsetStr}`];
+    // El idioma en que se contesta va como DATO del turno, no como regla del
+    // prompt. Pedirle al modelo que lo detectara no bastaba: con la app en
+    // inglés y la conversación abierta en inglés, un mensaje en español se
+    // contestaba en inglés 13 de 24 veces (medido el 2026-09-14). Escrito aquí,
+    // 0 de 24.
+    //
+    // Tres fuentes, en este orden:
+    //   1. Lo que detectó el clasificador para ESTE mensaje.
+    //   2. El último idioma que se usó en la conversación. Vive en el propio
+    //      historial: este mismo bloque [CONTEXT] se guarda con cada turno del
+    //      asesor, así que releerlo no cuesta ni una consulta. Es lo que salva
+    //      los turnos sin idioma propio —"ok", "el segundo", un nombre— que de
+    //      otro modo caerían al idioma de la app y romperían una conversación
+    //      que iba en el otro.
+    //   3. El idioma que el asesor configuró en la app, para el primer turno.
+    const replyLanguage = detectedLanguage ??
+      lastReplyLanguage(history) ??
+      languageName(advisorLocale);
+    const contextLines = [
+      `[CONTEXT] Current date/time: ${localIso} | Timezone offset: ${offsetStr} | Reply language: ${replyLanguage}`,
+    ];
     if (pendingTasks.length > 0) {
       const tasksText = pendingTasks
         .map((t) => `- ID: ${t.id}, tipo: ${t.taskType}, datos: ${JSON.stringify(t.payload)}`)
