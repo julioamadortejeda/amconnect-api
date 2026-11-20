@@ -237,6 +237,7 @@ export type Database = {
           full_name: string
           id: string
           is_active: boolean
+          locale: string | null
           phone: string | null
           plan: string
           plan_id: string | null
@@ -253,6 +254,7 @@ export type Database = {
           full_name: string
           id: string
           is_active?: boolean
+          locale?: string | null
           phone?: string | null
           plan?: string
           plan_id?: string | null
@@ -269,6 +271,7 @@ export type Database = {
           full_name?: string
           id?: string
           is_active?: boolean
+          locale?: string | null
           phone?: string | null
           plan?: string
           plan_id?: string | null
@@ -1793,7 +1796,7 @@ export type Database = {
             }[]
           }
       search_commitment_ids: {
-        Args: { p_agent_id: string; p_query: string }
+        Args: { p_agent_id: string; p_query: string; p_threshold?: number }
         Returns: string[]
       }
       search_contacts: {
@@ -1822,7 +1825,7 @@ export type Database = {
         }[]
       }
       search_reminder_ids: {
-        Args: { p_agent_id: string; p_query: string }
+        Args: { p_agent_id: string; p_query: string; p_threshold?: number }
         Returns: string[]
       }
       show_limit: { Args: never; Returns: number }

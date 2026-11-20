@@ -51,6 +51,7 @@ Existe un tercer caso que **no encaja en ninguno**: texto que el backend **escri
 - **Soft delete siempre**: `is_active = false` + `deleted_at`. Nunca `DELETE`.
 - **Nunca** modificar una migración aplicada — crear una nueva con `supabase migration new <nombre>`.
 - Aplicar con `supabase migration up`. **NUNCA `supabase db push`** (apunta al remoto).
+- **Toda tabla nueva en `public` lleva, en la misma migración, `enable row level security` + sus policies + `GRANT` explícitos** (`select` a `anon` solo si de verdad lo necesita; `select, insert, update, delete` a `authenticated` y `service_role`). Desde 2026-10-30 Supabase ya no otorga acceso al Data API automáticamente: sin `GRANT` la tabla devuelve "permission denied", también en `supabase db reset` local. Las tablas existentes conservan sus grants.
 - RLS con `agent_id = auth.uid()` protege las tablas de agente — no agregar `.eq("agent_id", ...)` redundante cuando el cliente ya viene autenticado con el JWT.
 - **Nunca** usar `SUPABASE_SERVICE_ROLE_KEY` en services. Única excepción: el endpoint interno de cron (`notifications/send-due`).
 - Si un insert necesita el `id` de vuelta y la tabla no tiene policy de SELECT (ej: `error_logs`), genera el UUID en código (`crypto.randomUUID()`) e insértalo — `insert().select()` falla con RLS sin SELECT.

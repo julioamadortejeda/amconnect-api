@@ -74,3 +74,6 @@ begin
   raise notice 'Reset completado para agente %', p_agent_id;
 end;
 $$;
+
+select version from supabase_migrations.schema_migrations where version = '20260818120100';
+
