@@ -6,7 +6,7 @@ export interface MonthlyUsageRow {
 }
 
 export interface IncrementResult {
-  data: { chat_count: number; ingestion_count: number } | null;
+  data: { charge_id: string; chat_count: number; ingestion_count: number } | null;
   error: { message: string; code: string } | null;
 }
 
@@ -25,7 +25,7 @@ export interface TokenUsageParams {
 export interface IUsageRepository {
   getMonthlyUsage(agentId: string, yearMonth: string): Promise<MonthlyUsageRow | null>;
   incrementUsage(agentId: string, field: "chat" | "ingestion"): Promise<IncrementResult>;
-  decrementUsage(agentId: string, field: "chat" | "ingestion"): Promise<void>;
+  refundCharge(chargeId: string): Promise<void>;
   getChatLimit(agentId: string): Promise<number>;
   logTokenUsage(params: TokenUsageParams): Promise<void>;
 }
@@ -74,11 +74,11 @@ export class UsageRepository implements IUsageRepository {
     return { data, error };
   }
 
-  async decrementUsage(agentId: string, field: "chat" | "ingestion"): Promise<void> {
-    await this.supabase.rpc("decrement_monthly_usage", {
-      p_agent_id: agentId,
-      p_field: field,
-    });
+  // Devuelve un cobro concreto. La función SQL solo acepta cobros propios,
+  // recientes y sin devolver; si no aplica responde false y no pasa nada.
+  async refundCharge(chargeId: string): Promise<void> {
+    const { error } = await this.supabase.rpc("refund_usage_charge", { p_charge_id: chargeId });
+    if (error) console.error("[UsageRepository] refund_usage_charge failed:", error.message);
   }
 
   async getChatLimit(agentId: string): Promise<number> {

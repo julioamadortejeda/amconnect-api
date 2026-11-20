@@ -18,19 +18,20 @@ export async function compensateIngestionFailure(
   usageService: UsageService,
   agentId: string,
   sessionId: string,
-  chargedIngestion: boolean = true,
+  // id del cobro de cuota; null cuando la ingesta no cobró (nota rápida corta).
+  chargeId: string | null,
 ): Promise<void> {
   if (err instanceof AiProviderError) {
     await Promise.all([
       aiSessionService.markSessionProviderError(sessionId, err instanceof Error ? err.message : ""),
-      chargedIngestion ? usageService.decrementIngestion(agentId) : Promise.resolve(),
+      usageService.refundCharge(chargeId),
     ]);
   } else if (err instanceof AiInvokedError) {
     await aiSessionService.markSessionFailed(sessionId, err.message);
   } else {
     await Promise.all([
       aiSessionService.deleteSession(sessionId),
-      chargedIngestion ? usageService.decrementIngestion(agentId) : Promise.resolve(),
+      usageService.refundCharge(chargeId),
     ]);
   }
 }

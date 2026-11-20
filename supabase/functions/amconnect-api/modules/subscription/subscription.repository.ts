@@ -42,7 +42,6 @@ export interface ApplyPromoResult {
 export interface ISubscriptionRepository {
   getAgentWithPlan(agentId: string): Promise<AgentPlanInfo | null>;
   getAgentStatus(agentId: string): Promise<AgentStatusInfo | null>;
-  expireAgent(agentId: string): Promise<void>;
   getActivePlans(): Promise<SubscriptionPlanRow[]>;
   applyPromoCode(agentId: string, code: string): Promise<ApplyPromoResult>;
 }
@@ -96,13 +95,6 @@ export class SubscriptionRepository implements ISubscriptionRepository {
       timezone: agent.timezone ?? null,
       locale: agent.locale ?? null,
     };
-  }
-
-  async expireAgent(agentId: string): Promise<void> {
-    await this.supabase
-      .from("agents")
-      .update({ subscription_status: "expired" })
-      .eq("id", agentId);
   }
 
   async getActivePlans(): Promise<SubscriptionPlanRow[]> {

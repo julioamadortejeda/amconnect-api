@@ -52,7 +52,7 @@ export class PolicyIngestionOrchestrator {
   ) {}
 
   async ingestPolicy(agentId: string, input: PolicyIngestInput): Promise<PolicyIngestionResult> {
-    await this.usageService.checkAndIncrementIngestion(agentId);
+    const chargeId = await this.usageService.checkAndIncrementIngestion(agentId);
 
     const sessionId = await this.aiSessionService.createSession(agentId, {
       triggerMessage: "policy_ingestion",
@@ -102,7 +102,7 @@ export class PolicyIngestionOrchestrator {
         isDuplicate: ingestResult.status === "duplicate_detected",
       };
     } catch (err) {
-      await compensateIngestionFailure(err, this.aiSessionService, this.usageService, agentId, sessionId);
+      await compensateIngestionFailure(err, this.aiSessionService, this.usageService, agentId, sessionId, chargeId);
       throw err;
     }
   }

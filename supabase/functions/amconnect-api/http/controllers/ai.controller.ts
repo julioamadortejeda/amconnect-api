@@ -27,7 +27,7 @@ export class AiController {
     const { message, sessionId, context } = AiController.parseChatBody(await c.req.json());
 
     const usageService = c.get("usage_service") as UsageService;
-    await usageService.checkAndIncrementChat(agentId);
+    const chargeId = await usageService.checkAndIncrementChat(agentId);
 
     try {
       const timezone = resolveTimezone(c.req.header("x-timezone"), c.req.header("x-timezone-offset"));
@@ -38,7 +38,7 @@ export class AiController {
     } catch (err) {
       if (err instanceof AiProviderError) {
         // Session already marked inside processMessage; only decrement usage
-        await usageService.decrementChat(agentId);
+        await usageService.refundCharge(chargeId);
       }
       throw err;
     }
@@ -144,13 +144,15 @@ export class AiController {
   static async ingest(c: Context) {
     const agentId: string = c.get("agent_id");
     const usageService = c.get("usage_service") as UsageService;
-    await usageService.checkAndIncrementIngestion(agentId);
 
+    // Validar antes de cobrar: un body inválido no debe consumir cuota.
     const body = await c.req.json();
     const { storagePath, fileName, mimeType, contactId, policyId, reminderId, makeGeneral } = AiIngestFileSchema.parse(body);
 
     const storageService = c.get("storage_service") as StorageService;
     storageService.validateMimeType(mimeType);
+
+    const chargeId = await usageService.checkAndIncrementIngestion(agentId);
 
     const advisorLocale = localeFromHeader(c.req.header('Accept-Language'));
 
@@ -170,7 +172,7 @@ export class AiController {
         message: responseMessage,
       }, 201);
     } catch (err) {
-      await compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId);
+      await compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId, chargeId);
       throw err;
     }
   }
@@ -197,9 +199,7 @@ export class AiController {
     // cuando el texto es corto (ver QUICK_NOTE_MAX_LENGTH) — el pegado de
     // texto general en Feed siempre consume cuota, sin importar el tamaño.
     const chargedIngestion = !(isClientNote && content.length <= QUICK_NOTE_MAX_LENGTH);
-    if (chargedIngestion) {
-      await usageService.checkAndIncrementIngestion(agentId);
-    }
+    const chargeId = chargedIngestion ? await usageService.checkAndIncrementIngestion(agentId) : null;
 
     const advisorLocale = localeFromHeader(c.req.header('Accept-Language'));
 
@@ -219,7 +219,7 @@ export class AiController {
         message: responseMessage,
       }, 201);
     } catch (err) {
-      await compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId, chargedIngestion);
+      await compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId, chargeId);
       throw err;
     }
   }

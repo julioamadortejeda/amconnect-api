@@ -19,8 +19,9 @@ export class UsageService {
     return { chatCount: row?.chatCount ?? 0, ingestionCount: row?.ingestionCount ?? 0 };
   }
 
-  async checkAndIncrementChat(agentId: string): Promise<void> {
-    const { error } = await this.repository.incrementUsage(agentId, "chat");
+  /** Cobra un mensaje y devuelve el id del cobro, que es lo único con que se puede devolver. */
+  async checkAndIncrementChat(agentId: string): Promise<string> {
+    const { data, error } = await this.repository.incrementUsage(agentId, "chat");
     if (error) {
       if (error.message === "quota_exceeded") {
         throw new QuotaExceededError(
@@ -29,6 +30,7 @@ export class UsageService {
       }
       throw internalError("No se pudo verificar tu cuota de mensajes.", `chat quota check failed: ${error.message}`);
     }
+    return data!.charge_id;
   }
 
   async checkChatQuotaOnly(agentId: string): Promise<void> {
@@ -43,8 +45,9 @@ export class UsageService {
     }
   }
 
-  async checkAndIncrementIngestion(agentId: string): Promise<void> {
-    const { error } = await this.repository.incrementUsage(agentId, "ingestion");
+  /** Cobra una ingesta y devuelve el id del cobro, que es lo único con que se puede devolver. */
+  async checkAndIncrementIngestion(agentId: string): Promise<string> {
+    const { data, error } = await this.repository.incrementUsage(agentId, "ingestion");
     if (error) {
       if (error.message === "quota_exceeded") {
         throw new QuotaExceededError(
@@ -53,14 +56,13 @@ export class UsageService {
       }
       throw internalError("No se pudo verificar tu cuota de ingestas.", `ingestion quota check failed: ${error.message}`);
     }
+    return data!.charge_id;
   }
 
-  async decrementChat(agentId: string): Promise<void> {
-    await this.repository.decrementUsage(agentId, "chat");
-  }
-
-  async decrementIngestion(agentId: string): Promise<void> {
-    await this.repository.decrementUsage(agentId, "ingestion");
+  /** Devuelve un cobro de chat o de ingesta. `null` = no se cobró, no hay nada que devolver. */
+  async refundCharge(chargeId: string | null): Promise<void> {
+    if (!chargeId) return;
+    await this.repository.refundCharge(chargeId);
   }
 
   async logTokenUsage(params: TokenUsageParams): Promise<void> {

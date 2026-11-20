@@ -3,6 +3,17 @@ import type { SubscriptionInfo, SubscriptionPlan, UsageThisMonth } from "./subsc
 import { AppError, PaymentRequiredError, internalError } from "../../shared/errors.ts";
 import { UsageService } from "./usage.service.ts";
 
+/**
+ * Un trial cuya fecha ya pasó está vencido aunque la columna siga en 'trial'.
+ * El vencimiento se calcula, no se escribe: desde 2026-11-20 el asesor no puede
+ * escribir columnas de suscripción con su JWT (migración billing_rls_hardening),
+ * y así tampoco hace falta un cron que las actualice.
+ */
+function effectiveStatus(status: string, trialEndsAt: string | null): string {
+  if (status === "trial" && trialEndsAt && new Date(trialEndsAt) < new Date()) return "expired";
+  return status;
+}
+
 export class SubscriptionService {
   constructor(
     private repository: ISubscriptionRepository,
@@ -23,7 +34,7 @@ export class SubscriptionService {
 
     return {
       plan: agentInfo.plan,
-      status: agentInfo.subscriptionStatus as SubscriptionInfo["status"],
+      status: effectiveStatus(agentInfo.subscriptionStatus, agentInfo.trialEndsAt) as SubscriptionInfo["status"],
       trialEndsAt: agentInfo.trialEndsAt,
       subscriptionExpiresAt: agentInfo.subscriptionExpiresAt,
       trialDaysRemaining,
@@ -46,11 +57,8 @@ export class SubscriptionService {
       throw new PaymentRequiredError();
     }
 
-    if (status.subscriptionStatus === "trial" && status.trialEndsAt) {
-      if (new Date(status.trialEndsAt) < new Date()) {
-        await this.repository.expireAgent(agentId);
-        throw new PaymentRequiredError("Tu período de prueba ha terminado. Activa un plan para continuar.");
-      }
+    if (effectiveStatus(status.subscriptionStatus, status.trialEndsAt) === "expired") {
+      throw new PaymentRequiredError("Tu período de prueba ha terminado. Activa un plan para continuar.");
     }
 
     return status;
@@ -66,6 +74,8 @@ export class SubscriptionService {
       if (error.message === "promo_not_found") throw new AppError("Código promocional inválido o inactivo.", 400);
       if (error.message === "promo_expired") throw new AppError("El código promocional ha expirado.", 400);
       if (error.message === "promo_max_uses_reached") throw new AppError("El código promocional ya alcanzó su límite de usos.", 400);
+      if (error.message === "promo_already_used") throw new AppError("Ya aplicaste un código promocional en tu cuenta.", 400);
+      if (error.message === "promo_not_applicable") throw new AppError("Tu suscripción ya está activa; el código promocional no aplica.", 400);
       throw internalError("No se pudo aplicar el código promocional.", `applyPromoCode failed: ${error.message}`);
     }
     return { trialEndsAt: data!.trial_ends_at };
