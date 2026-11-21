@@ -1,4 +1,4 @@
-import type { ReminderRequestDTO, ReminderResponseDTO } from "./reminder.dto.ts";
+import type { ReminderResponseDTO } from "./reminder.dto.ts";
 import type { ReminderService } from "./reminder.service.ts";
 import type { CatalogServices } from "../catalog/catalog.service.ts";
 import type { ContactResponseDTO } from "../contact/contact.dto.ts";
@@ -48,6 +48,7 @@ export type CreateReminderResult =
   | { outcome: "created"; reminder: ReminderResponseDTO | null };
 
 export type CreateReminderForClientResult =
+  | { outcome: "type_unresolved" }
   | { outcome: "none" }
   | { outcome: "ambiguous"; matches: ContactResponseDTO[] }
   | { outcome: "created"; reminder: ReminderResponseDTO | null; contact: ContactResponseDTO };
@@ -136,18 +137,19 @@ export class ReminderWorkflowService {
     const resolution = await this.contacts.resolveByName(agentId, clientName);
     if (resolution.outcome !== "unique") return resolution;
 
-    // Si el catálogo no se pudo leer se intenta igual con "" y que el insert
-    // decida (comportamiento histórico de create_reminder_for_client).
-    const resolved = await this.resolveTypeId(input.typeQuery);
+    // Antes, con el catálogo ilegible se intentaba crear con `typeId: ""` y
+    // el insert tronaba con un error de Postgres. Mismo resultado que `create`.
+    const typeId = await this.resolveTypeId(input.typeQuery);
+    if (!typeId) return { outcome: "type_unresolved" };
     const reminder = await this.reminderService.create({
       agentId,
-      typeId: resolved === null ? "" : resolved as string,
+      typeId,
       title: input.title,
       description: input.description,
       dueDate: input.dueDate,
       contactId: resolution.contact.id,
       comment: input.comment,
-    } as Partial<ReminderRequestDTO>);
+    });
     return { outcome: "created", reminder, contact: resolution.contact };
   }
 
@@ -157,11 +159,14 @@ export class ReminderWorkflowService {
    * devuelve los dos y el modelo usa cualquiera.
    */
   async update(id: string, input: UpdateReminderInput): Promise<UpdateReminderResult> {
-    if (input.status === "CANCELLED" && (!input.comment || !input.comment.trim())) {
-      return { outcome: "comment_required" };
-    }
     const rawStatus = input.status?.trim() || undefined;
     const statusIsId = rawStatus !== undefined && isUuid(rawStatus);
+    // Antes solo se reconocía "CANCELLED" literal: "cancelled" o el UUID del
+    // estado se saltaban esta validación y el service tronaba con un 400
+    // genérico en vez del motivo claro.
+    if (await this.isCancelStatus(rawStatus, statusIsId) && (!input.comment || !input.comment.trim())) {
+      return { outcome: "comment_required" };
+    }
 
     const changes = {
       title: input.title,
@@ -177,6 +182,14 @@ export class ReminderWorkflowService {
     if (!hasAnyChange(changes)) return { outcome: "no_changes" };
     const reminder = await this.reminderService.update(id, changes);
     return { outcome: "updated", reminder };
+  }
+
+  private async isCancelStatus(rawStatus: string | undefined, statusIsId: boolean): Promise<boolean> {
+    if (!rawStatus) return false;
+    if (!statusIsId) return rawStatus.toUpperCase() === "CANCELLED";
+    const all = await this.catalogServices.reminderStatusService.getAll();
+    const status = all?.find((s) => s.id === rawStatus);
+    return String(status?.code ?? "").toUpperCase() === "CANCELLED";
   }
 
   markDone(id: string, comment?: string): Promise<ReminderResponseDTO | null> {

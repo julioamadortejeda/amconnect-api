@@ -4,19 +4,28 @@ import { ReminderRepository } from "./reminder.repository.ts";
 import { objectToCamelCaseDeep } from "../../shared/case_converter.ts";
 import { AppError, handleSupabaseError } from "../../shared/errors.ts";
 import { daysFromNowRange } from "../../shared/utils.ts";
+import { displayTitle, type ReminderLocale, toReminderLocale } from "./reminder_title.renderer.ts";
 import { type Searchable, type SearchHit, type SearchOptions, toSearchHits } from "../../shared/search_hits.ts";
 
 export class ReminderService extends BaseService<ReminderRequestDTO, ReminderResponseDTO>
   implements Searchable<ReminderResponseDTO> {
   private reminderRepo: ReminderRepository;
+  private readonly locale: ReminderLocale;
 
-  constructor(repository: ReminderRepository) {
+  /**
+   * `locale` = el idioma del asesor (`agents.locale`, D-024). Con él se arma
+   * el título de los recordatorios automáticos en TODO lo que sale de aquí:
+   * la API REST, las skills del asistente y la tarjeta del chat.
+   */
+  constructor(repository: ReminderRepository, locale?: string | null) {
     super(repository);
     this.reminderRepo = repository;
+    this.locale = toReminderLocale(locale);
   }
 
   protected override toDTO(row: unknown): ReminderResponseDTO {
-    return objectToCamelCaseDeep(row) as ReminderResponseDTO;
+    const dto = objectToCamelCaseDeep(row) as ReminderResponseDTO;
+    return { ...dto, title: displayTitle(dto, this.locale) };
   }
 
   override async create(data: Partial<ReminderRequestDTO>): Promise<ReminderResponseDTO | null> {
@@ -127,7 +136,14 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     if (data.contactId !== undefined) updatePayload.contact_id = data.contactId;
     if (data.policyId !== undefined) updatePayload.policy_id = data.policyId;
     if (data.typeId !== undefined) updatePayload.type_id = data.typeId;
-    if (data.title !== undefined) updatePayload.title = data.title;
+    // `existing.title` ya viene armado en el idioma del asesor. Si llega el
+    // mismo texto (la app manda el formulario completo al reagendar) no es una
+    // edición: no se toca para no congelar el título. Si es distinto, el
+    // asesor lo reescribió y pasa a ser texto suyo (D-021): sin plantilla.
+    if (data.title !== undefined && data.title !== existing.title) {
+      updatePayload.title = data.title;
+      updatePayload.title_template = null;
+    }
     if (data.description !== undefined) updatePayload.description = data.description;
     if (data.dueDate !== undefined) {
       updatePayload.due_date = data.dueDate;

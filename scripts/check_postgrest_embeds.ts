@@ -84,6 +84,9 @@ const reminderId = (reminderPage?.data?.[0] as { id?: string } | undefined)?.id;
 if (reminderId) {
   await check("reminders: detalle (GET /reminders/:id)", () => reminders.getById(reminderId));
   await check("notes: por recordatorio", () => notes.getByReminderId(reminderId));
+  // En prod corre con service role (cron de push); aquí con el JWT del asesor
+  // basta para probar que el select con embeds resuelve.
+  await check("push: detalle para el texto (cron)", () => reminders.findPushDetails([reminderId]));
 }
 await check("reminders: búsqueda (skill)", () => reminders.searchReminders(agentId, "pago"));
 await check("reminders: próximos (skill)", () =>

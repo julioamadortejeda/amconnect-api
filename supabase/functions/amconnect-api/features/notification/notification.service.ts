@@ -1,5 +1,10 @@
 import { IDeviceTokenRepository } from "../../modules/agent/device_token.repository.ts";
-import { DueReminderRow, INotificationReminderRepository } from "../../modules/reminder/reminder.repository.ts";
+import {
+  DueReminderRow,
+  INotificationReminderRepository,
+  PushReminderDetails,
+} from "../../modules/reminder/reminder.repository.ts";
+import { type PushText, renderPushText } from "../../modules/reminder/reminder_title.renderer.ts";
 import type { ErrorLogInput } from "../../modules/error_log/error_log.service.ts";
 import { FcmHttpClient, IPushSender, PushPayload } from "./fcm.client.ts";
 
@@ -91,11 +96,12 @@ export class NotificationService {
       maxAttempts: MAX_ATTEMPTS,
     });
 
+    const texts = await this.pushTexts(reminders);
     const counts = { notified: 0, retrying: 0, gave_up: 0, error: 0 };
     const failures: Array<{ reminderId: string; outcome: ReminderOutcome; reason: string }> = [];
 
     await runWithConcurrency(reminders, SEND_CONCURRENCY, async (reminder) => {
-      const { outcome, reason } = await this.deliver(reminder);
+      const { outcome, reason } = await this.deliver(reminder, texts.get(reminder.id));
       counts[outcome]++;
       if (outcome !== "notified") failures.push({ reminderId: reminder.id, outcome, reason });
     });
@@ -116,11 +122,35 @@ export class NotificationService {
     return result;
   }
 
-  private async deliver(reminder: DueReminderRow): Promise<{ outcome: ReminderOutcome; reason: string }> {
+  /**
+   * Texto de cada push en el idioma de SU asesor (D-024), con el título de los
+   * automáticos armado desde la plantilla (D-023). Antes era fijo en español.
+   * Si el detalle no se puede leer, el push sale igual con el texto guardado:
+   * un aviso en el idioma equivocado es mejor que ningún aviso.
+   */
+  private async pushTexts(reminders: DueReminderRow[]): Promise<Map<string, PushText>> {
+    const texts = new Map<string, PushText>();
+    if (reminders.length === 0) return texts;
+    let details: PushReminderDetails[] = [];
     try {
+      details = await this.reminderRepo.findPushDetails(reminders.map((r) => r.id));
+    } catch (err) {
+      const reason = err instanceof Error ? ((err as { internal?: string }).internal ?? err.message) : String(err);
+      console.warn("[NotificationService] push details unavailable, using stored text:", reason);
+    }
+    for (const d of details) texts.set(d.id, renderPushText(d, d.locale));
+    return texts;
+  }
+
+  private async deliver(
+    reminder: DueReminderRow,
+    text?: PushText,
+  ): Promise<{ outcome: ReminderOutcome; reason: string }> {
+    try {
+      const { title, body } = text ?? renderPushText({ title: reminder.title, description: reminder.description }, null);
       const push = await this.sendPushToAgent(reminder.agent_id, {
-        title: `Recordatorio: ${reminder.title}`,
-        body: reminder.description ?? "Tienes un recordatorio pendiente.",
+        title,
+        body,
         data: { reminderId: reminder.id, type: "reminder" },
       });
 

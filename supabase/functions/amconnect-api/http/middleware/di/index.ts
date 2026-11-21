@@ -48,7 +48,7 @@ import { NoteRepository } from "../../../modules/note/note.repository.ts";
 import { NoteService } from "../../../modules/note/note.service.ts";
 import { CommitmentService } from "../../../features/commitments/commitment.service.ts";
 import { CommitmentRepository } from "../../../features/commitments/commitment.repository.ts";
-import { localeFromHeader, localeToBackfill } from "../../../shared/locale.ts";
+import { localeToBackfill, normalizeAppLocale } from "../../../shared/locale.ts";
 import { ContactWorkflowService } from "../../../modules/contact/contact_workflow.service.ts";
 import { PolicyWorkflowService } from "../../../modules/policy/policy_workflow.service.ts";
 import { ReminderWorkflowService } from "../../../modules/reminder/reminder_workflow.service.ts";
@@ -200,7 +200,10 @@ export const injectServices = async (c: Context, next: Next) => {
   const policyService = new PolicyService(supabase, new PolicyRepository(supabase), reportedTimezone);
   const noteService = new NoteService(new NoteRepository(supabase));
   const commitmentService = new CommitmentService(new CommitmentRepository(supabase));
-  const reminderService = new ReminderService(new ReminderRepository(supabase));
+  // Idioma en que se arman los recordatorios automáticos (D-023/D-024): el
+  // guardado; si aún no hay, el que acaba de mandar la app.
+  const advisorLocale = normalizeAppLocale(agentStatus.locale) ?? localeToStore ?? "es";
+  const reminderService = new ReminderService(new ReminderRepository(supabase), advisorLocale);
   const reminderSettingService = new ReminderSettingService(
     new ReminderSettingRepository(supabase),
     agentId,
@@ -208,6 +211,7 @@ export const injectServices = async (c: Context, next: Next) => {
   const reminderGenerationService = new ReminderGenerationService(
     new ReminderGenerationRepository(supabase),
     reminderSettingService,
+    advisorLocale,
   );
 
   // AI infrastructure (instanciados de forma perezosa / lazy loaded)

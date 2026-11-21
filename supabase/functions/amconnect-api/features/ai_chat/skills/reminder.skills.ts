@@ -5,6 +5,11 @@ import { agendaResult, reminderCreatedResult, slimReminder } from "./reminder.ma
 import { clientNotResolved } from "./contact.mapper.ts";
 
 const STATUS_UPDATE_DESC = "New status for the reminder — its code or its UUID, both are accepted. Call get_reminder_statuses first to get the catalog.";
+// Lo mismo para `create_reminder` y `create_reminder_for_client`: el catálogo
+// de tipos no se pudo leer o está vacío.
+const TYPE_UNRESOLVED = {
+  error: "Could not resolve reminder type. Make sure to pass 'type_id' or 'reminder_type_name_or_code'.",
+};
 const STATUS_FILTER_DESC = "Filter by status — its code or its UUID, both are accepted. Call get_reminder_statuses first to get the catalog.";
 
 export const reminderSkills: SkillDefinition[] = [
@@ -63,9 +68,7 @@ export const reminderSkills: SkillDefinition[] = [
         policyId: args.policy_id as string ?? null,
         comment: args.comment as string ?? null,
       });
-      if (result.outcome === "type_unresolved") {
-        return { error: "Could not resolve reminder type. Make sure to pass 'type_id' or 'reminder_type_name_or_code'." };
-      }
+      if (result.outcome === "type_unresolved") return TYPE_UNRESOLVED;
       const reminder = result.reminder;
       if (!reminder) return null;
       return reminderCreatedResult(reminder, ctx.timezone, reminder.contact?.fullName ?? null);
@@ -206,6 +209,7 @@ export const reminderSkills: SkillDefinition[] = [
         dueDate: params.due_date,
         comment: params.comment ?? null,
       });
+      if (result.outcome === "type_unresolved") return TYPE_UNRESOLVED;
       if (result.outcome !== "created") return clientNotResolved(params.client_name, result);
       if (!result.reminder) return null;
       return reminderCreatedResult(result.reminder, ctx.timezone, result.contact.fullName);
