@@ -11,6 +11,7 @@ import { buildPaymentSchedule } from "../../shared/payment_schedule.ts";
 export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseDTO> {
   private participantRepo: SupabaseRepository<Record<string, unknown>>;
   private beneficiaryRepo: SupabaseRepository<Record<string, unknown>>;
+  private policyRepo: PolicyRepository;
 
   constructor(
     supabase: SupabaseClient,
@@ -18,6 +19,7 @@ export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseD
     private readonly timezone: string = DEFAULT_TIMEZONE,
   ) {
     super(repository);
+    this.policyRepo = repository;
     this.participantRepo = new SupabaseRepository(supabase, "policy_participants", "*", false);
     this.beneficiaryRepo = new SupabaseRepository(supabase, "beneficiaries", "*", false);
   }
@@ -145,33 +147,16 @@ export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseD
     });
   }
 
+  /**
+   * Búsqueda por texto libre, tal como lo dijo el asesor ("GMM de AXA", "la
+   * del Jetta", "auto de Pedro"). Antes se traían todas las pólizas y se
+   * filtraba en memoria con la frase completa; ahora decide `search_policy_ids`
+   * (migración 20261121002454): todas las palabras, sin acentos, sinónimos de
+   * ramo y aseguradora, y tolerancia a typos.
+   */
   async searchPolicies(agentId: string, queryText: string, contactId?: string): Promise<PolicyResponseDTO[] | null> {
-    const items = await this.getByField("agent_id", agentId);
-    if (!items) return null;
-    
-    let filtered = items.map((r) => this.toDTO(r));
-    if (contactId) {
-      filtered = filtered.filter((p) => p.contactId === contactId);
-    }
-    
-    if (queryText) {
-      const q = queryText.toLowerCase().trim();
-      filtered = filtered.filter((p) => {
-        const policyNo = String(p.policyNumber || "").toLowerCase();
-        const productName = String(p.product?.name || "").toLowerCase();
-        const branchName = String(p.product?.branch?.name || "").toLowerCase();
-        const carrierName = String(p.product?.carrier?.name || "").toLowerCase();
-        const clientName = String(p.contact?.fullName || "").toLowerCase();
-        const notes = String(p.notes || "").toLowerCase();
-        
-        return policyNo.includes(q) || 
-               productName.includes(q) || 
-               branchName.includes(q) || 
-               carrierName.includes(q) || 
-               clientName.includes(q) ||
-               notes.includes(q);
-      });
-    }
-    return filtered;
+    const ids = await this.policyRepo.searchIds(agentId, queryText ?? "", contactId);
+    const rows = await this.policyRepo.getByIds(ids);
+    return rows.map((r) => this.toDTO(r));
   }
 }
