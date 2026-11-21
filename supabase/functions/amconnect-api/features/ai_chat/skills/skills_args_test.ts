@@ -40,6 +40,8 @@ function fakeCtx(): { ctx: SkillContext; calls: Calls } {
         return Promise.resolve(null);
       },
     },
+    // Un estado por UUID se busca en el catálogo para saber si es cancelar.
+    catalogServices: { reminderStatusService: { getAll: () => Promise.resolve([]) } },
     policyService: {
       update: (id: string, changes: Record<string, unknown>) => {
         calls.policyUpdates.push({ id, changes });

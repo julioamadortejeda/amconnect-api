@@ -52,8 +52,20 @@ export interface ReminderResponseDTO {
   // Relaciones
   type?: { id: string; name: string; code: string };
   status?: { id: string; name: string; code: string };
-  contact?: { id: string; fullName: string };
-  policy?: { id: string; policyNumber: string | null };
+  contact?: { id: string; fullName: string } | null;
+  policy?: {
+    id: string;
+    policyNumber: string | null;
+    product?: { name: string | null; branch?: { name: string | null; code: string | null } | null } | null;
+  } | null;
+  /**
+   * Recordatorios automáticos (D-023): plantilla del título y datos que no
+   * dependen del idioma. `title` ya viene armado con ellos en el idioma del
+   * asesor; si el asesor lo edita, la plantilla se borra y queda su texto.
+   */
+  titleTemplate?: string | null;
+  templateData?: { dueDate?: string; amount?: number; currency?: string } | null;
+  occurrenceDate?: string | null;
 }
 
 

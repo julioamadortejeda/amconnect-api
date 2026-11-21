@@ -2,8 +2,10 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { SupabaseRepository } from "../../core/base_repository.ts";
 import { PaginatedResult } from "../../core/repository.interface.ts";
 import { ReminderResponseDTO } from "./reminder.dto.ts";
+import type { RenderableReminder, ReminderTemplateData } from "./reminder_title.renderer.ts";
 import { AppError, internalError } from "../../shared/errors.ts";
 import { handleSupabaseError } from "../../shared/errors.ts";
+import { objectToCamelCaseDeep } from "../../shared/case_converter.ts";
 
 export interface DueReminderRow {
   id: string;
@@ -13,6 +15,16 @@ export interface DueReminderRow {
   due_date: string;
   /** Intento de entrega que representa este reclamo (1 = primero). */
   attempts: number;
+}
+
+/** Lo que el push necesita para armar su texto en el idioma del asesor. */
+export interface PushReminderDetails extends RenderableReminder {
+  id: string;
+  description: string | null;
+  templateData: ReminderTemplateData | null;
+  occurrenceDate: string | null;
+  /** `agents.locale` del dueño. */
+  locale: string | null;
 }
 
 export interface ClaimOptions {
@@ -31,8 +43,13 @@ export interface INotificationReminderRepository {
   markNotified(id: string, dueDate: string): Promise<boolean>;
   recordDeliveryFailure(id: string, dueDate: string, reason: string, giveUp: boolean): Promise<void>;
   logNotification(reminderId: string, agentId: string, dueDate: string): Promise<void>;
+  /** Título, plantilla, embeds e idioma del asesor de los recordatorios reclamados. */
+  findPushDetails(ids: string[]): Promise<PushReminderDetails[]>;
 }
 
+// `policy.product.branch` alimenta el título de los automáticos (D-023, ver
+// reminder_title.renderer.ts): producto o ramo + cliente. El cliente es
+// `contact`, que el job llena con el titular de la póliza.
 const REMINDER_SELECT = `
   *,
   type:reminder_types(id, name, code),
@@ -40,7 +57,7 @@ const REMINDER_SELECT = `
   comments:reminder_comments(id, reminder_id, agent_id, content, created_at),
   notes:agent_notes(id, content, summary, source_type, created_at, document_metadata(file_name, storage_path)),
   contact:contacts(id, full_name),
-  policy:policies(id, policy_number)
+  policy:policies(id, policy_number, product:products(name, branch:branches(name, code)))
 `.trim();
 
 // Listado: lo que pinta la lista. Sin `notes` (su `content` completo viajaba en
@@ -51,7 +68,7 @@ const REMINDER_LIST_SELECT = `
   status:reminder_statuses(id, name, code),
   comments:reminder_comments(id, reminder_id, agent_id, content, created_at),
   contact:contacts(id, full_name),
-  policy:policies(id, policy_number)
+  policy:policies(id, policy_number, product:products(name, branch:branches(name, code)))
 `.trim();
 
 export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> {
@@ -177,6 +194,40 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
     });
     if (error) handleSupabaseError(error, "claim_due_reminders");
     return (data ?? []) as DueReminderRow[];
+  }
+
+  /**
+   * Una sola lectura para todo el lote reclamado. Corre con el cliente de
+   * service role del cron, igual que `claimDue`.
+   */
+  async findPushDetails(ids: string[]): Promise<PushReminderDetails[]> {
+    if (ids.length === 0) return [];
+    const { data, error } = await this.supabase
+      .from("reminders")
+      .select(
+        "id, title, description, title_template, template_data, occurrence_date, " +
+          "contact:contacts(full_name), " +
+          "policy:policies(policy_number, product:products(name, branch:branches(name, code))), " +
+          "agent:agents!agent_id(locale)",
+      )
+      .in("id", ids);
+    if (error) throw internalError("No se pudo leer el detalle del push.", `push details failed: ${error.message}`);
+
+    return ((data ?? []) as unknown as Record<string, unknown>[]).map((raw) => {
+      const r = objectToCamelCaseDeep(raw) as Record<string, unknown>;
+      return {
+        id: r.id as string,
+        title: r.title as string,
+        description: (r.description as string | null) ?? null,
+        titleTemplate: (r.titleTemplate as string | null) ?? null,
+        // jsonb: sus llaves ya vienen en camelCase desde el job.
+        templateData: (raw.template_data as ReminderTemplateData | null) ?? null,
+        occurrenceDate: (r.occurrenceDate as string | null) ?? null,
+        contact: r.contact as PushReminderDetails["contact"],
+        policy: r.policy as PushReminderDetails["policy"],
+        locale: (r.agent as { locale?: string | null } | null)?.locale ?? null,
+      };
+    });
   }
 
   async markNotified(id: string, dueDate: string): Promise<boolean> {

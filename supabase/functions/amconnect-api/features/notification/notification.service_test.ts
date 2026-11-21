@@ -15,7 +15,9 @@ import type {
   ClaimOptions,
   DueReminderRow,
   INotificationReminderRepository,
+  PushReminderDetails,
 } from "../../modules/reminder/reminder.repository.ts";
+import type { PushPayload } from "./fcm.client.ts";
 
 // ─── Fakes ──────────────────────────────────────────────────────────────────
 
@@ -41,9 +43,12 @@ class FakeReminders implements INotificationReminderRepository {
   notified: string[] = [];
   logged: string[] = [];
   failures: Array<{ id: string; reason: string; giveUp: boolean }> = [];
-  constructor(private due: DueReminderRow[]) {}
+  constructor(private due: DueReminderRow[], private details: PushReminderDetails[] | Error = []) {}
   claimDue(_o: ClaimOptions) {
     return Promise.resolve(this.due);
+  }
+  findPushDetails(_ids: string[]) {
+    return this.details instanceof Error ? Promise.reject(this.details) : Promise.resolve(this.details);
   }
   markNotified(id: string) {
     this.notified.push(id);
@@ -63,6 +68,14 @@ class FakeSender implements IPushSender {
   constructor(private byToken: Record<string, PushSendResult>) {}
   send(token: string) {
     return Promise.resolve(this.byToken[token] ?? { outcome: "sent" as const });
+  }
+}
+
+class CapturingSender implements IPushSender {
+  payloads: PushPayload[] = [];
+  send(_token: string, payload: PushPayload) {
+    this.payloads.push(payload);
+    return Promise.resolve({ outcome: "sent" as const });
   }
 }
 
@@ -252,4 +265,48 @@ Deno.test("send sin el secreto no truena: responde transitorio FCM_CONFIG_MISSIN
   assertEquals(res.outcome, "transient");
   assertEquals(res.errorCode, "FCM_CONFIG_MISSING");
   assertEquals(f.calls(), 0);
+});
+
+// ─── Texto del push (D-023/D-024) ───────────────────────────────────────────
+
+const rosaPayment = (locale: string | null): PushReminderDetails => ({
+  id: "r-1",
+  title: "Pago de Prima · GMM-2026-10451",
+  description: null,
+  titleTemplate: "PAYMENT_DUE",
+  templateData: { dueDate: "2026-11-23", amount: 2850, currency: "MXN" },
+  occurrenceDate: "2026-11-23",
+  contact: { fullName: "Rosa Martínez Hernández" },
+  policy: { policyNumber: "GMM-2026-10451", product: { name: "ALFA MEDICAL INTEGRO", branch: null } },
+  locale,
+});
+
+Deno.test("push: automático en el idioma del asesor, con producto, cliente y fecha", async () => {
+  for (const [locale, title, bodyStart] of [
+    ["en", "Payment · ALFA MEDICAL INTEGRO · Rosa Martínez Hernández", "Due November 23"],
+    ["es", "Pago · ALFA MEDICAL INTEGRO · Rosa Martínez Hernández", "Vence el 23 de noviembre"],
+  ]) {
+    const sender = new CapturingSender();
+    const service = new NotificationService(
+      new FakeTokens({ a: ["tok"] }),
+      new FakeReminders([reminder("r-1", "a")], [rosaPayment(locale)]),
+      sender,
+    );
+    await service.processAndSendDueNotifications();
+    assertEquals(sender.payloads[0].title, title);
+    assertEquals(sender.payloads[0].body.startsWith(bodyStart), true);
+  }
+});
+
+Deno.test("push: si el detalle no se puede leer, sale igual con el texto guardado", async () => {
+  const sender = new CapturingSender();
+  const reminders = new FakeReminders([reminder("r-1", "a")], new Error("boom"));
+  const service = new NotificationService(new FakeTokens({ a: ["tok"] }), reminders, sender);
+  await service.processAndSendDueNotifications();
+  assertEquals(sender.payloads[0], {
+    title: "Recordatorio: t",
+    body: "Tienes un recordatorio pendiente.",
+    data: { reminderId: "r-1", type: "reminder" },
+  });
+  assertEquals(reminders.notified, ["r-1"]);
 });

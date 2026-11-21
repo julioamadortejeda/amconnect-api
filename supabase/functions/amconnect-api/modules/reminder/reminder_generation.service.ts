@@ -3,9 +3,16 @@ import { daysUntil, nextOccurrence } from "../../shared/payment_schedule.ts";
 import {
   estimatedDateNote,
   GENERATED_REMINDER_TYPE_CODES,
-  reminderTitle,
   YEARLY_INTERVAL_MONTHS,
 } from "./reminder_generation.constants.ts";
+import {
+  renderReminderTitle,
+  type ReminderTemplateData,
+  type ReminderTitleParts,
+  type ReminderTitleTemplate,
+  TEMPLATE_BY_TYPE_CODE,
+  toReminderLocale,
+} from "./reminder_title.renderer.ts";
 import type {
   CreateReminderData,
   GenerationCatalog,
@@ -47,6 +54,17 @@ export interface PolicyRow {
   /** undefined = unknown, look it up; null = the policy has no branch. */
   branchId?: string | null;
   paymentFrequencyMonths?: number | null;
+  /**
+   * Holder and labels for the title. The cron supplies them inline; when
+   * `clientName` is undefined they are looked up with the schedule info.
+   */
+  contactId?: string | null;
+  clientName?: string | null;
+  productName?: string | null;
+  branchName?: string | null;
+  branchCode?: string | null;
+  premium?: number | string | null;
+  currencyCode?: string | null;
 }
 
 export interface ContactRow {
@@ -58,6 +76,8 @@ export interface ContactRow {
 interface Candidate {
   typeCode: string;
   title: string;
+  titleTemplate: ReminderTitleTemplate;
+  templateData: ReminderTemplateData;
   /** The date the series lands on, YYYY-MM-DD. */
   occurrence: string;
   branchId: string | null;
@@ -72,8 +92,19 @@ function toLocalMidnight(dateStr: string, timezoneOffset: string): string {
   return `${dateStr.substring(0, 10)}T00:00:00${timezoneOffset}`;
 }
 
-function titleFor(typeCode: string, label: string, locale: string): string {
-  return reminderTitle(typeCode, label, locale);
+/**
+ * Lo que se guarda en `title`: la misma plantilla ya armada en el idioma del
+ * asesor. Solo la leen clientes viejos y el respaldo cuando la plantilla falta;
+ * lo que se muestra se vuelve a armar al leer (D-023).
+ */
+function fallbackTitle(template: ReminderTitleTemplate, parts: ReminderTitleParts, locale: string): string {
+  return renderReminderTitle(template, parts, locale) ?? template;
+}
+
+function toAmount(value: number | string | null | undefined): number | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
 }
 
 /**
@@ -89,6 +120,11 @@ export class ReminderGenerationService {
   constructor(
     private readonly repository: IReminderGenerationRepository,
     private readonly settingService: ReminderSettingService,
+    /**
+     * Idioma del asesor para el título de respaldo y la nota de fecha
+     * estimada cuando quien llama no lo pasa (la confirmación de pólizas).
+     */
+    private readonly defaultLocale: string = "es",
   ) {}
 
   /** Catálogos (estado CREATED y tipos), cargados una vez por instancia. */
@@ -108,10 +144,10 @@ export class ReminderGenerationService {
     agentId: string,
     timezoneOffset = "-06:00",
     resolver?: ReminderSettingResolver,
-    locale = "es",
+    locale?: string,
   ): Promise<ReminderGenerationResult> {
     try {
-      return await this.generateForPolicyOrThrow(policy, agentId, timezoneOffset, resolver, locale);
+      return await this.generateForPolicyOrThrow(policy, agentId, timezoneOffset, resolver, toReminderLocale(locale ?? this.defaultLocale));
     } catch (err) {
       return this.failed(`policy ${policy.id}`, err);
     }
@@ -123,10 +159,10 @@ export class ReminderGenerationService {
     agentId: string,
     timezoneOffset = "-06:00",
     resolver?: ReminderSettingResolver,
-    locale = "es",
+    locale?: string,
   ): Promise<ReminderGenerationResult> {
     try {
-      return await this.generateForContactOrThrow(contact, agentId, timezoneOffset, resolver, locale);
+      return await this.generateForContactOrThrow(contact, agentId, timezoneOffset, resolver, toReminderLocale(locale ?? this.defaultLocale));
     } catch (err) {
       return this.failed(`contact ${contact.id}`, err);
     }
@@ -149,16 +185,34 @@ export class ReminderGenerationService {
   ): Promise<ReminderGenerationResult> {
     const settings = resolver ?? await this.settingService.buildResolver();
     const today = todayInTimezone(timezoneOffset);
-    const label = policy.policyNumber ?? "póliza";
 
     // The cron supplies these inline; other callers leave them unknown.
     let branchId = policy.branchId;
     let frequencyMonths = policy.paymentFrequencyMonths;
-    if (branchId === undefined || frequencyMonths === undefined) {
+    let details = policy;
+    if (branchId === undefined || frequencyMonths === undefined || policy.clientName === undefined) {
       const info = await this.repository.findPolicyScheduleInfo(policy.id);
       branchId = branchId === undefined ? info?.branchId ?? null : branchId;
       frequencyMonths = frequencyMonths === undefined ? info?.frequencyMonths ?? null : frequencyMonths;
+      details = {
+        ...policy,
+        contactId: policy.contactId ?? info?.contactId ?? null,
+        clientName: info?.clientName ?? null,
+        productName: info?.productName ?? null,
+        branchName: info?.branchName ?? null,
+        branchCode: info?.branchCode ?? null,
+        premium: policy.premium ?? info?.premium ?? null,
+        currencyCode: policy.currencyCode ?? info?.currencyCode ?? null,
+      };
     }
+    const parts: ReminderTitleParts = {
+      productName: details.productName,
+      branchName: details.branchName,
+      branchCode: details.branchCode,
+      clientName: details.clientName,
+      policyNumber: policy.policyNumber,
+    };
+    const amount = toAmount(details.premium);
 
     const series: Array<{ typeCode: string; anchor?: string | null; intervalMonths: number; estimated?: boolean }> = [
       {
@@ -206,16 +260,25 @@ export class ReminderGenerationService {
       const remaining = daysUntil(occurrence, today);
       if (remaining === null || remaining > setting.daysBefore) continue;
 
+      const template = TEMPLATE_BY_TYPE_CODE[entry.typeCode];
+      const templateData: ReminderTemplateData = { dueDate: occurrence };
+      // El monto solo dice algo en el aviso de cobro.
+      if (entry.typeCode === "PAYMENT" && amount !== undefined) {
+        templateData.amount = amount;
+        if (details.currencyCode) templateData.currency = details.currencyCode;
+      }
       candidates.push({
         typeCode: entry.typeCode,
-        title: titleFor(entry.typeCode, label, locale),
+        title: fallbackTitle(template, parts, locale),
+        titleTemplate: template,
+        templateData,
         occurrence,
         branchId: branchId ?? null,
         ...(entry.estimated ? { description: estimatedDateNote(locale) } : {}),
       });
     }
 
-    return this.persist(candidates, agentId, { policyId: policy.id }, timezoneOffset);
+    return this.persist(candidates, agentId, { policyId: policy.id, contactId: details.contactId ?? null }, timezoneOffset);
   }
 
   private async generateForContactOrThrow(
@@ -240,7 +303,9 @@ export class ReminderGenerationService {
 
     const candidate: Candidate = {
       typeCode: "BIRTHDAY",
-      title: titleFor("BIRTHDAY", contact.fullName ?? "cliente", locale),
+      title: fallbackTitle("BIRTHDAY", { clientName: contact.fullName }, locale),
+      titleTemplate: "BIRTHDAY",
+      templateData: { dueDate: occurrence },
       occurrence,
       branchId: null,
     };
@@ -269,6 +334,8 @@ export class ReminderGenerationService {
         owner,
         typeId: type.id,
         title: candidate.title,
+        titleTemplate: candidate.titleTemplate,
+        templateData: candidate.templateData,
         description: candidate.description,
         dueDate: toLocalMidnight(candidate.occurrence, timezoneOffset),
         occurrenceDate: candidate.occurrence,

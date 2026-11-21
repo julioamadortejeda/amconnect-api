@@ -1,33 +1,12 @@
 /**
- * Títulos y textos de los recordatorios que genera el cron, por idioma.
+ * Textos de los recordatorios que genera el cron.
  *
- * Viven aquí y no en el prompt ni en la app porque el cron los ESCRIBE en la
- * columna `reminders.title`: cuando el asesor los ve ya son datos, no plantilla.
- * Por eso hay que resolver el idioma al generarlos, y por eso `agents.locale`
- * existe — el cron no tiene request del cual leer `Accept-Language`.
- *
- * Cualquier idioma que no esté aquí cae a español, el default del producto.
+ * El TÍTULO ya no vive aquí: desde D-023 se guarda como plantilla
+ * (`title_template` + `template_data`) y se arma al leerlo en el idioma del
+ * asesor — ver `reminder_title.renderer.ts`. La descripción de fecha estimada
+ * sigue congelada al crearse: es una nota única por ocurrencia y el asesor
+ * puede editarla como cualquier otro texto suyo.
  */
-const TITLES_BY_LOCALE: Record<string, Record<string, (label: string) => string>> = {
-  es: {
-    PAYMENT: (label) => `Pago de Prima · ${label}`,
-    RENEWAL: (label) => `Renovación · ${label}`,
-    ANNIVERSARY: (label) => `Aniversario · ${label}`,
-    BIRTHDAY: (label) => `Cumpleaños · ${label}`,
-  },
-  en: {
-    PAYMENT: (label) => `Premium Payment · ${label}`,
-    RENEWAL: (label) => `Renewal · ${label}`,
-    ANNIVERSARY: (label) => `Anniversary · ${label}`,
-    BIRTHDAY: (label) => `Birthday · ${label}`,
-  },
-};
-
-/** Título del recordatorio generado, en el idioma del asesor. */
-export function reminderTitle(typeCode: string, label: string, locale = "es"): string {
-  const porIdioma = TITLES_BY_LOCALE[locale] ?? TITLES_BY_LOCALE.es;
-  return (porIdioma[typeCode] ?? TITLES_BY_LOCALE.es[typeCode])?.(label) ?? label;
-}
 
 /**
  * Lo que se escribe en la descripción cuando la fecha del pago NO venía en la
@@ -60,7 +39,11 @@ export const DEFAULT_DAYS_BEFORE: Record<string, number> = {
   PAYMENT: 15,
   RENEWAL: 45,
   ANNIVERSARY: 7,
-  BIRTHDAY: 0,
+  // Era 0 ("el mismo día"): el recordatorio se creaba la mañana del cumpleaños
+  // y nunca antes, así que un cumpleaños a 2 o a 9 días no aparecía en la
+  // agenda (prueba de la asesora, 2026-11-20). Para felicitar o mandar un
+  // detalle hace falta verlo con anticipación. Mismo margen que el pago.
+  BIRTHDAY: 15,
 };
 
 /** Months between occurrences for the types whose cadence is fixed yearly. */

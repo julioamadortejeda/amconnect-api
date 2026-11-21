@@ -439,6 +439,37 @@ Deno.test("update_reminder: cancelar sin comentario → el error exacto, sin ok:
   assert.deepEqual(response, { error: "A comment is mandatory to cancel a reminder." });
 });
 
+Deno.test("create_reminder_for_client: catálogo de tipos ilegible → mismo error que create_reminder, no crea", async () => {
+  const { ctx, called } = fakeSkillContext({
+    similarContacts: [buildContact({ fullName: "Julio Pérez Soto" })],
+    reminder: buildReminder(),
+    // deno-lint-ignore no-explicit-any
+    reminderTypes: null as any,
+  });
+  const { response } = await run("create_reminder_for_client", { client_name: "Julio", title: "t", due_date: "2026-12-03" }, ctx);
+  assert.deepEqual(response, {
+    error: "Could not resolve reminder type. Make sure to pass 'type_id' or 'reminder_type_name_or_code'.",
+  });
+  assert.equal(called("reminderService.create").length, 0);
+});
+
+Deno.test("update_reminder: cancelar sin comentario se detecta en minúsculas y por UUID del estado", async () => {
+  const lower = fakeSkillContext();
+  assert.deepEqual(
+    (await run("update_reminder", { reminder_id: UUID, status: "cancelled" }, lower.ctx)).response,
+    { error: "A comment is mandatory to cancel a reminder." },
+  );
+  assert.equal(lower.called("reminderService.update").length, 0);
+
+  const cancelledId = "9d3c8f2a-1b4e-4c5d-8e6f-7a8b9c0d1e2f";
+  const byId = fakeSkillContext({ reminderStatuses: [{ id: cancelledId, code: "CANCELLED", name: "Cancelled" }] });
+  assert.deepEqual(
+    (await run("update_reminder", { reminder_id: UUID, status: cancelledId }, byId.ctx)).response,
+    { error: "A comment is mandatory to cancel a reminder." },
+  );
+  assert.equal(byId.called("reminderService.update").length, 0);
+});
+
 Deno.test("mark_reminder_done: status DONE + comentario", async () => {
   const { ctx, called } = fakeSkillContext({ reminder: buildReminder() });
   const { response } = await run("mark_reminder_done", { reminder_id: UUID, comment: "listo" }, ctx);

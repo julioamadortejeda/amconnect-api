@@ -1,5 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { internalError } from "../../shared/errors.ts";
+import type { ReminderTemplateData, ReminderTitleTemplate } from "./reminder_title.renderer.ts";
 
 export interface ReminderTypeRow {
   id: string;
@@ -7,7 +8,11 @@ export interface ReminderTypeRow {
   name: string;
 }
 
-/** What a generated reminder hangs from: a policy, or a contact for birthdays. */
+/**
+ * What a generated reminder hangs from: a policy (and its holder), or only a
+ * contact for birthdays. The holder is stored too so the reminder shows and
+ * searches by the client's name and appears in that client's agenda.
+ */
 export interface ReminderOwner {
   policyId?: string | null;
   contactId?: string | null;
@@ -17,7 +22,11 @@ export interface CreateReminderData {
   agentId: string;
   owner: ReminderOwner;
   typeId: string;
+  /** Respaldo ya armado en el idioma del asesor, para clientes viejos. */
   title: string;
+  /** Plantilla con la que se arma el título al leerlo (D-023). */
+  titleTemplate: ReminderTitleTemplate;
+  templateData: ReminderTemplateData;
   dueDate: string;
   /** Ocurrencia del calendario que cubre; no cambia si se reagenda. */
   occurrenceDate: string;
@@ -43,10 +52,20 @@ export interface InsertedReminderRow {
   isNew: boolean;
 }
 
-/** The bits of a policy the schedule depends on, resolved from its product. */
+/**
+ * The bits of a policy the schedule depends on, resolved from its product,
+ * plus what the fallback title and `template_data` need.
+ */
 export interface PolicyScheduleInfo {
   branchId: string | null;
   frequencyMonths: number | null;
+  contactId: string | null;
+  clientName: string | null;
+  productName: string | null;
+  branchName: string | null;
+  branchCode: string | null;
+  premium: number | null;
+  currencyCode: string | null;
 }
 
 export interface IReminderGenerationRepository {
@@ -85,19 +104,34 @@ export class ReminderGenerationRepository implements IReminderGenerationReposito
   async findPolicyScheduleInfo(policyId: string): Promise<PolicyScheduleInfo | null> {
     const { data, error } = await this.supabase
       .from("policies")
-      .select("product:products(branch_id), frequency:payment_frequencies!payment_frequency_id(months)")
+      .select(
+        "contact_id, premium, product:products(name, branch_id, branch:branches(name, code)), " +
+          "frequency:payment_frequencies!payment_frequency_id(months), " +
+          "contact:contacts(full_name), currency:currencies(code)",
+      )
       .eq("id", policyId)
       .maybeSingle();
 
     if (error) throw internalError("No se pudo leer la póliza.", `policy schedule info failed for ${policyId}: ${error.message}`);
     if (!data) return null;
     const row = data as {
-      product?: { branch_id?: string | null } | null;
+      contact_id?: string | null;
+      premium?: number | string | null;
+      product?: { name?: string | null; branch_id?: string | null; branch?: { name?: string | null; code?: string | null } | null } | null;
       frequency?: { months?: number | null } | null;
+      contact?: { full_name?: string | null } | null;
+      currency?: { code?: string | null } | null;
     };
     return {
       branchId: row.product?.branch_id ?? null,
       frequencyMonths: row.frequency?.months ?? null,
+      contactId: row.contact_id ?? null,
+      clientName: row.contact?.full_name ?? null,
+      productName: row.product?.name ?? null,
+      branchName: row.product?.branch?.name ?? null,
+      branchCode: row.product?.branch?.code ?? null,
+      premium: row.premium === null || row.premium === undefined ? null : Number(row.premium),
+      currencyCode: row.currency?.code ?? null,
     };
   }
 
@@ -114,9 +148,11 @@ export class ReminderGenerationRepository implements IReminderGenerationReposito
     const payload = rows.map((r) => ({
       agent_id: r.agentId,
       policy_id: r.owner.policyId ?? null,
-      contact_id: r.owner.policyId ? null : r.owner.contactId ?? null,
+      contact_id: r.owner.contactId ?? null,
       type_id: r.typeId,
       title: r.title,
+      title_template: r.titleTemplate,
+      template_data: r.templateData,
       description: r.description ?? null,
       due_date: r.dueDate,
       occurrence_date: r.occurrenceDate,

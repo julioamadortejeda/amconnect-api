@@ -28,24 +28,23 @@ Route → Controller → Service → Repository → Supabase
 - Errores de Supabase: pasar SIEMPRE por `handleSupabaseError` — no inspeccionar `error.code` a mano.
 - Validación de body: `Schema.parse(...)` y dejar que el middleware formatee el `ZodError`. No repetir el bloque `safeParse + issues.map(...)` en cada handler.
 
-## 2.1 Texto que el backend ESCRIBE para el asesor — decisión pendiente
+## 2.1 Texto que el backend arma para el asesor (D-023, 2026-11-21)
 
-Hay dos mecanismos de traducción y los dos resuelven lo mismo: el backend manda un identificador y la app pone las palabras.
+Hay dos mecanismos de traducción en la app y los dos resuelven lo mismo: el backend manda un identificador y la app pone las palabras.
 
 | Caso | Qué manda el backend | Quién traduce |
 |---|---|---|
 | Errores de respuesta | `errorCode` + mensaje español de respaldo | la app, con `error_translator.dart` (§2) |
 | Valores de catálogo | el `code` en inglés | la app, con `CatalogL10n` |
+| **Recordatorios automáticos** (título y push) | el texto ya armado en el idioma del asesor | **el backend**, con `modules/reminder/reminder_title.renderer.ts` |
 
-Existe un tercer caso que **no encaja en ninguno**: texto que el backend **escribe en una columna** y el asesor lee después. Hoy es uno solo — los títulos y descripciones que genera el cron de recordatorios (`Pago de Prima · GM000…`).
+**Por qué el tercero lo arma el backend y no la app:** el mismo título lo leen la pantalla, el asistente (skills) y el push, y el push sale de noche sin app abierta. Una sola tabla de textos en el backend hace que los tres digan lo mismo; si la app lo compusiera, el asistente y la pantalla podrían no coincidir y el push necesitaría una copia.
 
-**Por qué no puede seguir el patrón:** `reminders.title` es `NOT NULL` y texto libre, así que algo tiene que quedar guardado. Y no lo lee solo la app: `search_reminder_ids` busca dentro de él cuando el asesor pregunta por texto, y el asistente se lo dice en voz o en chat. Si la app compusiera el título en pantalla y la columna guardara un código, el asistente y la pantalla estarían en desacuerdo sobre el mismo recordatorio.
+**Qué se guarda:** `reminders.title_template` (`PAYMENT_DUE`, `RENEWAL`, `ANNIVERSARY`, `BIRTHDAY`) y `template_data` (`{dueDate, amount?, currency?}` — nunca nombres). Producto/ramo y cliente se leen de la póliza y de `contact_id` (el titular) al leer, así que si el asesor corrige un nombre o cambia de idioma (`agents.locale`, D-024) sus recordatorios lo siguen. `title` se sigue escribiendo como respaldo para clientes viejos. Migración: `20261121060000_reminder_title_templates.sql`.
 
-**Lo que se hace hoy (2026-09-10):** el cron lo compone ya resuelto en el idioma del asesor, leyendo `agents.locale` —persistida desde `Accept-Language` igual que el timezone, y por el mismo motivo: el cron no tiene request. Las tablas viven en `modules/reminder/reminder_generation.constants.ts`.
+**Dónde se aplica:** `ReminderService.toDTO` (REST y skills; el idioma llega por el constructor desde el DI) y `NotificationService` (push, con el `locale` de cada asesor). Si el asesor edita el título, `ReminderService.update` borra la plantilla y queda su texto (D-021).
 
-**Lo que cuesta:** queda congelado al crearse. Si el asesor cambia la app de idioma, los recordatorios que ya existen conservan el anterior; solo los nuevos salen en el idioma nuevo.
-
-**La decisión pendiente:** eso es un tercer mecanismo de i18n en el backend, y se inventó para este caso. El día que otro flujo necesite escribir texto traducido para el asesor, **decidir dónde vive** en vez de copiar esa tabla. Alternativa sobre la mesa: que la app componga el título de los generados —se distinguen porque tienen `occurrence_date`— y resolver primero qué se guarda en la columna para que el asistente lea lo mismo.
+**Regla:** el día que otro flujo necesite texto generado para el asesor, va en un renderer puro como este, leído al mostrar — no congelado en una columna.
 
 ## 3. Base de datos
 

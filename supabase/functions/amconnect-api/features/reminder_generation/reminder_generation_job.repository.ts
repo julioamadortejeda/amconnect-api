@@ -20,6 +20,14 @@ export interface JobPolicyRow extends JobAgentInfo {
   paymentFrequencyMonths: number | null;
   /** Catalog code of the policy status, when the advisor set one. */
   statusCode: string | null;
+  /** Holder: stored on the reminder and named in its title (D-023). */
+  contactId: string | null;
+  clientName: string | null;
+  productName: string | null;
+  branchName: string | null;
+  branchCode: string | null;
+  premium: number | null;
+  currencyCode: string | null;
 }
 
 export interface JobContactRow extends JobAgentInfo {
@@ -51,10 +59,11 @@ export class ReminderGenerationJobRepository implements IReminderGenerationJobRe
     const { data, error } = await this.supabase
       .from("policies")
       .select(
-        "id, agent_id, policy_number, start_date, end_date, renewal_date, next_payment_date, " +
-          "product:products(branch_id), frequency:payment_frequencies!payment_frequency_id(months), " +
-          "status:policy_statuses!status_id(code), " +
-          "agent:agents!agent_id!inner(timezone, locale), contact:contacts!inner(id)",
+        "id, agent_id, policy_number, start_date, end_date, renewal_date, next_payment_date, premium, " +
+          "product:products(name, branch_id, branch:branches(name, code)), " +
+          "frequency:payment_frequencies!payment_frequency_id(months), " +
+          "status:policy_statuses!status_id(code), currency:currencies(code), " +
+          "agent:agents!agent_id!inner(timezone, locale), contact:contacts!inner(id, full_name)",
       )
       .eq("is_active", true)
       .eq("agent.is_active", true)
@@ -67,7 +76,13 @@ export class ReminderGenerationJobRepository implements IReminderGenerationJobRe
     if (error) handleSupabaseError(error, "reminder_generation_job.findActivePolicies");
 
     return ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => {
-      const product = r.product as { branch_id?: string | null } | null;
+      const product = r.product as {
+        name?: string | null;
+        branch_id?: string | null;
+        branch?: { name?: string | null; code?: string | null } | null;
+      } | null;
+      const contact = r.contact as { id?: string | null; full_name?: string | null } | null;
+      const currency = r.currency as { code?: string | null } | null;
       const frequency = r.frequency as { months?: number | null } | null;
       const status = r.status as { code?: string | null } | null;
       return {
@@ -81,6 +96,13 @@ export class ReminderGenerationJobRepository implements IReminderGenerationJobRe
         branchId: product?.branch_id ?? null,
         paymentFrequencyMonths: frequency?.months ?? null,
         statusCode: status?.code ?? null,
+        contactId: contact?.id ?? null,
+        clientName: contact?.full_name ?? null,
+        productName: product?.name ?? null,
+        branchName: product?.branch?.name ?? null,
+        branchCode: product?.branch?.code ?? null,
+        premium: r.premium === null || r.premium === undefined ? null : Number(r.premium),
+        currencyCode: currency?.code ?? null,
         ...agentInfo(r.agent),
       };
     });
