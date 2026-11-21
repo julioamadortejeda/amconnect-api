@@ -345,9 +345,9 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "search_policies",
-      description: "Searches for policies in the advisor's portfolio by text matching. If the user mentions a client's name in their request, you must first search for the client using search_contact to get their contact_id and pass it in the contact_id parameter of this function, using the query parameter only to filter by branch, product, or policy number (e.g., 'auto', 'GNP').",
+      description: "Searches the advisor's policies by free text. Matches every word in any field: policy number (partial ok), product, carrier, branch, insured item, policyholder name and notes; tolerates missing accents, typos and common synonyms (GMM, autos, SMNYL). Use contact_id when you already have it.",
       schema: z.object({
-        query: z.string({ required_error: "Search text" }).describe("Text to search for (e.g., 'auto', 'GNP', policy number)"),
+        query: z.string({ required_error: "Search text" }).describe("The advisor's own words, unchanged and untranslated (e.g., 'GMM de AXA', 'la del Jetta', 'auto de Pedro')."),
         contact_id: z.string().optional().describe("UUID of the contact to limit search (optional)"),
       }),
     },
@@ -363,7 +363,7 @@ export const policySkills: SkillDefinition[] = [
       description: "Searches for policies by combining a client name and an optional policy criteria (e.g., branch 'auto', carrier 'GNP'). If 'policy_query' is omitted, it will return all policies of the client. Use when the user asks to perform an action or query about policies mentioning the client (e.g., 'update Karina's auto policy' or 'what policies does Juan have?'). This consolidates the search in a single step and saves tokens.",
       schema: z.object({
         client_name: z.string({ required_error: "Name of the client to search for (e.g., 'Karina', 'Juan')" }).describe("Name of the client"),
-        policy_query: z.string().optional().describe("Text to identify the policy (e.g., 'auto', 'GNP', 'Vida'). If omitted, returns all policies of the client."),
+        policy_query: z.string().optional().describe("The advisor's own words for the policy, unchanged and untranslated (e.g., 'gastos médicos', 'la del Jetta'). Omit to return all of the client's policies."),
       }),
     },
     async execute({ client_name, policy_query }, ctx) {
