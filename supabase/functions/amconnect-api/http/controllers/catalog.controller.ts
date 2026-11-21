@@ -2,6 +2,8 @@ import { Context } from "hono";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { CatalogServices } from "../../modules/catalog/catalog.service.ts";
 import { CarrierSchema, BranchSchema, ProductSchema } from "../../modules/catalog/catalog.dto.ts";
+import { validated } from "../middleware/validate.ts";
+import { IdParamSchema } from "../routes/route_schemas.ts";
 
 type CatalogKey = keyof CatalogServices;
 
@@ -15,7 +17,7 @@ function makeReadController(serviceKey: CatalogKey) {
     },
     async getById(c: Context) {
       const services: CatalogServices = c.get("services").catalogServices;
-      const data = await services[serviceKey].getById(c.req.param("id") as string);
+      const data = await services[serviceKey].getById(validated(c, "param", IdParamSchema).id);
       return sendSuccess(c, data);
     },
   };
@@ -31,7 +33,7 @@ function makeAgentCatalogController(serviceKey: CatalogKey, schema: typeof Carri
     },
     async getById(c: Context) {
       const services: CatalogServices = c.get("services").catalogServices;
-      const data = await services[serviceKey].getById(c.req.param("id") as string);
+      const data = await services[serviceKey].getById(validated(c, "param", IdParamSchema).id);
       return sendSuccess(c, data);
     },
     async create(c: Context) {
@@ -43,12 +45,12 @@ function makeAgentCatalogController(serviceKey: CatalogKey, schema: typeof Carri
     async update(c: Context) {
       const body = schema.partial().parse(await c.req.json());
       const services: CatalogServices = c.get("services").catalogServices;
-      const data = await services[serviceKey].update(c.req.param("id") as string, body as Record<string, unknown>);
+      const data = await services[serviceKey].update(validated(c, "param", IdParamSchema).id, body as Record<string, unknown>);
       return sendSuccess(c, data);
     },
     async remove(c: Context) {
       const services: CatalogServices = c.get("services").catalogServices;
-      const data = await services[serviceKey].delete(c.req.param("id") as string);
+      const data = await services[serviceKey].delete(validated(c, "param", IdParamSchema).id);
       return sendSuccess(c, data);
     },
   };

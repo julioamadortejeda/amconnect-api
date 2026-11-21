@@ -2,6 +2,8 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../../types/supabase.ts";
 import { handleSupabaseError } from "../../shared/errors.ts";
 import { objectToCamelCaseDeep } from "../../shared/case_converter.ts";
+import type { PaginatedResult } from "../../core/repository.interface.ts";
+import { buildPage, pageRange } from "../../shared/pagination.ts";
 import { CommitmentCloseResult, CommitmentListFilters, CommitmentResponseDTO } from "./commitment.dto.ts";
 
 /// En UNA sola línea y con `as const` a propósito, por feo que se vea.
@@ -57,6 +59,11 @@ function toDto(row: Record<string, unknown>): CommitmentResponseDTO {
   return objectToCamelCaseDeep({ ...row, contact: contact ?? null }) as CommitmentResponseDTO;
 }
 
+function rangeOf(p: { page: number; pageSize: number }): [number, number] {
+  const { from, to } = pageRange(p.page, p.pageSize);
+  return [from, to];
+}
+
 export class CommitmentRepository {
 
   constructor(private supabase: SupabaseClient<Database>) {}
@@ -82,10 +89,31 @@ export class CommitmentRepository {
     return toDto(data);
   }
 
+  /** Todos los que cumplen los filtros — lo usan las skills, que necesitan la lista completa. */
   async list(agentId: string, filters: CommitmentListFilters): Promise<CommitmentResponseDTO[]> {
+    return (await this.query(agentId, filters)).rows;
+  }
+
+  /** Una página de los que cumplen los filtros, con la forma única de paginación. */
+  async listPage(
+    agentId: string,
+    filters: CommitmentListFilters,
+    page: number,
+    pageSize: number,
+  ): Promise<PaginatedResult<CommitmentResponseDTO>> {
+    const { rows, total } = await this.query(agentId, filters, { page, pageSize });
+    return buildPage(rows, total, page, pageSize);
+  }
+
+  private async query(
+    agentId: string,
+    filters: CommitmentListFilters,
+    paging?: { page: number; pageSize: number },
+  ): Promise<{ rows: CommitmentResponseDTO[]; total: number }> {
     let q = this.supabase
       .from("client_commitments")
-      .select(COMMITMENT_SELECT)
+      // El conteo solo se pide cuando hay página: la lista completa no lo usa.
+      .select(COMMITMENT_SELECT, { count: paging ? "exact" : undefined })
       .eq("agent_id", agentId)
       .eq("is_active", true);
 
@@ -129,7 +157,7 @@ export class CommitmentRepository {
 
       const lista = (ids ?? []) as unknown as string[];
       // Vacio significa "ninguno coincide", no "no filtres".
-      if (lista.length === 0) return [];
+      if (lista.length === 0) return { rows: [], total: 0 };
       q = q.in("id", lista);
     }
 
@@ -138,11 +166,14 @@ export class CommitmentRepository {
     }
 
     // Sin fecha van al final: son pendientes que envejecen, no citas.
-    const { data, error } = await q.order("due_to", { ascending: true, nullsFirst: false });
+    // `id` desempata: con paginación, un orden que empata entre páginas
+    // repetiría o saltaría filas.
+    const ordered = q.order("due_to", { ascending: true, nullsFirst: false }).order("id");
+    const { data, error, count } = await (paging ? ordered.range(...rangeOf(paging)) : ordered);
 
     if (error) handleSupabaseError(error, "commitments list");
 
-    return (data ?? []).map(toDto);
+    return { rows: (data ?? []).map(toDto), total: count ?? (data ?? []).length };
   }
 
   /**

@@ -1,3 +1,4 @@
+import type { PaginatedResult } from "../../core/repository.interface.ts";
 import type { NoteRepository, NoteResponseDTO, PolicyNoteRow, RecentNoteRow } from "./note.repository.ts";
 
 /**
@@ -8,16 +9,16 @@ import type { NoteRepository, NoteResponseDTO, PolicyNoteRow, RecentNoteRow } fr
 export class NoteService {
   constructor(private repository: NoteRepository) {}
 
-  getByContactId(contactId: string): Promise<NoteResponseDTO[]> {
-    return this.repository.getByContactId(contactId);
+  getByContactId(contactId: string, page: number, pageSize: number): Promise<PaginatedResult<NoteResponseDTO>> {
+    return this.repository.getByContactId(contactId, page, pageSize);
   }
 
-  getByPolicyId(policyId: string): Promise<PolicyNoteRow[]> {
-    return this.repository.getByPolicyId(policyId);
+  getByPolicyId(policyId: string, page: number, pageSize: number): Promise<PaginatedResult<PolicyNoteRow>> {
+    return this.repository.getByPolicyId(policyId, page, pageSize);
   }
 
-  getByReminderId(reminderId: string): Promise<NoteResponseDTO[]> {
-    return this.repository.getByReminderId(reminderId);
+  getByReminderId(reminderId: string, page: number, pageSize: number): Promise<PaginatedResult<NoteResponseDTO>> {
+    return this.repository.getByReminderId(reminderId, page, pageSize);
   }
 
   deleteNote(agentId: string, noteId: string): Promise<void> {
@@ -28,7 +29,7 @@ export class NoteService {
     return this.repository.getNotesSummary();
   }
 
-  searchNotes(limit = 20, offset = 0, search?: string): Promise<RecentNoteRow[]> {
-    return this.repository.searchNotes(limit, offset, search);
+  searchNotes(page: number, pageSize: number, search?: string): Promise<PaginatedResult<RecentNoteRow>> {
+    return this.repository.searchNotes(page, pageSize, search);
   }
 }

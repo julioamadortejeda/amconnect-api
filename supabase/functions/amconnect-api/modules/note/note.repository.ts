@@ -1,6 +1,8 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SupabaseRepository } from "../../core/base_repository.ts";
 import { ConflictError, handleSupabaseError, NotFoundError } from "../../shared/errors.ts";
+import type { PaginatedResult } from "../../core/repository.interface.ts";
+import { buildPage, buildPageByLookahead, pageRange } from "../../shared/pagination.ts";
 import { NoteResponseDTO, PolicyNoteRow, RecentNoteRow } from "./note.dto.ts";
 
 export type { NoteResponseDTO, PolicyNoteRow, RecentNoteRow };
@@ -15,58 +17,69 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
     super(supabase, "agent_notes", NOTE_SELECT);
   }
 
-  async getByContactId(contactId: string): Promise<NoteResponseDTO[]> {
-    const { data, error } = await this.supabase
+  async getByContactId(contactId: string, page: number, pageSize: number): Promise<PaginatedResult<NoteResponseDTO>> {
+    const { from, to } = pageRange(page, pageSize);
+    const { data, error, count } = await this.supabase
       .from("agent_notes")
-      .select(NOTE_SELECT)
+      .select(NOTE_SELECT, { count: "exact" })
       .eq("contact_id", contactId)
       .eq("is_active", true)
       .eq("note_origin", "knowledge")
-      .order("created_at", { ascending: false });
+      // `id` desempata: sin él, notas con el mismo created_at saltan o se
+      // repiten entre páginas.
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(from, to);
 
     if (error) handleSupabaseError(error, "Error al obtener notas del contacto");
-    return (data ?? []) as unknown as NoteResponseDTO[];
+    return buildPage((data ?? []) as unknown as NoteResponseDTO[], count ?? 0, page, pageSize);
   }
 
-  async getByReminderId(reminderId: string): Promise<NoteResponseDTO[]> {
-    const { data, error } = await this.supabase
+  async getByReminderId(reminderId: string, page: number, pageSize: number): Promise<PaginatedResult<NoteResponseDTO>> {
+    const { from, to } = pageRange(page, pageSize);
+    const { data, error, count } = await this.supabase
       .from("agent_notes")
-      .select(NOTE_SELECT)
+      .select(NOTE_SELECT, { count: "exact" })
       .eq("reminder_id", reminderId)
       .eq("is_active", true)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(from, to);
 
     if (error) handleSupabaseError(error, "Error al obtener notas del recordatorio");
-    return (data ?? []) as unknown as NoteResponseDTO[];
+    return buildPage((data ?? []) as unknown as NoteResponseDTO[], count ?? 0, page, pageSize);
   }
 
-  async getByPolicyId(policyId: string): Promise<PolicyNoteRow[]> {
-    const select = "id, source_type, content, summary, created_at, document_metadata(storage_path, file_name)";
+  /**
+   * Notas de una póliza: primero las vigentes, luego las versiones obsoletas
+   * que dejó una re-ingesta del PDF (`policy_updated`), cada grupo de la más
+   * nueva a la más vieja. Una sola consulta para poder paginar el conjunto.
+   */
+  async getByPolicyId(policyId: string, page: number, pageSize: number): Promise<PaginatedResult<PolicyNoteRow>> {
+    const { from, to } = pageRange(page, pageSize);
+    const { data, error, count } = await this.supabase
+      .from("agent_notes")
+      .select("id, source_type, content, summary, created_at, is_active, document_metadata(storage_path, file_name)", { count: "exact" })
+      .eq("policy_id", policyId)
+      .eq("note_origin", "policy")
+      .or("is_active.eq.true,and(is_active.eq.false,discard_reason.eq.policy_updated)")
+      .order("is_active", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("id")
+      .range(from, to);
 
-    const [{ data: active }, { data: obsolete }] = await Promise.all([
-      this.supabase.from("agent_notes").select(select)
-        .eq("policy_id", policyId).eq("note_origin", "policy").eq("is_active", true)
-        .order("created_at", { ascending: false }),
-      this.supabase.from("agent_notes").select(select)
-        .eq("policy_id", policyId).eq("note_origin", "policy").eq("is_active", false)
-        .eq("discard_reason", "policy_updated")
-        .order("created_at", { ascending: false }),
-    ]);
+    if (error) handleSupabaseError(error, "Error al obtener notas de la póliza");
 
-    const toRow = (r: Record<string, unknown>, isObsolete: boolean): PolicyNoteRow => ({
+    const rows = ((data ?? []) as unknown as Record<string, unknown>[]).map((r): PolicyNoteRow => ({
       id: r.id as string,
       source_type: r.source_type as string,
       created_at: r.created_at as string,
-      isObsolete,
+      isObsolete: r.is_active !== true,
       content: r.content as string | null,
       summary: r.summary as string | null,
       document_metadata: r.document_metadata as PolicyNoteRow["document_metadata"],
-    });
-
-    return [
-      ...(active ?? []).map((r) => toRow(r as Record<string, unknown>, false)),
-      ...(obsolete ?? []).map((r) => toRow(r as Record<string, unknown>, true)),
-    ];
+    }));
+    return buildPage(rows, count ?? 0, page, pageSize);
   }
 
   async deleteNote(agentId: string, noteId: string): Promise<void> {
@@ -138,7 +151,7 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
     };
   }
 
-  async searchNotes(limit = 20, offset = 0, search?: string): Promise<RecentNoteRow[]> {
+  async searchNotes(page: number, pageSize: number, search?: string): Promise<PaginatedResult<RecentNoteRow>> {
     // RPC en vez de `.or()` de PostgREST: el texto de búsqueda va como
     // parámetro bindeado (sin riesgo de romper el filtro con comas/paréntesis)
     // y permite matchear también document_metadata.file_name via join —
@@ -147,14 +160,16 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
     // deno-lint-ignore no-explicit-any
     const { data, error } = await (this.supabase.rpc as any)("search_notes", {
       p_query: search && search.trim().length > 0 ? search : null,
-      p_limit: limit,
-      p_offset: offset,
+      // Una fila de más: la función SQL no cuenta, la sobrante solo dice si
+      // hay otra página (ver buildPageByLookahead).
+      p_limit: pageSize + 1,
+      p_offset: pageRange(page, pageSize).from,
     });
 
     if (error) handleSupabaseError(error, "Error al buscar notas");
 
     // deno-lint-ignore no-explicit-any
-    return ((data ?? []) as any[]).map((row) => ({
+    const rows = ((data ?? []) as any[]).map((row) => ({
       id: row.id,
       contact_id: row.contact_id,
       policy_id: row.policy_id,
@@ -167,5 +182,6 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
         : null,
       contacts: row.full_name ? { full_name: row.full_name } : null,
     })) as RecentNoteRow[];
+    return buildPageByLookahead(rows, page, pageSize);
   }
 }

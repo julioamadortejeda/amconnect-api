@@ -3,6 +3,8 @@ import { z } from "zod";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { AppError } from "../../shared/errors.ts";
 import { CommitmentService } from "../../features/commitments/commitment.service.ts";
+import { validated } from "../middleware/validate.ts";
+import { CommitmentsQuerySchema, IdParamSchema } from "../routes/route_schemas.ts";
 
 const CloseCommitmentSchema = z.object({
   resolutionNote: z.string().optional().nullable(),
@@ -15,23 +17,16 @@ export class CommitmentController {
     const agentId: string = c.get("agent_id");
     const service = c.get("services").commitmentService as CommitmentService;
 
-    const items = await service.list(agentId, {
-      from: c.req.query("from") ?? undefined,
-      to: c.req.query("to") ?? undefined,
-      contactId: c.req.query("contactId") ?? undefined,
-      overdueOnly: c.req.query("overdueOnly") === "true",
-      // El filtro de texto ya existía para el asistente (search_commitment_ids);
-      // faltaba exponerlo para que la agenda pueda buscar en su pestaña de
-      // compromisos con el mismo criterio que en la de recordatorios.
-      query: c.req.query("query")?.trim() || undefined,
-    });
+    const { page, pageSize, ...filters } = validated(c, "query", CommitmentsQuerySchema);
 
-    return sendSuccess(c, items);
+    // `query` ya existía para el asistente (search_commitment_ids); se expone
+    // para que la agenda busque en su pestaña de compromisos con el mismo
+    // criterio que en la de recordatorios.
+    return sendSuccess(c, await service.listPage(agentId, filters, page, pageSize));
   }
 
   static async close(c: Context) {
-    const id = c.req.param("id");
-    if (!id) throw new AppError("El parámetro 'id' es requerido.", 400);
+    const { id } = validated(c, "param", IdParamSchema);
 
     const agentId: string = c.get("agent_id");
     // Schema.parse: el ZodError lo formatea el globalErrorHandler (RULES §2).
