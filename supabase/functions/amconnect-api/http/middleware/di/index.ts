@@ -115,6 +115,7 @@ async function checkModelCatalog(supabase: SupabaseClient): Promise<void> {
 // a propósito: cualquier ruta nueva queda protegida por defecto.
 const SUBSCRIPTION_EXEMPT_ROUTES = new Set([
   "GET /agents/me",
+  "POST /agents/me/privacy-consent",
   "DELETE /agents/device-tokens",
   "GET /subscription",
   "GET /subscription/plans",

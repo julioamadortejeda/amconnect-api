@@ -27,6 +27,7 @@ export const apiRouter = new Hono();
 // ─── Agents ───────────────────────────────────────────────────────────────────
 apiRouter.get("/agents/me", AgentController.getMe);
 apiRouter.patch("/agents/me", AgentController.updateMe);
+apiRouter.post("/agents/me/privacy-consent", AgentController.acceptPrivacy);
 apiRouter.post("/agents/device-tokens", DeviceTokenController.registerToken);
 apiRouter.delete("/agents/device-tokens", DeviceTokenController.deregisterToken);
 

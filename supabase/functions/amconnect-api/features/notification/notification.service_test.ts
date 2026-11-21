@@ -2,7 +2,14 @@
 // Correr con: deno test -A features/notification/ (desde functions/amconnect-api)
 import { deepStrictEqual as assertEquals } from "node:assert";
 import { NotificationService } from "./notification.service.ts";
-import { classifyFcmError, FcmHttpClient, IPushSender, PushSendResult } from "./fcm.client.ts";
+import {
+  classifyFcmError,
+  FcmConfigError,
+  FcmHttpClient,
+  IPushSender,
+  loadServiceAccount,
+  PushSendResult,
+} from "./fcm.client.ts";
 import type { IDeviceTokenRepository } from "../../modules/agent/device_token.repository.ts";
 import type {
   ClaimOptions,
@@ -213,5 +220,36 @@ Deno.test("sin credenciales no llama a FCM y queda como transitorio", async () =
   const client = new FcmHttpClient({ fetchFn: f.fn, credentials: null });
   const res = await client.send("tok", { title: "a", body: "b" });
   assertEquals(res.outcome, "transient");
+  assertEquals(f.calls(), 0);
+});
+
+Deno.test("FCM lee SOLO FCM_SERVICE_ACCOUNT y toma el project_id de ahí", () => {
+  const sa = { project_id: "amconnect-jacatsoft", client_email: "x@y", private_key: "k" };
+  const env = (n: string) =>
+    n === "FCM_SERVICE_ACCOUNT"
+      ? JSON.stringify(sa)
+      : n === "FIREBASE_SERVICE_ACCOUNT"
+      ? JSON.stringify({ ...sa, project_id: "amconnect-project" })
+      : undefined;
+  assertEquals(loadServiceAccount(env).project_id, "amconnect-jacatsoft");
+});
+
+Deno.test("sin FCM_SERVICE_ACCOUNT lanza error de configuración aunque exista FIREBASE_SERVICE_ACCOUNT", () => {
+  const env = (n: string) => n === "FIREBASE_SERVICE_ACCOUNT" ? "{\"project_id\":\"old\"}" : undefined;
+  let err: unknown;
+  try {
+    loadServiceAccount(env);
+  } catch (e) {
+    err = e;
+  }
+  assertEquals(err instanceof FcmConfigError, true);
+});
+
+Deno.test("send sin el secreto no truena: responde transitorio FCM_CONFIG_MISSING", async () => {
+  const f = fakeFetch([json(200, {})]);
+  const client = new FcmHttpClient({ fetchFn: f.fn });
+  const res = await client.send("tok", { title: "a", body: "b" });
+  assertEquals(res.outcome, "transient");
+  assertEquals(res.errorCode, "FCM_CONFIG_MISSING");
   assertEquals(f.calls(), 0);
 });

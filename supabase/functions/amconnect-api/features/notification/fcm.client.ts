@@ -81,31 +81,39 @@ function cleanEnv(value: string): string {
   return value.trim().replace(/^['"]|['"]$/g, "").replace(/%$/, "").trim();
 }
 
-function loadServiceAccount(): ServiceAccount | null {
-  let json = Deno.env.get("FIREBASE_SERVICE_ACCOUNT");
-  if (json) json = cleanEnv(json);
+/** Falta o está mal formada la credencial de FCM. Mensaje claro, sin el secreto. */
+export class FcmConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FcmConfigError";
+  }
+}
+
+/**
+ * Credencial EXCLUSIVA de FCM (`FCM_SERVICE_ACCOUNT`, proyecto amconnect-jacatsoft).
+ * Vertex sigue usando `FIREBASE_SERVICE_ACCOUNT`: son proyectos distintos y
+ * mezclarlos produce SENDER_ID_MISMATCH. Sin fallback al secreto viejo a propósito.
+ * Se lee en el primer envío (no al arrancar) para que en local sin el secreto el
+ * resto de las rutas siga sirviendo.
+ */
+export function loadServiceAccount(env: (name: string) => string | undefined = (n) => Deno.env.get(n)): ServiceAccount {
+  const raw = env("FCM_SERVICE_ACCOUNT");
+  const json = raw ? cleanEnv(raw) : "";
   if (!json) {
-    const base64 = Deno.env.get("FIREBASE_SERVICE_ACCOUNT_BASE64");
-    if (base64) {
-      const cleaned = cleanEnv(base64);
-      // Auto-recuperación: si se pegó el JSON directo bajo el nombre BASE64
-      if (cleaned.startsWith("{")) json = cleaned;
-      else {
-        try {
-          json = atob(cleaned.replace(/\s/g, ""));
-        } catch (err) {
-          console.error("[FCM] Error decoding base64 service account:", err);
-        }
-      }
-    }
+    throw new FcmConfigError(
+      "[FCM] FCM_SERVICE_ACCOUNT no está configurada (service account JSON del proyecto Firebase amconnect-jacatsoft). Sin fallback.",
+    );
   }
-  if (!json) return null;
+  let sa: ServiceAccount;
   try {
-    return JSON.parse(json);
-  } catch (err) {
-    console.error("[FCM] Error parsing service account JSON:", err);
-    return null;
+    sa = JSON.parse(json);
+  } catch {
+    throw new FcmConfigError("[FCM] FCM_SERVICE_ACCOUNT no es un JSON válido.");
   }
+  if (!sa?.project_id || !sa.private_key || !sa.client_email) {
+    throw new FcmConfigError("[FCM] FCM_SERVICE_ACCOUNT incompleta: faltan project_id, client_email o private_key.");
+  }
+  return sa;
 }
 
 // Caché a nivel de módulo: el cliente se crea en cada corrida del cron (cada
@@ -162,7 +170,7 @@ export class FcmHttpClient implements IPushSender {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly maxRetries: number;
   private readonly fixedCredentials?: { projectId: string; accessToken: string } | null;
-  private serviceAccount: ServiceAccount | null | undefined;
+  private serviceAccount: ServiceAccount | undefined;
 
   constructor(options: FcmHttpClientOptions = {}) {
     this.fetchFn = options.fetchFn ?? fetch;
@@ -173,18 +181,22 @@ export class FcmHttpClient implements IPushSender {
 
   private async credentials(): Promise<{ projectId: string; accessToken: string } | null> {
     if (this.fixedCredentials !== undefined) return this.fixedCredentials;
-    if (this.serviceAccount === undefined) {
-      this.serviceAccount = loadServiceAccount();
-      if (!this.serviceAccount) console.error("[FCM] Firebase service account not configured");
-    }
+    // Lanza FcmConfigError si falta/está mal el secreto; send() lo traduce.
+    this.serviceAccount ??= loadServiceAccount();
     const sa = this.serviceAccount;
-    if (!sa?.project_id || !sa.private_key || !sa.client_email) return null;
     const accessToken = await fetchAccessToken(sa, this.fetchFn);
-    return accessToken ? { projectId: sa.project_id, accessToken } : null;
+    return accessToken ? { projectId: sa.project_id as string, accessToken } : null;
   }
 
   async send(token: string, payload: PushPayload): Promise<PushSendResult> {
-    const creds = await this.credentials();
+    let creds: { projectId: string; accessToken: string } | null;
+    try {
+      creds = await this.credentials();
+    } catch (err) {
+      if (!(err instanceof FcmConfigError)) throw err;
+      console.error(err.message);
+      return { outcome: "transient", errorCode: "FCM_CONFIG_MISSING" };
+    }
     // Sin credenciales no se envía nada, pero no es culpa del token ni del
     // recordatorio: se reintenta en una corrida posterior.
     if (!creds) return { outcome: "transient", errorCode: "FCM_CREDENTIALS_UNAVAILABLE" };
