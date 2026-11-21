@@ -49,21 +49,45 @@ export class RagService implements Searchable<NoteMatch> {
     );
   }
 
+  /** Embedding de la consulta (una sola llamada al proveedor). */
+  async embedQuery(query: string): Promise<number[]> {
+    const { embedding } = await this.embeddingProvider.generateEmbedding(query);
+    return embedding;
+  }
+
   /**
-   * Fuente "note" de `recall` (ver shared/search_hits.ts). Con contacto, póliza
-   * o recordatorio es búsqueda ACOTADA (`RAG_THRESHOLD_SCOPED`); sin ninguno es
-   * la amplia de `search_knowledge` (`RAG_THRESHOLD_BROAD`). Un hit por
-   * fragmento: `id` es el `chunkId` y la nota está en `item.noteId`; `score`
-   * es la similitud coseno.
+   * Fuente "note" de `recall` (ver shared/search_hits.ts), parte VECTORIAL.
+   * Búsqueda EXACTA con orden estable (similitud y luego id), para que la
+   * página 2 no repita la 1. Con contacto, póliza o recordatorio es ACOTADA
+   * (`RAG_THRESHOLD_SCOPED`); sin ninguno es la amplia (`RAG_THRESHOLD_BROAD`).
+   * Un hit por fragmento: `id` es el `chunkId` y la nota está en `item.noteId`;
+   * `score` es la similitud coseno.
    */
   async searchHits(agentId: string, query: string, opts: SearchOptions = {}): Promise<SearchHit<NoteMatch>[]> {
     const scoped = !!(opts.contactId || opts.policyId || opts.reminderId);
-    const matches = await this.searchNotes(agentId, query, {
+    const embedding = opts.queryEmbedding ?? await this.embedQuery(query);
+    const matches = await this.repository.searchNoteChunksExact(
+      agentId,
+      JSON.stringify(embedding),
+      scoped ? RAG_THRESHOLD_SCOPED : RAG_THRESHOLD_BROAD,
+      opts.limit ?? 5,
+      { contactId: opts.contactId, policyId: opts.policyId, reminderId: opts.reminderId, sourceTypes: opts.sourceTypes },
+    );
+    return toSearchHits("note", matches, (m) => m.chunkId, { scoreOf: (m) => m.similarity });
+  }
+
+  /**
+   * Misma fuente, parte de TEXTO COMPLETO: encuentra términos exactos que el
+   * vector diluye ("hernia", números de póliza, nombres de aseguradora). El
+   * `score` es la relevancia léxica y no se compara con el de `searchHits`;
+   * se combinan por posición (RRF) fuera de aquí.
+   */
+  async searchTextHits(agentId: string, query: string, opts: SearchOptions = {}): Promise<SearchHit<NoteMatch>[]> {
+    const matches = await this.repository.searchNoteChunksText(agentId, query, opts.limit ?? 5, {
       contactId: opts.contactId,
       policyId: opts.policyId,
       reminderId: opts.reminderId,
-      threshold: scoped ? RAG_THRESHOLD_SCOPED : RAG_THRESHOLD_BROAD,
-      ...(opts.limit !== undefined ? { limit: opts.limit } : {}),
+      sourceTypes: opts.sourceTypes,
     });
     return toSearchHits("note", matches, (m) => m.chunkId, { scoreOf: (m) => m.similarity });
   }

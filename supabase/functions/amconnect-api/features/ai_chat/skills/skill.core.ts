@@ -10,6 +10,7 @@ import { KnowledgeIngestionService } from "../../document_processing/knowledge_i
 import { AiSessionService } from "../ai_session.service.ts";
 import { CatalogServices } from "../../../modules/catalog/catalog.service.ts";
 import { UsageService } from "../../../modules/subscription/usage.service.ts";
+import { RecallService } from "../../recall/recall.service.ts";
 import { CommitmentService } from "../../commitments/commitment.service.ts";
 import { hasAnyChange } from "../../../shared/utils.ts";
 import { ContactWorkflowService } from "../../../modules/contact/contact_workflow.service.ts";
@@ -51,6 +52,7 @@ export interface SkillContext {
   aiSessionService: AiSessionService;
   catalogServices: CatalogServices;
   commitmentService: CommitmentService;
+  recallService: RecallService;
   // Reglas de negocio que antes vivían dentro de las skills. Una skill es un
   // adaptador: valida argumentos, llama a estos services y da forma al
   // resultado para el modelo (mapper junto a la skill).

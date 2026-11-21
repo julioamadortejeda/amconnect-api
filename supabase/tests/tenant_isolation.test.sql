@@ -96,6 +96,7 @@ select * from (values
   ('policies',              'agent'),
   ('products',              'agent'),
   ('reminder_settings',     'agent'),
+  ('recall_searches',       'agent'),
   ('reminders',             'agent'),
   ('agent_monthly_usage',   'own_readonly'),
   ('reminder_notifications','own_readonly'),
@@ -289,6 +290,10 @@ begin
   insert into agent_device_tokens (agent_id, token, platform)
   values (p_agent, 'iso-token-' || p_tag, 'ios') returning id into v_id;
   insert into t_ids values (p_agent, 'agent_device_tokens', v_id);
+
+  insert into recall_searches (agent_id, query, embedding)
+  values (p_agent, 'consulta ' || p_tag, array_fill(0.1::float4, array[768])::vector(768)) returning id into v_id;
+  insert into t_ids values (p_agent, 'recall_searches', v_id);
 
   insert into ai_sessions (agent_id, trigger_message) values (p_agent, 'hola ' || p_tag)
   returning id into v_session;

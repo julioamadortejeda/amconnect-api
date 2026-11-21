@@ -36,6 +36,14 @@ export interface SearchOptions {
   /** Solo notas: acota a una póliza o a un recordatorio. */
   policyId?: string;
   reminderId?: string;
+  /** Solo notas: `agent_notes.source_type` permitidos (notas = text; documentos = el resto). */
+  sourceTypes?: readonly string[];
+  /**
+   * Solo notas: embedding de la consulta ya calculado. Lo da `RecallSearchService`
+   * para que las páginas siguientes usen el MISMO vector; sin él, la fuente lo
+   * calcula.
+   */
+  queryEmbedding?: number[];
 }
 
 export interface Searchable<T> {

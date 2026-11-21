@@ -8,6 +8,7 @@ import { catalogSkills } from "./catalog.skills.ts";
 import { policyIngestionSkills } from "./policy_ingestion.skills.ts";
 import { knowledgeSkills } from "./knowledge.skills.ts";
 import { commitmentSkills } from "./commitment.skills.ts";
+import { recallSkills } from "./recall.skills.ts";
 
 export const skillRegistry: SkillDefinition[] = [
   ...contactSkills,
@@ -19,6 +20,7 @@ export const skillRegistry: SkillDefinition[] = [
   ...policyIngestionSkills,
   ...knowledgeSkills,
   ...commitmentSkills,
+  ...recallSkills,
 ];
 
 export function getSkillByName(name: string): SkillDefinition | undefined {

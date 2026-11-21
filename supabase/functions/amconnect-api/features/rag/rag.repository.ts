@@ -23,6 +23,12 @@ export interface SearchNoteChunksOptions {
   reminderId?: string;
 }
 
+/** Filtros de las búsquedas de `recall` (exacta y de texto). */
+export interface RecallChunkFilters extends SearchNoteChunksOptions {
+  /** `agent_notes.source_type` permitidos; sin él, todos. */
+  sourceTypes?: readonly string[];
+}
+
 export interface IRagRepository {
   searchNoteChunks(
     agentId: string,
@@ -31,6 +37,16 @@ export interface IRagRepository {
     limit: number,
     options?: SearchNoteChunksOptions,
   ): Promise<NoteMatch[]>;
+  /** Vectorial EXACTA (sin HNSW), orden estable: distancia y luego `id`. */
+  searchNoteChunksExact(
+    agentId: string,
+    queryEmbedding: string,
+    threshold: number,
+    limit: number,
+    filters?: RecallChunkFilters,
+  ): Promise<NoteMatch[]>;
+  /** Texto completo. `similarity` es la relevancia léxica, no un coseno. */
+  searchNoteChunksText(agentId: string, query: string, limit: number, filters?: RecallChunkFilters): Promise<NoteMatch[]>;
 }
 
 export class RagRepository implements IRagRepository {
@@ -61,7 +77,51 @@ export class RagRepository implements IRagRepository {
     // contrato de errores (RULES §2) en vez de `return []`.
     if (error) handleSupabaseError(error, "Error al buscar notas por similitud");
 
-    const matches: NoteMatch[] = (data ?? []).map((r: Record<string, unknown>) => ({
+    return await this.toMatches(data);
+  }
+
+  async searchNoteChunksExact(
+    agentId: string,
+    queryEmbedding: string,
+    threshold: number,
+    limit: number,
+    filters?: RecallChunkFilters,
+  ): Promise<NoteMatch[]> {
+    const { data, error } = await this.supabase.rpc("search_agent_note_chunks_exact", {
+      p_agent_id: agentId,
+      p_query_embedding: queryEmbedding,
+      p_match_threshold: threshold,
+      p_match_count: limit,
+      p_source_types: filters?.sourceTypes ? [...filters.sourceTypes] : null,
+      p_contact_id: filters?.contactId ?? null,
+      p_policy_id: filters?.policyId ?? null,
+      p_reminder_id: filters?.reminderId ?? null,
+    });
+    if (error) handleSupabaseError(error, "Error en la búsqueda exacta de notas");
+    return await this.toMatches(data);
+  }
+
+  async searchNoteChunksText(
+    agentId: string,
+    query: string,
+    limit: number,
+    filters?: RecallChunkFilters,
+  ): Promise<NoteMatch[]> {
+    const { data, error } = await this.supabase.rpc("search_agent_note_chunks_text", {
+      p_agent_id: agentId,
+      p_query: query,
+      p_match_count: limit,
+      p_source_types: filters?.sourceTypes ? [...filters.sourceTypes] : null,
+      p_contact_id: filters?.contactId ?? null,
+      p_policy_id: filters?.policyId ?? null,
+      p_reminder_id: filters?.reminderId ?? null,
+    });
+    if (error) handleSupabaseError(error, "Error en la búsqueda de texto de notas");
+    return await this.toMatches(data);
+  }
+
+  private async toMatches(data: unknown): Promise<NoteMatch[]> {
+    const matches: NoteMatch[] = ((data as Record<string, unknown>[] | null) ?? []).map((r) => ({
       chunkId: r.chunk_id as string,
       noteId: r.note_id as string,
       content: r.content as string,
