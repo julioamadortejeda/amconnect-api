@@ -95,6 +95,25 @@ export class ConflictError extends AppError {
 }
 
 /**
+ * Código promocional rechazado por `apply_promo_code`. Cada motivo lleva su
+ * propio errorCode para que la app distinga "expirado" de "ya lo usaste" sin
+ * leer el mensaje en español (RULES §2).
+ */
+export type PromoErrorCode =
+  | "PROMO_INVALID"
+  | "PROMO_EXPIRED"
+  | "PROMO_EXHAUSTED"
+  | "PROMO_ALREADY_USED"
+  | "PROMO_NOT_APPLICABLE";
+
+export class PromoCodeError extends AppError {
+  constructor(message: string, errorCode: PromoErrorCode) {
+    super(message, 400, errorCode);
+    this.name = "PromoCodeError";
+  }
+}
+
+/**
  * Crea un AppError con mensaje público limpio y detalle técnico separado.
  * Usar en lugar de interpolar `error.message` de Supabase/SDKs en el mensaje.
  */
