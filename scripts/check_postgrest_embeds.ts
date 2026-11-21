@@ -24,6 +24,8 @@ import { NoteRepository } from "../supabase/functions/amconnect-api/modules/note
 import { CommitmentRepository } from "../supabase/functions/amconnect-api/features/commitments/commitment.repository.ts";
 import { ReminderGenerationRepository } from "../supabase/functions/amconnect-api/modules/reminder/reminder_generation.repository.ts";
 import { ReminderGenerationJobRepository } from "../supabase/functions/amconnect-api/features/reminder_generation/reminder_generation_job.repository.ts";
+import { RagRepository } from "../supabase/functions/amconnect-api/features/rag/rag.repository.ts";
+import { RecallSearchRepository } from "../supabase/functions/amconnect-api/features/recall/recall_search.repository.ts";
 import { createCatalogServices } from "../supabase/functions/amconnect-api/modules/catalog/catalog.service.ts";
 
 function requireEnv(name: string): string {
@@ -120,6 +122,26 @@ await check("catálogo: productos con aseguradora y ramo", () =>
 const job = new ReminderGenerationJobRepository(supabase);
 await check("cron: pólizas activas (hints !inner)", () => job.findActivePolicies(0, 5));
 await check("cron: contactos con cumpleaños", () => job.findContactsWithBirthdate(0, 5));
+
+// recall: RPCs de notas (exacta y texto) y búsquedas guardadas, por PostgREST.
+const rag = new RagRepository(supabase);
+const unit = JSON.stringify([1, ...Array(767).fill(0)]);
+await check("recall: notas vectorial exacta (RPC)", () => rag.searchNoteChunksExact(agentId, unit, 0, 5, { sourceTypes: ["text"] }));
+await check("recall: un documento (note_id) exacta + texto", async () => {
+  const noteId = crypto.randomUUID();
+  await rag.searchNoteChunksText(agentId, "poliza", 5, { noteId });
+  return await rag.searchNoteChunksExact(agentId, unit, 0, 5, { noteId });
+});
+await check("recall: notas texto completo (RPC)", () => rag.searchNoteChunksText(agentId, "poliza hernia", 5, { sourceTypes: ["pdf"] }));
+await check("recall: búsqueda guardada (insert, find, delete)", async () => {
+  const repo = new RecallSearchRepository(supabase);
+  const vec = Array(768).fill(0.01);
+  const id = await repo.insert(agentId, "check", vec);
+  const found = await repo.findValid(agentId, id, new Date(Date.now() - 60_000));
+  if (!found || found.embedding.length !== 768) throw new Error("no se pudo leer el embedding guardado");
+  await repo.deleteExpired(agentId, new Date(Date.now() + 60_000));
+  return found;
+});
 
 if (failed > 0) {
   console.error(`\n[EMBEDS] ${failed} select(s) fallaron contra PostgREST`);

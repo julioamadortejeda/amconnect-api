@@ -38,7 +38,9 @@ function noteMatch(overrides: Partial<NoteMatch> = {}): NoteMatch {
 function fakeRag(matches: NoteMatch[]) {
   const calls: Array<{ threshold: number; limit: number; options: unknown }> = [];
   const repo: IRagRepository = {
-    searchNoteChunks(_agentId, _embedding, threshold, limit, options) {
+    searchNoteChunks: () => Promise.reject(new Error("no se usa")),
+    searchNoteChunksText: () => Promise.reject(new Error("no se usa")),
+    searchNoteChunksExact(_agentId, _embedding, threshold, limit, options) {
       calls.push({ threshold, limit, options });
       return Promise.resolve(matches);
     },
