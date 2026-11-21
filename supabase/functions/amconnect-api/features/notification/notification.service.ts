@@ -1,209 +1,188 @@
-import { SignJWT, importPKCS8 } from "jose";
 import { IDeviceTokenRepository } from "../../modules/agent/device_token.repository.ts";
-import { INotificationReminderRepository } from "../../modules/reminder/reminder.repository.ts";
+import { DueReminderRow, INotificationReminderRepository } from "../../modules/reminder/reminder.repository.ts";
+import type { ErrorLogInput } from "../../modules/error_log/error_log.service.ts";
+import { FcmHttpClient, IPushSender, PushPayload } from "./fcm.client.ts";
 
-export interface PushPayload {
-  title: string;
-  body: string;
-  data?: Record<string, string>;
+export type { PushPayload } from "./fcm.client.ts";
+
+/** Lo mínimo que el cron necesita para dejar rastro en `error_logs`. */
+export interface ICronErrorLogger {
+  log(input: ErrorLogInput): Promise<string | null>;
 }
 
+/** Cuántos recordatorios toma una corrida (el cron corre cada minuto). */
+const CLAIM_LIMIT = 100;
+/** Espera mínima antes de reintentar un recordatorio que falló o quedó a medias. */
+const LEASE_SECONDS = 300;
+/** Intentos por recordatorio (≈30 min con el lease de 5) antes de rendirse. */
+const MAX_ATTEMPTS = 6;
+/** Recordatorios que se envían en paralelo. */
+const SEND_CONCURRENCY = 8;
+
+export interface AgentPushResult {
+  tokens: number;
+  sent: number;
+  transient: number;
+  permanent: number;
+  unregistered: number;
+  /** Último código de error visto, para el diagnóstico. */
+  lastError?: string;
+}
+
+export interface DueNotificationsResult {
+  success: boolean;
+  /** Recordatorios reclamados en esta corrida. */
+  processed: number;
+  notified: number;
+  /** Fallaron de forma transitoria y se reintentarán. */
+  retrying: number;
+  /** Se dejaron de intentar (sin dispositivos, rechazados o tope de intentos). */
+  gaveUp: number;
+  errors: number;
+}
+
+type ReminderOutcome = "notified" | "retrying" | "gave_up" | "error";
+
 export class NotificationService {
-  private accessToken: string | null = null;
-  private tokenExpiry = 0;
-  private serviceAccount: Record<string, string> | null = null;
+  private readonly sender: IPushSender;
 
   constructor(
     private deviceTokenRepo: IDeviceTokenRepository,
     private reminderRepo: INotificationReminderRepository,
+    sender?: IPushSender,
+    private errorLogger?: ICronErrorLogger,
   ) {
-    this.loadServiceAccount();
+    // FcmHttpClient lee las credenciales hasta el primer envío, no al construirse.
+    this.sender = sender ?? new FcmHttpClient();
   }
 
-  private loadServiceAccount() {
-    let serviceAccountJson = Deno.env.get("FIREBASE_SERVICE_ACCOUNT");
-    if (serviceAccountJson) {
-      serviceAccountJson = serviceAccountJson.trim().replace(/^['"]|['"]$/g, "").replace(/%$/, "").trim();
-    }
-    if (!serviceAccountJson) {
-      const base64 = Deno.env.get("FIREBASE_SERVICE_ACCOUNT_BASE64");
-      if (base64) {
-        const cleaned = base64.trim().replace(/^['"]|['"]$/g, "").replace(/%$/, "").trim();
-        if (cleaned.startsWith("{")) {
-          // Auto-recuperación: si el usuario pegó el JSON directo bajo el nombre BASE64
-          serviceAccountJson = cleaned;
-        } else {
-          try {
-            const base64Cleaned = cleaned.replace(/\s/g, "");
-            serviceAccountJson = atob(base64Cleaned);
-          } catch (err) {
-            console.error("[NotificationService] Error decoding base64 service account:", err);
-          }
-        }
-      }
-    }
+  /**
+   * Envía a todos los dispositivos del asesor y devuelve qué pasó con cada uno.
+   * Ya no "regresa en silencio": quien llama decide según el resultado.
+   */
+  async sendPushToAgent(agentId: string, payload: PushPayload): Promise<AgentPushResult> {
+    const rows = await this.deviceTokenRepo.findByAgentId(agentId) ?? [];
+    const result: AgentPushResult = { tokens: rows.length, sent: 0, transient: 0, permanent: 0, unregistered: 0 };
 
-    if (serviceAccountJson) {
-      try {
-        this.serviceAccount = JSON.parse(serviceAccountJson);
-      } catch (err) {
-        console.error("[NotificationService] Error parsing service account JSON:", err);
+    await Promise.all(rows.map(async (row) => {
+      const token = row.token as string;
+      const res = await this.sender.send(token, payload);
+      result[res.outcome]++;
+      if (res.outcome !== "sent") result.lastError = res.errorCode ?? `HTTP_${res.status ?? "?"}`;
+
+      if (res.outcome === "unregistered") {
+        // Solo con UNREGISTERED/404 o INVALID_ARGUMENT que señala al token.
+        console.warn(`[NotificationService] Deleting dead device token ${token.substring(0, 10)}...`);
+        await this.deviceTokenRepo.deleteByToken(token);
+      } else if (res.outcome !== "sent") {
+        console.warn(
+          `[NotificationService] FCM ${res.outcome} failure (status ${res.status ?? "-"}, ${res.errorCode ?? "-"}) for token ${token.substring(0, 10)}...`,
+        );
       }
-    } else {
-      console.warn("[NotificationService] Warning: Firebase Service Account not configured. Push notifications will be disabled.");
-    }
+    }));
+
+    return result;
   }
 
-  private async getAccessToken(): Promise<string | null> {
-    if (!this.serviceAccount) return null;
-
-    // Si ya tenemos un token válido y no ha expirado (guardamos 5 mins de margen)
-    const now = Math.floor(Date.now() / 1000);
-    if (this.accessToken && this.tokenExpiry > now + 300) {
-      return this.accessToken;
-    }
-
-    try {
-      const privateKeyPem = this.serviceAccount.private_key;
-      const privateKey = await importPKCS8(privateKeyPem, "RS256");
-
-      const jwt = await new SignJWT({
-        scope: "https://www.googleapis.com/auth/firebase.messaging",
-      })
-        .setProtectedHeader({ alg: "RS256", typ: "JWT" })
-        .setIssuer(this.serviceAccount.client_email)
-        .setAudience("https://oauth2.googleapis.com/token")
-        .setExpirationTime("1h")
-        .setIssuedAt()
-        .sign(privateKey);
-
-      const response = await fetch("https://oauth2.googleapis.com/token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        body: new URLSearchParams({
-          grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-          assertion: jwt,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Google OAuth token request failed: ${response.statusText} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      this.accessToken = data.access_token;
-      this.tokenExpiry = now + (data.expires_in ?? 3600);
-      return this.accessToken;
-    } catch (err) {
-      console.error("[NotificationService.getAccessToken] Error obtaining access token:", err);
-      return null;
-    }
-  }
-
-  async sendPushToAgent(agentId: string, payload: PushPayload): Promise<void> {
-    // 1. Obtener los tokens activos del agente
-    const deviceTokens = await this.deviceTokenRepo.findByAgentId(agentId);
-    if (!deviceTokens || deviceTokens.length === 0) {
-      return;
-    }
-
-    // 2. Obtener el access token de Firebase
-    const accessToken = await this.getAccessToken();
-    if (!accessToken) {
-      console.error("[NotificationService.sendPushToAgent] Cannot send push notifications because access token is null.");
-      return;
-    }
-
-    const projectId = this.serviceAccount?.project_id;
-    if (!projectId) {
-      console.error("[NotificationService.sendPushToAgent] Firebase Project ID is null.");
-      return;
-    }
-
-    const fcmUrl = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`;
-
-    // 3. Enviar peticiones concurrentes
-    const sendPromises = deviceTokens.map(async (deviceRow) => {
-      const token = deviceRow.token as string;
-
-      try {
-        const messageBody = {
-          message: {
-            token,
-            notification: {
-              title: payload.title,
-              body: payload.body,
-            },
-            data: payload.data ?? {},
-            apns: {
-              payload: {
-                aps: {
-                  sound: "default",
-                  badge: 1,
-                },
-              },
-            },
-          },
-        };
-
-        const response = await fetch(fcmUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify(messageBody),
-        });
-
-        if (!response.ok) {
-          const errorResponse = await response.json().catch(() => ({}));
-          const status = response.status;
-          const errCode = errorResponse?.error?.details?.[0]?.errorCode ?? errorResponse?.error?.status ?? "";
-          
-          console.warn(`[NotificationService] FCM send error (status ${status}) for token: ${token.substring(0, 10)}... Error:`, errorResponse);
-
-          // Si el token es inválido o ya no está registrado, lo eliminamos de la BD
-          if (status === 404 || status === 400 || errCode === "UNREGISTERED" || errCode === "INVALID_ARGUMENT") {
-            console.warn(`[NotificationService] Deleting unregistered/invalid token: ${token.substring(0, 10)}...`);
-            await this.deviceTokenRepo.deleteByToken(token);
-          }
-        }
-      } catch (err) {
-        console.error(`[NotificationService] Exception sending push to token ${token.substring(0, 10)}...:`, err);
-      }
+  async processAndSendDueNotifications(): Promise<DueNotificationsResult> {
+    const reminders = await this.reminderRepo.claimDue({
+      limit: CLAIM_LIMIT,
+      leaseSeconds: LEASE_SECONDS,
+      maxAttempts: MAX_ATTEMPTS,
     });
 
-    await Promise.all(sendPromises);
+    const counts = { notified: 0, retrying: 0, gave_up: 0, error: 0 };
+    const failures: Array<{ reminderId: string; outcome: ReminderOutcome; reason: string }> = [];
+
+    await runWithConcurrency(reminders, SEND_CONCURRENCY, async (reminder) => {
+      const { outcome, reason } = await this.deliver(reminder);
+      counts[outcome]++;
+      if (outcome !== "notified") failures.push({ reminderId: reminder.id, outcome, reason });
+    });
+
+    const result: DueNotificationsResult = {
+      success: true,
+      processed: reminders.length,
+      notified: counts.notified,
+      retrying: counts.retrying,
+      gaveUp: counts.gave_up,
+      errors: counts.error,
+    };
+
+    // Sin dispositivos es normal (el asesor no ha abierto la app): no es una
+    // falla del sistema y no ensucia error_logs.
+    const systemFailures = failures.filter((f) => f.reason !== "NO_DEVICES");
+    if (systemFailures.length > 0) await this.logRunFailures(result, systemFailures);
+    return result;
   }
 
-  async processAndSendDueNotifications(): Promise<{ success: boolean; processed: number; notified: number }> {
-    const reminders = await this.reminderRepo.findDueUnnotified();
+  private async deliver(reminder: DueReminderRow): Promise<{ outcome: ReminderOutcome; reason: string }> {
+    try {
+      const push = await this.sendPushToAgent(reminder.agent_id, {
+        title: `Recordatorio: ${reminder.title}`,
+        body: reminder.description ?? "Tienes un recordatorio pendiente.",
+        data: { reminderId: reminder.id, type: "reminder" },
+      });
 
-    if (reminders.length === 0) {
-      return { success: true, processed: 0, notified: 0 };
-    }
-
-    let notifiedCount = 0;
-
-    for (const reminder of reminders) {
-      try {
-        await this.sendPushToAgent(reminder.agent_id, {
-          title: `Recordatorio: ${reminder.title}`,
-          body: reminder.description ?? "Tienes un recordatorio pendiente.",
-          data: { reminderId: reminder.id, type: "reminder" },
-        });
-
-        await this.reminderRepo.markNotified(reminder.id);
-        await this.reminderRepo.logNotification(reminder.id, reminder.agent_id, reminder.due_date);
-        notifiedCount++;
-      } catch (err) {
-        console.error(`[NotificationService] Error processing reminder ${reminder.id}:`, err);
+      // Al menos un dispositivo lo recibió: notificado.
+      if (push.sent > 0) {
+        const marked = await this.reminderRepo.markNotified(reminder.id, reminder.due_date);
+        if (marked) await this.reminderRepo.logNotification(reminder.id, reminder.agent_id, reminder.due_date);
+        return { outcome: "notified", reason: "" };
       }
-    }
 
-    return { success: true, processed: reminders.length, notified: notifiedCount };
+      // Decisión explícita: sin dispositivos no hay a quién enviarle y reintentar
+      // no cambia nada. Se rinde sin marcarlo como notificado.
+      if (push.tokens === 0) {
+        await this.reminderRepo.recordDeliveryFailure(reminder.id, reminder.due_date, "NO_DEVICES", true);
+        return { outcome: "gave_up", reason: "NO_DEVICES" };
+      }
+
+      if (push.transient > 0) {
+        const reason = push.lastError ?? "TRANSIENT";
+        const giveUp = reminder.attempts >= MAX_ATTEMPTS;
+        await this.reminderRepo.recordDeliveryFailure(reminder.id, reminder.due_date, reason, giveUp);
+        return { outcome: giveUp ? "gave_up" : "retrying", reason };
+      }
+
+      // Todos los tokens fueron rechazados de forma definitiva o estaban muertos.
+      const reason = push.lastError ?? "ALL_TOKENS_REJECTED";
+      await this.reminderRepo.recordDeliveryFailure(reminder.id, reminder.due_date, reason, true);
+      return { outcome: "gave_up", reason };
+    } catch (err) {
+      // Un recordatorio que truena no detiene a los demás. Su reclamo vence
+      // solo y se reintenta en otra corrida.
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error(`[NotificationService] Error processing reminder ${reminder.id}:`, reason);
+      return { outcome: "error", reason };
+    }
   }
+
+  private async logRunFailures(
+    result: DueNotificationsResult,
+    failures: Array<{ reminderId: string; outcome: ReminderOutcome; reason: string }>,
+  ): Promise<void> {
+    if (!this.errorLogger) return;
+    // Solo ids y códigos: nada de títulos ni nombres de clientes (LFPDPPP).
+    await this.errorLogger.log({
+      errorType: "PushDeliveryFailure",
+      statusCode: 500,
+      errorMessage: `push cron: ${failures.length} of ${result.processed} reminders not delivered`,
+      requestPath: "/amconnect-api/notifications/send-due",
+      requestMethod: "POST",
+      metadata: { severity: "server", result, failures: failures.slice(0, 20) },
+    });
+  }
+}
+
+/** Ejecuta `fn` sobre `items` con a lo más `limit` en vuelo. */
+async function runWithConcurrency<T>(items: T[], limit: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const item = items[next++];
+      await fn(item);
+    }
+  });
+  await Promise.all(workers);
 }

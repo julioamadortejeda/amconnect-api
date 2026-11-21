@@ -26,8 +26,8 @@ export class DeviceTokenService {
       // Fallback a 1 dispositivo si falla
     }
 
-    // 2. Hacer upsert del token del dispositivo
-    const data = await this.deviceTokenRepo.upsert(agentId, token, platform);
+    // 2. Reclamar el token: queda a nombre de este asesor y de nadie más
+    const data = await this.deviceTokenRepo.claim(token, platform);
 
     // 3. Aplicar límite de dispositivos (borrar los más antiguos si se excede el límite)
     await this.deviceTokenRepo.deleteOldestTokens(agentId, maxDevices);

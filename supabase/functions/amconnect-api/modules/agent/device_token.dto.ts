@@ -7,6 +7,10 @@ export const DeviceTokenRegisterSchema = z.object({
 
 export type DeviceTokenRegisterDTO = z.infer<typeof DeviceTokenRegisterSchema>;
 
+export const DeviceTokenDeregisterSchema = z.object({
+  token: z.string().min(1),
+});
+
 export const DeviceTokenResponseSchema = z.object({
   id: z.string().uuid(),
   agentId: z.string().uuid(),

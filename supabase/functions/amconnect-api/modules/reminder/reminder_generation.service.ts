@@ -1,11 +1,14 @@
 import { todayInTimezone } from "../../shared/datetime.ts";
 import { daysUntil, nextOccurrence } from "../../shared/payment_schedule.ts";
 import {
-  reminderTitle,
   estimatedDateNote,
+  GENERATED_REMINDER_TYPE_CODES,
+  reminderTitle,
   YEARLY_INTERVAL_MONTHS,
 } from "./reminder_generation.constants.ts";
 import type {
+  CreateReminderData,
+  GenerationCatalog,
   IReminderGenerationRepository,
   ReminderOwner,
 } from "./reminder_generation.repository.ts";
@@ -23,7 +26,16 @@ export interface GeneratedReminder {
 export interface ReminderGenerationResult {
   created: GeneratedReminder[];
   existing: GeneratedReminder[];
+  /**
+   * Presente solo si la generación falló. Los métodos públicos no lanzan: el
+   * skill de pólizas los llama DESPUÉS de guardar la póliza, y una excepción ahí
+   * haría parecer que la póliza falló — el modelo la reintentaría y la
+   * duplicaría. El job nocturno lee este campo para contar la falla.
+   */
+  error?: string;
 }
+
+const EMPTY_RESULT: ReminderGenerationResult = { created: [], existing: [] };
 
 export interface PolicyRow {
   id: string;
@@ -79,12 +91,61 @@ export class ReminderGenerationService {
     private readonly settingService: ReminderSettingService,
   ) {}
 
+  /** Catálogos (estado CREATED y tipos), cargados una vez por instancia. */
+  private catalog: Promise<GenerationCatalog> | null = null;
+
+  private loadCatalog(): Promise<GenerationCatalog> {
+    if (!this.catalog) {
+      this.catalog = this.repository.findCatalog(GENERATED_REMINDER_TYPE_CODES);
+      // Si falla no se queda cacheado el error: la siguiente llamada reintenta.
+      this.catalog.catch(() => { this.catalog = null; });
+    }
+    return this.catalog;
+  }
+
   async generateForPolicy(
     policy: PolicyRow,
     agentId: string,
     timezoneOffset = "-06:00",
     resolver?: ReminderSettingResolver,
     locale = "es",
+  ): Promise<ReminderGenerationResult> {
+    try {
+      return await this.generateForPolicyOrThrow(policy, agentId, timezoneOffset, resolver, locale);
+    } catch (err) {
+      return this.failed(`policy ${policy.id}`, err);
+    }
+  }
+
+  /** Birthdays hang from the contact, so one client with three policies gets one reminder. */
+  async generateForContact(
+    contact: ContactRow,
+    agentId: string,
+    timezoneOffset = "-06:00",
+    resolver?: ReminderSettingResolver,
+    locale = "es",
+  ): Promise<ReminderGenerationResult> {
+    try {
+      return await this.generateForContactOrThrow(contact, agentId, timezoneOffset, resolver, locale);
+    } catch (err) {
+      return this.failed(`contact ${contact.id}`, err);
+    }
+  }
+
+  private failed(what: string, err: unknown): ReminderGenerationResult {
+    const message = err instanceof Error
+      ? ((err as { internal?: string }).internal ?? err.message)
+      : String(err);
+    console.error(`[ReminderGenerationService] ${what}:`, message);
+    return { ...EMPTY_RESULT, error: message };
+  }
+
+  private async generateForPolicyOrThrow(
+    policy: PolicyRow,
+    agentId: string,
+    timezoneOffset: string,
+    resolver: ReminderSettingResolver | undefined,
+    locale: string,
   ): Promise<ReminderGenerationResult> {
     const settings = resolver ?? await this.settingService.buildResolver();
     const today = todayInTimezone(timezoneOffset);
@@ -157,13 +218,12 @@ export class ReminderGenerationService {
     return this.persist(candidates, agentId, { policyId: policy.id }, timezoneOffset);
   }
 
-  /** Birthdays hang from the contact, so one client with three policies gets one reminder. */
-  async generateForContact(
+  private async generateForContactOrThrow(
     contact: ContactRow,
     agentId: string,
-    timezoneOffset = "-06:00",
-    resolver?: ReminderSettingResolver,
-    locale = "es",
+    timezoneOffset: string,
+    resolver: ReminderSettingResolver | undefined,
+    locale: string,
   ): Promise<ReminderGenerationResult> {
     if (!contact.birthdate) return { created: [], existing: [] };
 
@@ -196,64 +256,48 @@ export class ReminderGenerationService {
   ): Promise<ReminderGenerationResult> {
     if (candidates.length === 0) return { created: [], existing: [] };
 
-    const statusIds = await this.repository.findStatusIdsByCodes(["CREATED"]);
-    const createdStatusId = statusIds["CREATED"];
-    if (!createdStatusId) {
-      console.error("[ReminderGenerationService] CREATED status not found in reminder_statuses");
-      return { created: [], existing: [] };
-    }
+    const catalog = await this.loadCatalog();
+    const typeByCode = new Map(catalog.types.map((t) => [t.code, t]));
+    const typeById = new Map(catalog.types.map((t) => [t.id, t]));
 
-    const types = await this.repository.findReminderTypesByCodes(candidates.map((c) => c.typeCode));
-    const typeMap = new Map(types.map((t) => [t.code, t]));
-
-    const created: GeneratedReminder[] = [];
-    const existing: GeneratedReminder[] = [];
-
+    const rows: CreateReminderData[] = [];
     for (const candidate of candidates) {
-      const type = typeMap.get(candidate.typeCode);
+      const type = typeByCode.get(candidate.typeCode);
       if (!type) continue;
-
-      const dueDate = toLocalMidnight(candidate.occurrence, timezoneOffset);
-
-      // Un solo candado, y exacto: ¿ya existe el recordatorio de ESTA ocurrencia?
-      // Se pregunta por la ocurrencia y no por la fecha del aviso, así que
-      // reagendarlo —cerca o lejos— no lo saca de su ciclo ni resucita el ciclo
-      // que ya cubría. Los ciclos siguientes se generan normal.
-      const existingRow = await this.repository.findReminderForOccurrence(
-        agentId, owner, type.id, candidate.occurrence,
-      );
-      if (existingRow) {
-        existing.push({
-          id: existingRow.id,
-          typeCode: candidate.typeCode,
-          typeName: type.name,
-          title: existingRow.title,
-          dueDate: existingRow.dueDate,
-          isNew: false,
-        });
-        continue;
-      }
-
-      const id = await this.repository.createReminder({
+      rows.push({
         agentId,
         owner,
         typeId: type.id,
         title: candidate.title,
         description: candidate.description,
-        dueDate,
+        dueDate: toLocalMidnight(candidate.occurrence, timezoneOffset),
         occurrenceDate: candidate.occurrence,
-      }, createdStatusId);
+      });
+    }
 
-      if (id) {
-        created.push({
-          id,
-          typeCode: candidate.typeCode,
-          typeName: type.name,
-          title: candidate.title,
-          dueDate,
-          isNew: true,
-        });
-      }
+    // Un solo candado, y exacto: el índice único de ocurrencia. Se pregunta por
+    // la ocurrencia y no por la fecha del aviso, así que reagendarlo —cerca o
+    // lejos— no lo saca de su ciclo ni resucita el ciclo que ya cubría. Y cuenta
+    // cualquier estado: abierto, HECHO, CANCELADO o borrado por el asesor. En
+    // todos ellos insistir sería pelearse con él.
+    const inserted = await this.repository.insertGenerated(rows, catalog.createdStatusId);
+
+    const created: GeneratedReminder[] = [];
+    const existing: GeneratedReminder[] = [];
+    for (const row of inserted) {
+      const type = typeById.get(row.typeId);
+      if (!type) continue;
+      const generated: GeneratedReminder = {
+        id: row.id,
+        typeCode: type.code,
+        typeName: type.name,
+        title: row.title,
+        dueDate: row.dueDate,
+        isNew: row.isNew,
+      };
+      if (row.isNew) created.push(generated);
+      // Uno que el asesor borró no se le presenta como "ya existente".
+      else if (row.isActive) existing.push(generated);
     }
 
     return { created, existing };

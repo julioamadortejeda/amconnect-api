@@ -2,7 +2,7 @@ import { SupabaseClient } from "@supabase/supabase-js";
 import { handleSupabaseError } from "../../shared/errors.ts";
 
 export interface IDeviceTokenRepository {
-  upsert(agentId: string, token: string, platform: string): Promise<Record<string, unknown> | null>;
+  claim(token: string, platform: string): Promise<Record<string, unknown> | null>;
   findByAgentId(agentId: string): Promise<Record<string, unknown>[] | null>;
   deleteOldestTokens(agentId: string, keepCount: number): Promise<void>;
   deleteByToken(token: string): Promise<void>;
@@ -11,34 +11,19 @@ export interface IDeviceTokenRepository {
 export class DeviceTokenRepository implements IDeviceTokenRepository {
   constructor(private supabase: SupabaseClient) {}
 
-  async upsert(agentId: string, token: string, platform: string): Promise<Record<string, unknown> | null> {
-    // 1. Limpiar cualquier registro previo de este token para evitar duplicados en cambios de cuenta
-    const { error: deleteError } = await this.supabase
-      .from("agent_device_tokens")
-      .delete()
-      .eq("token", token);
-
-    if (deleteError) {
-      console.warn("[DeviceTokenRepository.upsert] Warning cleaning up previous token owners:", deleteError.message);
-    }
-
-    // 2. Insertar o actualizar el token para el agente actual
+  /**
+   * Registra el token para el asesor del JWT y se lo quita a cualquier otro
+   * dueño (`claim_device_token`, migración 20261121002508). Antes se intentaba
+   * un delete previo, pero la RLS solo deja borrar filas propias: no fallaba,
+   * no borraba nada, y el mismo teléfono quedaba registrado para dos asesores.
+   */
+  async claim(token: string, platform: string): Promise<Record<string, unknown> | null> {
     const { data, error } = await this.supabase
-      .from("agent_device_tokens")
-      .upsert(
-        {
-          agent_id: agentId,
-          token,
-          platform,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "agent_id,token" }
-      )
-      .select()
+      .rpc("claim_device_token", { p_token: token, p_platform: platform })
       .single();
 
     if (error) handleSupabaseError(error, "Error al registrar el token del dispositivo.");
-    return data;
+    return data as Record<string, unknown> | null;
   }
 
   async findByAgentId(agentId: string): Promise<Record<string, unknown>[] | null> {
@@ -90,7 +75,7 @@ export class DeviceTokenRepository implements IDeviceTokenRepository {
       .eq("token", token);
 
     if (error) {
-      console.error(`[DeviceTokenRepository.deleteByToken] Error deleting token ${token}:`, error.message);
+      console.error(`[DeviceTokenRepository.deleteByToken] Error deleting token ${token.substring(0, 10)}...:`, error.message);
     }
   }
 }
