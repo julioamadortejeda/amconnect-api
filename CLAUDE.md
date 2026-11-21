@@ -102,7 +102,7 @@ Cada responsabilidad transversal tiene su propio servicio inyectable — no lóg
 - **Variables dinámicas en prompts**: Si el prompt requiere valores por request (fecha actual, timezone offset del asesor), usar placeholders en el texto almacenado en BD (ej: `{{current_datetime}}`, `{{timezone_offset}}`) y sustituirlos en el servicio antes de enviarlo al modelo. El texto de instrucción va en la BD; los valores dinámicos se inyectan en código.
 - **Caché de Prompts**: `PromptService` maneja una caché en memoria (`Map`). El TTL se configura mediante la variable de entorno `PROMPT_CACHE_TTL_MINUTES` (default 24h).
 - **Evitar lockfiles versión 5**: Para evitar errores de bootstrap en el runtime de Supabase Edge Runtime, `deno.json` debe tener siempre `"lock": false`.
-- **Inyección de PromptService**: Se inyecta a través del contenedor DI de Hono (`di/index.ts`) en todos los servicios y proveedores de IA que dependan de plantillas de prompts (ej: `AiChatService`, `GeminiProvider`, `KnowledgeIngestionService`, `PolicyIngestionService` y `DocumentProcessorService`).
+- **Inyección de PromptService**: Se inyecta a través del contenedor DI de Hono (`di/index.ts`) en todos los servicios y proveedores de IA que dependan de plantillas de prompts (ej: `AiChatService`, `GeminiProvider`, `KnowledgeIngestionService` y `PolicyIngestionService`).
 
 ## Gemini Live API & Token Tracking
 

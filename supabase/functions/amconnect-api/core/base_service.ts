@@ -76,13 +76,6 @@ export abstract class BaseService<TRequest, TResponse = TRequest>
     return row ? this.toDTO(row) : null;
   }
 
-  async upsert(data: Partial<TRequest>): Promise<TResponse | null> {
-    const prepared = this.prepareForCreate(data);
-    // deno-lint-ignore no-explicit-any
-    const row = await this.repository.upsert(prepared as any);
-    return row ? this.toDTO(row) : null;
-  }
-
   async delete(id: string): Promise<TResponse | null> {
     const row = await this.repository.delete(id);
     return row ? this.toDTO(row) : null;

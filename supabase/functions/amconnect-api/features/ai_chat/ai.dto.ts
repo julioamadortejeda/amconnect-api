@@ -80,13 +80,6 @@ export const AiIngestTextSchema = z.object({
 
 export type AiIngestTextDTO = z.infer<typeof AiIngestTextSchema>;
 
-export const AiProcessDocumentRequestSchema = z.object({
-  filePath: z.string().min(1, "El campo 'filePath' es requerido."),
-  fileName: z.string().min(1, "El campo 'fileName' es requerido."),
-});
-
-export type AiProcessDocumentRequestDTO = z.infer<typeof AiProcessDocumentRequestSchema>;
-
 // Esquema Zod para validar y tipar el mensaje de contenido de cliente (texto/media) para Gemini Live
 export const LiveClientContentMessageSchema = z.object({
   clientContent: z.object({

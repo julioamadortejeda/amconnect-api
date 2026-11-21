@@ -1,4 +1,4 @@
-import type { IAiSessionRepository, TokenUsageRow, ChatMessageRow, PendingTaskRow } from "./ai_session.repository.ts";
+import type { IAiSessionRepository, TokenUsageRow, ChatMessageRow, PendingTaskRow, ModelRatesRow } from "./ai_session.repository.ts";
 import { AppError } from "../../shared/errors.ts";
 
 export interface CreateSessionInput {
@@ -266,19 +266,18 @@ export class AiSessionService {
     return await this.repository.getActivePendingTasks(sessionId);
   }
 
-  async getSessionCost(sessionId: string): Promise<Record<string, any>> {
+  async getSessionCost(sessionId: string): Promise<Record<string, unknown>> {
     const [data, usage] = await Promise.all([
       this.repository.getSessionWithRates(sessionId),
       this.repository.getSessionTokenUsageDetails(sessionId),
     ]);
     if (!data) throw new AppError("Sesión no encontrada.", 404);
 
-    // deno-lint-ignore any
-    const chatModel = data.chat_model ? (Array.isArray(data.chat_model) ? data.chat_model[0] : data.chat_model) as any : null;
-    // deno-lint-ignore any
-    const embeddingModel = data.embedding_model ? (Array.isArray(data.embedding_model) ? data.embedding_model[0] : data.embedding_model) as any : null;
-    // deno-lint-ignore any
-    const ttsModel = data.tts_model ? (Array.isArray(data.tts_model) ? data.tts_model[0] : data.tts_model) as any : null;
+    const unwrap = (m: ModelRatesRow | ModelRatesRow[] | null): ModelRatesRow | null =>
+      Array.isArray(m) ? m[0] ?? null : m;
+    const chatModel = unwrap(data.chat_model);
+    const embeddingModel = unwrap(data.embedding_model);
+    const ttsModel = unwrap(data.tts_model);
 
     // El audio y el texto NO cuestan lo mismo en los modelos live: para
     // gemini-live-2.5-flash-native-audio el texto de entrada vale $0.50/1M y el
@@ -294,8 +293,7 @@ export class AiSessionService {
       promptTokens: number,
       cachedTokens: number,
       completionTokens: number,
-      // deno-lint-ignore no-explicit-any
-      model: any,
+      model: ModelRatesRow | null,
       desglose?: {
         textPromptTokens: number;
         audioPromptTokens: number;

@@ -84,31 +84,6 @@ export class SupabaseRepository<T> implements IRepository<T> {
     return data as T[];
   }
 
-  async findByOr(
-    orConditions: string,
-    filters?: Partial<Record<string, unknown>>,
-    limit?: number,
-  ): Promise<T[] | null> {
-    let query = this.applyActiveFilter(this.table.select(this.selectString));
-
-    if (filters && Object.keys(filters).length > 0) {
-      // deno-lint-ignore no-explicit-any
-      query = (query as any).match(filters);
-    }
-    // deno-lint-ignore no-explicit-any
-    query = (query as any).or(orConditions);
-    // deno-lint-ignore no-explicit-any
-    if (limit) query = (query as any).limit(limit);
-
-    // deno-lint-ignore no-explicit-any
-    const { data, error } = await (query as any);
-    if (error) {
-      console.error(`[SupabaseRepository.findByOr] ${this.tableName}:`, error);
-      return null;
-    }
-    return data as T[];
-  }
-
   async paginate(
     filters: Partial<Record<string, unknown>> = {},
     page = 1,
@@ -190,13 +165,6 @@ export class SupabaseRepository<T> implements IRepository<T> {
     return result as T;
   }
 
-  async upsert(data: Partial<T>): Promise<T | null> {
-    // deno-lint-ignore no-explicit-any
-    const { data: result, error } = await this.table.upsert(data as any).select().single();
-    if (error) handleSupabaseError(error, `Error al hacer upsert en ${this.tableName}.`);
-    return result as T;
-  }
-
   async delete(id: string): Promise<T | null> {
     const { data: result, error } = await this.table
       // deno-lint-ignore no-explicit-any
@@ -242,9 +210,5 @@ export class SupabaseRepository<T> implements IRepository<T> {
     const { count, error } = await (query as any);
     if (error) handleSupabaseError(error, `Error al contar en ${this.tableName}.`);
     return count ?? 0;
-  }
-
-  withExpand(selectString: string): SupabaseRepository<T> {
-    return new SupabaseRepository<T>(this.supabase, this.tableName, selectString, this.filterActive);
   }
 }

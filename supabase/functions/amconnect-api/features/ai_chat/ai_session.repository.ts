@@ -1,8 +1,36 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { AppError, internalError } from "../../shared/errors.ts";
+import { internalError } from "../../shared/errors.ts";
 
 /** Edad máxima de una tarea pendiente para seguir inyectándola en el contexto. */
 const PENDING_TASK_TTL_MS = 12 * 60 * 60 * 1000;
+
+/** Tarifas de un modelo de `ai_models` (USD por millón de tokens; numeric llega como string o number). */
+export interface ModelRatesRow {
+  model_name: string;
+  provider?: string | null;
+  display_name: string | null;
+  input_cost_per_1m: number | string;
+  output_cost_per_1m: number | string;
+  cache_read_cost_per_1m?: number | string | null;
+  audio_input_cost_per_1m?: number | string | null;
+  audio_output_cost_per_1m?: number | string | null;
+}
+
+/** Relación embebida de PostgREST: llega como objeto o como arreglo de uno. */
+type Embedded<T> = T | T[] | null;
+
+export interface SessionWithRatesRow {
+  id: string;
+  model_name: string | null;
+  embedding_model_name: string | null;
+  tts_model_name: string | null;
+  tts_prompt_tokens: number | null;
+  tts_completion_tokens: number | null;
+  tts_total_tokens: number | null;
+  chat_model: Embedded<ModelRatesRow>;
+  embedding_model: Embedded<ModelRatesRow>;
+  tts_model: Embedded<ModelRatesRow>;
+}
 
 export interface CreateSessionData {
   agentId: string;
@@ -74,7 +102,7 @@ export interface IAiSessionRepository {
     embedding: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
     summary: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
   }>;
-  getSessionWithRates(sessionId: string): Promise<Record<string, any> | null>;
+  getSessionWithRates(sessionId: string): Promise<SessionWithRatesRow | null>;
 }
 
 export class AiSessionRepository implements IAiSessionRepository {
@@ -363,7 +391,7 @@ export class AiSessionRepository implements IAiSessionRepository {
     }
   }
 
-  async getSessionWithRates(sessionId: string): Promise<Record<string, any> | null> {
+  async getSessionWithRates(sessionId: string): Promise<SessionWithRatesRow | null> {
     const { data, error } = await this.supabase
       .from("ai_sessions")
       .select(`
@@ -384,6 +412,6 @@ export class AiSessionRepository implements IAiSessionRepository {
     if (error) {
       throw internalError("No se pudo obtener el costo de la sesión.", `getSessionCost failed: ${error.message}`, 404);
     }
-    return data;
+    return data as unknown as SessionWithRatesRow;
   }
 }

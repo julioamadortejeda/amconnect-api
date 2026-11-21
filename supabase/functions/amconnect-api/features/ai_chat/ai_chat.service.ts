@@ -514,10 +514,9 @@ export class AiChatService {
       const seenAttachmentIds = new Set(attachments.map((a) => a.id as string));
 
       if (context?.data?.notes && Array.isArray(context.data.notes)) {
-        // deno-lint-ignore no-explicit-any
-        const contextAttachments = (context.data.notes as any[])
-          .filter((n: any) => n.storage_path || n.storagePath || n.fileName || n.file_name)
-          .map((n: any) => ({
+        const contextAttachments = (context.data.notes as Record<string, unknown>[])
+          .filter((n) => n.storage_path || n.storagePath || n.fileName || n.file_name)
+          .map((n): Record<string, unknown> => ({
             id: n.id,
             fileName: n.fileName || n.file_name || n.summary || "Documento",
             storagePath: n.storagePath || n.storage_path,

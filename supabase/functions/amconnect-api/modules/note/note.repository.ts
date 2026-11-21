@@ -69,21 +69,6 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
     ];
   }
 
-  async getRecent(limit = 20): Promise<RecentNoteRow[]> {
-    const { data, error } = await this.supabase
-      .from("agent_notes")
-      .select(
-        "id, contact_id, policy_id, source_type, created_at, document_metadata(file_name, storage_path), contacts(full_name)"
-      )
-      .eq("is_active", true)
-      .not("document_metadata", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(limit);
-
-    if (error) handleSupabaseError(error, "Error al obtener documentos recientes");
-    return (data ?? []) as unknown as RecentNoteRow[];
-  }
-
   async deleteNote(agentId: string, noteId: string): Promise<void> {
     const { data: note, error: fetchError } = await this.supabase
       .from("agent_notes")

@@ -4,7 +4,6 @@ export interface IService<TRequest, TResponse = TRequest> {
   getById(id: string): Promise<TResponse | null>;
   create(data: Partial<TRequest>): Promise<TResponse | null>;
   update(id: string, data: Partial<TRequest>): Promise<TResponse | null>;
-  upsert(data: Partial<TRequest>): Promise<TResponse | null>;
   delete(id: string): Promise<TResponse | null>;
   search(query: string, threshold?: number): Promise<TResponse[] | null>;
   getDefault?(): Promise<TResponse | null>;

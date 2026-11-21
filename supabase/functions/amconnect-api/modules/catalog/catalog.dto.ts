@@ -1,14 +1,5 @@
 import { z } from "zod";
 
-export const CatalogItemSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string(),
-  isActive: z.boolean().optional(),
-  createdAt: z.string().optional(),
-});
-
-export type CatalogItemDTO = z.infer<typeof CatalogItemSchema>;
-
 // ─── Carrier ──────────────────────────────────────────────────────────────────
 
 export const CarrierSchema = z.object({

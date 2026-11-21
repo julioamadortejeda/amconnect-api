@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { SkillDefinition, SkillContext } from "./skill.core.ts";
 import { assertNoDuplicatePolicyNumber, resolveCatalogId } from "../../../shared/utils.ts";
-import { buildChangelogContent, buildCoveragesNote, diffPolicy, PolicyChange } from "../../document_processing/policy_diff.ts";
+import { buildChangelogContent, diffPolicy, PolicyChange } from "../../document_processing/policy_diff.ts";
 import type { PolicyExtraction } from "../../document_processing/policy_extraction.schema.ts";
 
 const BeneficiarySchema = z.object({

@@ -16,7 +16,6 @@ export async function compensateIngestionFailure(
   err: unknown,
   aiSessionService: AiSessionService,
   usageService: UsageService,
-  agentId: string,
   sessionId: string,
   // id del cobro de cuota; null cuando la ingesta no cobró (nota rápida corta).
   chargeId: string | null,

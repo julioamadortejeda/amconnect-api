@@ -267,7 +267,6 @@ ${(currencies || []).map((c: { code: string; name: string }) => `   - ${c.code} 
    * la póliza ya existe.
    */
   async resolveContactMismatch(
-    agentId: string,
     sessionId: string,
     assignToScreenContact: boolean,
   ): Promise<{ extraction: PolicyExtraction; documentMetadataId: string }> {

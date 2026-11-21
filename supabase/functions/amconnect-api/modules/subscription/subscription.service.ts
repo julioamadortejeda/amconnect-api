@@ -1,6 +1,6 @@
 import type { AgentStatusInfo, ISubscriptionRepository } from "./subscription.repository.ts";
 import type { SubscriptionInfo, SubscriptionPlan, UsageThisMonth } from "./subscription.dto.ts";
-import { AppError, PaymentRequiredError, internalError } from "../../shared/errors.ts";
+import { AppError, NotFoundError, PaymentRequiredError, internalError } from "../../shared/errors.ts";
 import { UsageService } from "./usage.service.ts";
 
 /**
@@ -48,10 +48,16 @@ export class SubscriptionService {
     return { chatMessages: usage.chatCount, ingestions: usage.ingestionCount };
   }
 
-  /** Devuelve el estado ya leído para que el caller lo reutilice sin otra query. */
-  async checkSubscriptionActive(agentId: string): Promise<AgentStatusInfo> {
+  /**
+   * Lee el estado del asesor y, con `requireActive`, exige suscripción vigente.
+   * Devuelve el estado ya leído para que el caller lo reutilice sin otra query.
+   * `requireActive = false` es para las rutas que deben funcionar con la
+   * suscripción vencida (ver SUBSCRIPTION_EXEMPT_ROUTES en el DI).
+   */
+  async checkSubscriptionActive(agentId: string, requireActive = true): Promise<AgentStatusInfo> {
     const status = await this.repository.getAgentStatus(agentId);
-    if (!status) throw new AppError("Agente no encontrado.", 404);
+    if (!status) throw new NotFoundError("Agente no encontrado.");
+    if (!requireActive) return status;
 
     if (status.subscriptionStatus === "expired" || status.subscriptionStatus === "cancelled") {
       throw new PaymentRequiredError();

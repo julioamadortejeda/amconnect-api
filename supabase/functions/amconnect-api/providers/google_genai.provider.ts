@@ -106,15 +106,14 @@ export class GoogleGenAiProvider implements IAiProvider {
     // deno-lint-ignore no-explicit-any
     let response: any;
     try {
-      const isSteps = Array.isArray(messageOrSteps);
       // Mapear tools para el formato de Interactions API (Vertex AI / new GenAI SDK)
       // Cada tool para interactions.create debe ser un objeto plano con {"type": "function", "name": "...", "description": "...", "parameters": {...}}
       // deno-lint-ignore no-explicit-any
       const mappedTools: any[] = [];
       if (tools) {
-        for (const t of tools as any[]) {
+        for (const t of tools) {
           const declarations = t?.functionDeclarations || t?.function_declarations;
-          if (declarations && Array.isArray(declarations)) {
+          if (Array.isArray(declarations)) {
             for (const fd of declarations) {
               mappedTools.push({
                 type: "function",
@@ -135,7 +134,7 @@ export class GoogleGenAiProvider implements IAiProvider {
         tools: mappedTools as never,
         system_instruction: systemInstruction,
         previous_interaction_id: previousInteractionId,
-        input: messageOrSteps as any,
+        input: messageOrSteps,
         generation_config: {
           // Function calling de skills no necesita razonamiento profundo — minimal
           // recorta segundos de latencia por turno (mismo nivel que ya usa la voz).
@@ -319,11 +318,12 @@ export class GoogleGenAiProvider implements IAiProvider {
     };
   }
 
-  async createEphemeralToken(
+  createEphemeralToken(
     _model: string,
     _systemInstruction: string,
     _tools: Record<string, unknown>[],
   ): Promise<{ token: string; url: string; headers: Record<string, string> | null; expireTime: string; model: string }> {
-    throw new Error("createEphemeralToken no está implementado para este proveedor.");
+    // Rechaza (no lanza en síncrono) para conservar el contrato de método async.
+    return Promise.reject(new Error("createEphemeralToken no está implementado para este proveedor."));
   }
 }

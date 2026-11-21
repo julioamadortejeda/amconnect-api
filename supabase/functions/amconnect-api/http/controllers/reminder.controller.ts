@@ -4,7 +4,6 @@ import { ReminderService } from "../../modules/reminder/reminder.service.ts";
 import { ReminderRequestSchema } from "../../modules/reminder/reminder.dto.ts";
 import { NoteService } from "../../modules/note/note.service.ts";
 import { parsePagination } from "../../shared/pagination.ts";
-import { daysFromNowRange } from "../../shared/utils.ts";
 
 export class ReminderController {
   static async getAll(c: Context) {
@@ -22,15 +21,6 @@ export class ReminderController {
     const service: ReminderService = c.get("services").reminderService;
     if (query) filters.id = await service.searchIds(agentId, query);
     const data = await service.paginate(filters, page, pageSize);
-    return sendSuccess(c, data);
-  }
-
-  static async getUpcoming(c: Context) {
-    const agentId: string = c.get("agent_id");
-    const days = parseInt(c.req.query("days") ?? "7");
-    const { from, to } = daysFromNowRange(days);
-    const service: ReminderService = c.get("services").reminderService;
-    const data = await service.getUpcoming(agentId, from, to);
     return sendSuccess(c, data);
   }
 
