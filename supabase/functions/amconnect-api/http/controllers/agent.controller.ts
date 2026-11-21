@@ -1,5 +1,6 @@
 import { Context } from "hono";
 import { sendSuccess } from "../../shared/api_response.ts";
+import { extractRequestEvidence } from "../../shared/request_evidence.ts";
 import { AgentService } from "../../modules/agent/agent.service.ts";
 import { AgentUpdateSchema, PrivacyConsentSchema } from "../../modules/agent/agent.dto.ts";
 
@@ -23,7 +24,7 @@ export class AgentController {
     const agentId: string = c.get("agent_id");
     const body = PrivacyConsentSchema.parse(await c.req.json());
     const service: AgentService = c.get("services").agentService;
-    const data = await service.acceptPrivacy(agentId, body.version);
+    const data = await service.acceptPrivacy(agentId, body, extractRequestEvidence(c.req.raw.headers));
     return sendSuccess(c, data);
   }
 }

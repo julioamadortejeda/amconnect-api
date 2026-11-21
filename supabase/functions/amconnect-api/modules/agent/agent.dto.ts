@@ -10,7 +10,10 @@ export type AgentUpdateDTO = z.infer<typeof AgentUpdateSchema>;
 
 export const PrivacyConsentSchema = z.object({
   version: z.string().trim().min(1),
+  acceptedNotice: z.literal(true),
+  acceptedSensitive: z.literal(true),
 });
+export type PrivacyConsentDTO = z.infer<typeof PrivacyConsentSchema>;
 
 export interface PrivacyStatusDTO {
   acceptedVersion: string | null;

@@ -1,5 +1,6 @@
 import type { IAgentRepository } from "./agent.repository.ts";
-import type { AgentUpdateDTO, PrivacyStatusDTO } from "./agent.dto.ts";
+import type { RequestEvidence } from "../../shared/request_evidence.ts";
+import type { AgentUpdateDTO, PrivacyConsentDTO, PrivacyStatusDTO } from "./agent.dto.ts";
 import { NotFoundError, ValidationError } from "../../shared/errors.ts";
 import { objectToCamelCase } from "../../shared/case_converter.ts";
 import { PRIVACY_POLICY_URL, PRIVACY_POLICY_VERSION } from "../../shared/legal.ts";
@@ -26,11 +27,16 @@ export class AgentService {
   }
 
   /** Registra que el asesor aceptó la versión VIGENTE; cualquier otra se rechaza. */
-  async acceptPrivacy(agentId: string, version: string): Promise<PrivacyStatusDTO> {
-    if (version !== PRIVACY_POLICY_VERSION) {
+  async acceptPrivacy(agentId: string, consent: PrivacyConsentDTO, evidence: RequestEvidence): Promise<PrivacyStatusDTO> {
+    if (consent.version !== PRIVACY_POLICY_VERSION) {
       throw new ValidationError("La versión del aviso de privacidad no es la vigente.");
     }
-    await this.repository.acceptPrivacyPolicy(version);
+    await this.repository.recordPrivacyConsent({
+      version: consent.version,
+      acceptedNotice: consent.acceptedNotice,
+      acceptedSensitive: consent.acceptedSensitive,
+      evidence,
+    });
     const data = await this.repository.findById(agentId);
     if (!data) throw new NotFoundError("Perfil de asesor no encontrado.");
     return buildPrivacyStatus(data.privacy_accepted_version, data.privacy_accepted_at);
