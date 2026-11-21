@@ -21,6 +21,19 @@ supabase gen types typescript --local \
   > supabase/functions/amconnect-api/types/supabase.ts
 ```
 
+## Pruebas
+
+```bash
+# Desde backend/ — pgTAP contra la BD local (cada archivo corre en una transacción y hace rollback)
+supabase test db                        # supabase/tests/*.test.sql
+
+# Desde supabase/functions/amconnect-api/ — services, middleware y skills con fakes, sin red
+deno task test                          # = deno test --allow-env --deny-net
+```
+
+- **`supabase/tests/tenant_isolation.test.sql`** prueba que un asesor no puede leer, editar, dar de baja, borrar ni insertar a nombre de otro en NINGUNA tabla de `public` ni en Storage. Sus meta-pruebas truenan si una tabla de `public` no tiene RLS, no tiene policies o **no está clasificada en `t_class`**: al crear una tabla nueva, agrégala ahí con su tipo (`agent`, `child`, `catalog`, `server_only`, ...) y hereda todas las pruebas de aislamiento. Lo mismo con una función `security definer` nueva: hay que revisarla y agregarla a la lista.
+- **Harness de Deno** en `functions/amconnect-api/shared/testing/`: `fakes.ts` (repos falsos que implementan la interfaz real + builders), `fake_supabase.ts` (cliente falso encadenable, solo para repos y middleware que reciben el `SupabaseClient`), `test_app.ts` (app Hono con el `globalErrorHandler` real y auth simulada) y `test_env.ts` (importarlo PRIMERO en tests que cargan `shared/config.ts`). Los tests van junto al archivo: `<nombre>_test.ts`.
+
 ## Estructura
 
 ```
