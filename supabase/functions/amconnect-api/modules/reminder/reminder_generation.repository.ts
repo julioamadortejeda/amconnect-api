@@ -1,15 +1,10 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { internalError } from "../../shared/errors.ts";
 
 export interface ReminderTypeRow {
   id: string;
   code: string;
   name: string;
-}
-
-export interface ExistingReminderRow {
-  id: string;
-  title: string;
-  dueDate: string;
 }
 
 /** What a generated reminder hangs from: a policy, or a contact for birthdays. */
@@ -30,6 +25,24 @@ export interface CreateReminderData {
   description?: string;
 }
 
+/** Catálogos que el generador necesita; se cargan una vez por instancia. */
+export interface GenerationCatalog {
+  createdStatusId: string;
+  types: ReminderTypeRow[];
+}
+
+/** Lo que pasó con cada recordatorio pedido a `insertGenerated`. */
+export interface InsertedReminderRow {
+  id: string;
+  typeId: string;
+  occurrenceDate: string;
+  title: string;
+  dueDate: string;
+  isActive: boolean;
+  /** false = su ocurrencia ya existía (en cualquier estado, incluso borrada). */
+  isNew: boolean;
+}
+
 /** The bits of a policy the schedule depends on, resolved from its product. */
 export interface PolicyScheduleInfo {
   branchId: string | null;
@@ -37,55 +50,46 @@ export interface PolicyScheduleInfo {
 }
 
 export interface IReminderGenerationRepository {
-  findStatusIdsByCodes(codes: string[]): Promise<Record<string, string>>;
-  findReminderTypesByCodes(codes: readonly string[]): Promise<ReminderTypeRow[]>;
+  findCatalog(typeCodes: readonly string[]): Promise<GenerationCatalog>;
   findPolicyScheduleInfo(policyId: string): Promise<PolicyScheduleInfo | null>;
-  findReminderForOccurrence(
-    agentId: string,
-    owner: ReminderOwner,
-    typeId: string,
-    occurrenceDate: string,
-  ): Promise<ExistingReminderRow | null>;
-  createReminder(data: CreateReminderData, createdStatusId: string): Promise<string | null>;
+  insertGenerated(rows: CreateReminderData[], createdStatusId: string): Promise<InsertedReminderRow[]>;
 }
 
 export class ReminderGenerationRepository implements IReminderGenerationRepository {
   constructor(private supabase: SupabaseClient) {}
 
-  async findStatusIdsByCodes(codes: string[]): Promise<Record<string, string>> {
-    const { data } = await this.supabase
-      .from("reminder_statuses")
-      .select("id, code")
-      .in("code", codes);
+  async findCatalog(typeCodes: readonly string[]): Promise<GenerationCatalog> {
+    const [statusRes, typesRes] = await Promise.all([
+      this.supabase.from("reminder_statuses").select("id").eq("code", "CREATED").maybeSingle(),
+      this.supabase.from("reminder_types").select("id, code, name").in("code", typeCodes as string[]).eq("is_active", true),
+    ]);
 
-    const result: Record<string, string> = {};
-    for (const row of data ?? []) {
-      result[(row as { id: string; code: string }).code] = (row as { id: string; code: string }).id;
+    // Antes se ignoraba el `error`: una falla transitoria parecía "no hay
+    // catálogo" y el job seguía como si nada.
+    if (statusRes.error || !statusRes.data) {
+      throw internalError(
+        "No se pudieron cargar los estados de recordatorio.",
+        `reminder_statuses CREATED load failed: ${statusRes.error?.message ?? "not found"}`,
+      );
     }
-    return result;
-  }
+    if (typesRes.error) {
+      throw internalError("No se pudieron cargar los tipos de recordatorio.", `reminder_types load failed: ${typesRes.error.message}`);
+    }
 
-  async findReminderTypesByCodes(codes: readonly string[]): Promise<ReminderTypeRow[]> {
-    const { data } = await this.supabase
-      .from("reminder_types")
-      .select("id, code, name")
-      .in("code", codes as string[])
-      .eq("is_active", true);
-
-    return (data ?? []).map((t: { id: string; code: string; name: string }) => ({
-      id: t.id,
-      code: t.code,
-      name: t.name,
-    }));
+    return {
+      createdStatusId: (statusRes.data as { id: string }).id,
+      types: (typesRes.data ?? []) as ReminderTypeRow[],
+    };
   }
 
   async findPolicyScheduleInfo(policyId: string): Promise<PolicyScheduleInfo | null> {
-    const { data } = await this.supabase
+    const { data, error } = await this.supabase
       .from("policies")
       .select("product:products!product_id(branch_id), frequency:payment_frequencies!payment_frequency_id(months)")
       .eq("id", policyId)
       .maybeSingle();
 
+    if (error) throw internalError("No se pudo leer la póliza.", `policy schedule info failed for ${policyId}: ${error.message}`);
     if (!data) return null;
     const row = data as {
       product?: { branch_id?: string | null } | null;
@@ -97,69 +101,39 @@ export class ReminderGenerationRepository implements IReminderGenerationReposito
     };
   }
 
-  private applyOwner<T extends { eq: (c: string, v: string) => T; is: (c: string, v: null) => T }>(
-    query: T,
-    owner: ReminderOwner,
-  ): T {
-    return owner.policyId
-      ? query.eq("policy_id", owner.policyId)
-      : query.eq("contact_id", owner.contactId as string).is("policy_id", null);
-  }
-
   /**
-   * El recordatorio que cubre ESTA ocurrencia, si ya existe.
-   *
-   * Se busca por `occurrence_date` y no por `due_date` a propósito: reagendar
-   * mueve la fecha del aviso, no el ciclo que cubre. Así, mover el pago de
-   * agosto a diciembre no hace que agosto se vuelva a generar, y diciembre
-   * (u octubre, o el ciclo que toque) sigue generando el suyo.
-   *
-   * Cuenta cualquier estado: abierto porque el asesor está en eso, HECHO porque
-   * se pagó, CANCELADO porque no quiere ese aviso. En los tres insistir sería
-   * pelearse con él.
+   * Inserta los recordatorios de una vez con `on conflict do nothing` contra el
+   * índice único de ocurrencia (`insert_generated_reminders`). Reemplaza el
+   * "busca y luego inserta" por candidato: además de ser N+1, una búsqueda
+   * fallida devolvía null y se creaba un duplicado. Ahora lo impide la BD,
+   * también entre dos corridas simultáneas, y una ocurrencia que el asesor
+   * borró sigue contando como tomada.
    */
-  async findReminderForOccurrence(
-    agentId: string,
-    owner: ReminderOwner,
-    typeId: string,
-    occurrenceDate: string,
-  ): Promise<ExistingReminderRow | null> {
-    let query = this.supabase
-      .from("reminders")
-      .select("id, title, due_date")
-      .eq("agent_id", agentId)
-      .eq("type_id", typeId)
-      .eq("is_active", true)
-      .eq("occurrence_date", occurrenceDate);
+  async insertGenerated(rows: CreateReminderData[], createdStatusId: string): Promise<InsertedReminderRow[]> {
+    if (rows.length === 0) return [];
+    const payload = rows.map((r) => ({
+      agent_id: r.agentId,
+      policy_id: r.owner.policyId ?? null,
+      contact_id: r.owner.policyId ? null : r.owner.contactId ?? null,
+      type_id: r.typeId,
+      title: r.title,
+      description: r.description ?? null,
+      due_date: r.dueDate,
+      occurrence_date: r.occurrenceDate,
+      status_id: createdStatusId,
+    }));
 
-    query = this.applyOwner(query, owner);
+    const { data, error } = await this.supabase.rpc("insert_generated_reminders", { p_rows: payload });
+    if (error) throw internalError("No se pudieron generar los recordatorios.", `insert_generated_reminders failed: ${error.message}`);
 
-    const { data } = await query.limit(1).maybeSingle();
-    if (!data) return null;
-    return { id: data.id, title: data.title, dueDate: data.due_date };
-  }
-
-  async createReminder(data: CreateReminderData, createdStatusId: string): Promise<string | null> {
-    const { data: newRow, error } = await this.supabase
-      .from("reminders")
-      .insert({
-        agent_id: data.agentId,
-        policy_id: data.owner.policyId ?? null,
-        contact_id: data.owner.contactId ?? null,
-        type_id: data.typeId,
-        title: data.title,
-        description: data.description ?? null,
-        due_date: data.dueDate,
-        occurrence_date: data.occurrenceDate,
-        status_id: createdStatusId,
-      })
-      .select("id")
-      .single();
-
-    if (error || !newRow) {
-      console.error("[ReminderGenerationRepository.createReminder]:", error?.message ?? "no row returned");
-      return null;
-    }
-    return (newRow as { id: string }).id;
+    return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+      id: r.id as string,
+      typeId: r.type_id as string,
+      occurrenceDate: r.occurrence_date as string,
+      title: r.title as string,
+      dueDate: r.due_date as string,
+      isActive: r.is_active as boolean,
+      isNew: r.is_new as boolean,
+    }));
   }
 }

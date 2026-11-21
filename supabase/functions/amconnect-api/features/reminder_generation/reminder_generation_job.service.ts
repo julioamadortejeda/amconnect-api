@@ -7,8 +7,10 @@ import {
   ReminderSettingResolver,
   ReminderSettingService,
 } from "../../modules/reminder/reminder_setting.service.ts";
+import type { ICronErrorLogger } from "../notification/notification.service.ts";
 import type {
   IReminderGenerationJobRepository,
+  JobAgentInfo,
   JobContactRow,
   JobPolicyRow,
 } from "./reminder_generation_job.repository.ts";
@@ -26,7 +28,12 @@ export interface ReminderGenerationJobResult {
   policiesScanned: number;
   contactsScanned: number;
   remindersCreated: number;
+  /** Pólizas o contactos cuya generación falló (se reintentan la noche siguiente). */
+  failed: number;
 }
+
+/** Cuántas fallas se guardan como muestra en error_logs. */
+const MAX_FAILURE_SAMPLES = 20;
 
 /**
  * The daily pass that keeps reminders coming. Nothing is scheduled ahead of time:
@@ -41,6 +48,7 @@ export class ReminderGenerationJobService {
   constructor(
     private readonly jobRepository: IReminderGenerationJobRepository,
     private readonly supabase: SupabaseClient,
+    private readonly errorLogger?: ICronErrorLogger,
   ) {}
 
   async run(): Promise<ReminderGenerationJobResult> {
@@ -49,23 +57,20 @@ export class ReminderGenerationJobService {
     // One resolver per agent, reused across all of that agent's rows.
     const resolvers = new Map<string, ReminderSettingResolver>();
 
-    // The advisor's timezone, saved from the x-timezone header on their last
-    // request. Without it a reminder could land on the wrong local day.
-    const timezones = await this.jobRepository.findAgentTimezones();
+    // Zona horaria e idioma del asesor vienen embebidos en cada fila (se
+    // guardan de x-timezone y Accept-Language en su última petición). Sin la
+    // zona un recordatorio podía caer en otro día local; sin el idioma los
+    // títulos salían en español para todos.
     const offsets = new Map<string, string>();
-    const offsetFor = (agentId: string): string => {
-      const cached = offsets.get(agentId);
+    const offsetFor = (agent: JobAgentInfo): string => {
+      const timezone = agent.timezone ?? DEFAULT_TIMEZONE;
+      const cached = offsets.get(timezone);
       if (cached) return cached;
-      const offset = calcTimezoneOffset(timezones.get(agentId) ?? DEFAULT_TIMEZONE);
-      offsets.set(agentId, offset);
+      const offset = calcTimezoneOffset(timezone);
+      offsets.set(timezone, offset);
       return offset;
     };
-
-    // El idioma del asesor, guardado del Accept-Language de su última petición.
-    // Sin él los títulos salen en español para todos — un asesor con la app en
-    // inglés recibía "Pago de Prima · ...".
-    const locales = await this.jobRepository.findAgentLocales();
-    const localeFor = (agentId: string): string => locales.get(agentId) ?? "es";
+    const localeFor = (agent: JobAgentInfo): string => agent.locale ?? "es";
 
     const resolverFor = async (agentId: string): Promise<ReminderSettingResolver> => {
       const cached = resolvers.get(agentId);
@@ -85,6 +90,14 @@ export class ReminderGenerationJobService {
     let policiesScanned = 0;
     let contactsScanned = 0;
     let remindersCreated = 0;
+    const failures: Array<{ kind: "policy" | "contact"; id: string; error: string }> = [];
+    const recordFailure = (kind: "policy" | "contact", id: string, error: unknown) => {
+      const message = error instanceof Error
+        ? ((error as { internal?: string }).internal ?? error.message)
+        : String(error);
+      console.error(`[ReminderGenerationJob] ${kind} ${id}:`, message);
+      failures.push({ kind, id, error: message });
+    };
 
     for await (const policies of this.pages<JobPolicyRow>((o, l) => this.jobRepository.findActivePolicies(o, l))) {
       for (const policy of policies) {
@@ -94,17 +107,15 @@ export class ReminderGenerationJobService {
           const result = await generationService.generateForPolicy(
             policy,
             policy.agentId,
-            offsetFor(policy.agentId),
+            offsetFor(policy),
             await resolverFor(policy.agentId),
-            localeFor(policy.agentId),
+            localeFor(policy),
           );
           remindersCreated += result.created.length;
+          if (result.error) failures.push({ kind: "policy", id: policy.id, error: result.error });
         } catch (error) {
           // One bad policy must not stop the nightly pass for everyone else.
-          console.error(
-            `[ReminderGenerationJob] policy ${policy.id}:`,
-            error instanceof Error ? error.message : String(error),
-          );
+          recordFailure("policy", policy.id, error);
         }
       }
     }
@@ -118,25 +129,37 @@ export class ReminderGenerationJobService {
           const result = await generationService.generateForContact(
             contact,
             contact.agentId,
-            offsetFor(contact.agentId),
+            offsetFor(contact),
             await resolverFor(contact.agentId),
-            localeFor(contact.agentId),
+            localeFor(contact),
           );
           remindersCreated += result.created.length;
+          if (result.error) failures.push({ kind: "contact", id: contact.id, error: result.error });
         } catch (error) {
-          console.error(
-            `[ReminderGenerationJob] contact ${contact.id}:`,
-            error instanceof Error ? error.message : String(error),
-          );
+          recordFailure("contact", contact.id, error);
         }
       }
     }
 
     console.warn(
-      `[ReminderGenerationJob] ${policiesScanned} pólizas, ${contactsScanned} contactos, ${remindersCreated} recordatorios creados`,
+      `[ReminderGenerationJob] ${policiesScanned} pólizas, ${contactsScanned} contactos, ${remindersCreated} recordatorios creados, ${failures.length} fallas`,
     );
 
-    return { policiesScanned, contactsScanned, remindersCreated };
+    const result = { policiesScanned, contactsScanned, remindersCreated, failed: failures.length };
+    // Las fallas por fila no tumban la corrida, así que el error middleware nunca
+    // las ve: se deja un registro resumido en error_logs (solo ids, sin datos
+    // de clientes).
+    if (failures.length > 0 && this.errorLogger) {
+      await this.errorLogger.log({
+        errorType: "ReminderGenerationJobFailure",
+        statusCode: 500,
+        errorMessage: `reminder generation job: ${failures.length} rows failed`,
+        requestPath: "/amconnect-api/reminders/generate-due",
+        requestMethod: "POST",
+        metadata: { severity: "server", result, failures: failures.slice(0, MAX_FAILURE_SAMPLES) },
+      });
+    }
+    return result;
   }
 
   private async *pages<T>(fetch: (offset: number, limit: number) => Promise<T[]>): AsyncGenerator<T[]> {

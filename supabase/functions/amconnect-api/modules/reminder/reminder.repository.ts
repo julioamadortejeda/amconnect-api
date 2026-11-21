@@ -11,11 +11,25 @@ export interface DueReminderRow {
   description: string | null;
   agent_id: string;
   due_date: string;
+  /** Intento de entrega que representa este reclamo (1 = primero). */
+  attempts: number;
 }
 
+export interface ClaimOptions {
+  limit: number;
+  leaseSeconds: number;
+  maxAttempts: number;
+}
+
+/**
+ * Métodos del cron de push (`notifications/send-due`). Corren con el cliente de
+ * service role. El estado de cada entrega vive en `reminder_push_deliveries`.
+ */
 export interface INotificationReminderRepository {
-  findDueUnnotified(): Promise<DueReminderRow[]>;
-  markNotified(id: string): Promise<void>;
+  claimDue(options: ClaimOptions): Promise<DueReminderRow[]>;
+  /** true si esta llamada fue la que lo marcó (no estaba notificado ni se reagendó). */
+  markNotified(id: string, dueDate: string): Promise<boolean>;
+  recordDeliveryFailure(id: string, dueDate: string, reason: string, giveUp: boolean): Promise<void>;
   logNotification(reminderId: string, agentId: string, dueDate: string): Promise<void>;
 }
 
@@ -148,37 +162,57 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
     return (data ?? []) as unknown as ReminderResponseDTO[];
   }
 
-  async findDueUnnotified(): Promise<DueReminderRow[]> {
-    const nowStr = new Date().toISOString();
+  // ─── Cron de push ─────────────────────────────────────────────────────────
 
-    const { data: statuses, error: statusErr } = await this.supabase
-      .from("reminder_statuses")
-      .select("id")
-      .in("code", ["CREATED", "IN_PROGRESS"]);
-
-    if (statusErr || !statuses) {
-      throw internalError("No se pudieron cargar los estados de recordatorio.", `reminder_statuses load failed: ${statusErr?.message}`);
-    }
-
-    const { data, error } = await this.supabase
-      .from("reminders")
-      .select("id, title, description, agent_id, due_date")
-      .eq("is_active", true)
-      .in("status_id", statuses.map((s) => s.id))
-      .lte("due_date", nowStr)
-      .is("notified_at", null);
-
-    if (error) throw internalError("No se pudieron cargar los recordatorios vencidos.", `due reminders load failed: ${error.message}`);
+  /**
+   * Reclama de forma atómica los recordatorios vencidos y sin notificar
+   * (`claim_due_reminders`, migración 20261121002508). Dos corridas que se
+   * traslapan nunca reciben la misma fila.
+   */
+  async claimDue(options: ClaimOptions): Promise<DueReminderRow[]> {
+    const { data, error } = await this.supabase.rpc("claim_due_reminders", {
+      p_limit: options.limit,
+      p_lease_seconds: options.leaseSeconds,
+      p_max_attempts: options.maxAttempts,
+    });
+    if (error) handleSupabaseError(error, "claim_due_reminders");
     return (data ?? []) as DueReminderRow[];
   }
 
-  async markNotified(id: string): Promise<void> {
-    const { error } = await this.supabase
+  async markNotified(id: string, dueDate: string): Promise<boolean> {
+    // Condicionado a la fecha reclamada: si el asesor reagendó mientras se
+    // enviaba, la fecha nueva sigue pendiente y se avisará a su hora.
+    const { data, error } = await this.supabase
       .from("reminders")
       .update({ notified_at: new Date().toISOString() })
-      .eq("id", id);
-
+      .eq("id", id)
+      .eq("due_date", dueDate)
+      .is("notified_at", null)
+      .select("id");
     if (error) throw internalError("No se pudo marcar el recordatorio como notificado.", `mark notified failed for ${id}: ${error.message}`);
+
+    const { error: deliveryError } = await this.supabase
+      .from("reminder_push_deliveries")
+      .update({ sent_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() })
+      .eq("reminder_id", id)
+      .eq("due_date", dueDate);
+    if (deliveryError) {
+      throw internalError("No se pudo registrar la entrega del push.", `delivery sent update failed for ${id}: ${deliveryError.message}`);
+    }
+
+    return (data ?? []).length > 0;
+  }
+
+  async recordDeliveryFailure(id: string, dueDate: string, reason: string, giveUp: boolean): Promise<void> {
+    // El reclamo (claimed_at) se deja como está: su lease es la espera antes
+    // del siguiente intento.
+    const now = new Date().toISOString();
+    const { error } = await this.supabase
+      .from("reminder_push_deliveries")
+      .update({ last_error: reason, gave_up_at: giveUp ? now : null, updated_at: now })
+      .eq("reminder_id", id)
+      .eq("due_date", dueDate);
+    if (error) throw internalError("No se pudo registrar la falla del push.", `delivery failure update failed for ${id}: ${error.message}`);
   }
 
   async logNotification(reminderId: string, agentId: string, dueDate: string): Promise<void> {
