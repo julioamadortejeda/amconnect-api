@@ -1,6 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { IRepository, PaginatedResult } from "./repository.interface.ts";
 import { handleSupabaseError } from "../shared/errors.ts";
+import { buildPage, pageRange } from "../shared/pagination.ts";
 
 export class SupabaseRepository<T> implements IRepository<T> {
   protected supabase: SupabaseClient;
@@ -92,8 +93,7 @@ export class SupabaseRepository<T> implements IRepository<T> {
     // Permite a un listado traer menos columnas que el detalle.
     selectString: string = this.selectString,
   ): Promise<PaginatedResult<T>> {
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
+    const { from, to } = pageRange(page, pageSize);
 
     const col = orderBy?.column ?? "created_at";
     const asc = orderBy?.ascending ?? false;
@@ -142,14 +142,7 @@ export class SupabaseRepository<T> implements IRepository<T> {
     if (error) handleSupabaseError(error, `Error al cargar datos de ${this.tableName}.`);
     if (countError) handleSupabaseError(countError, `Error al contar datos de ${this.tableName}.`);
 
-    const total = count ?? 0;
-    return {
-      data: (data ?? []) as T[],
-      total,
-      page,
-      pageSize,
-      hasMore: from + pageSize < total,
-    };
+    return buildPage((data ?? []) as T[], count ?? 0, page, pageSize);
   }
 
   async create(data: Partial<T>): Promise<T | null> {

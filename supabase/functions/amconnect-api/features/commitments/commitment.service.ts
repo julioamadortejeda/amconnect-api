@@ -1,3 +1,4 @@
+import type { PaginatedResult } from "../../core/repository.interface.ts";
 import { CommitmentCloseResult, CommitmentListFilters, CommitmentResponseDTO } from "./commitment.dto.ts";
 import { CommitmentRepository, CommitmentUpdate } from "./commitment.repository.ts";
 import { type Searchable, type SearchHit, type SearchOptions, toSearchHits } from "../../shared/search_hits.ts";
@@ -154,6 +155,15 @@ export class CommitmentService implements Searchable<CommitmentResponseDTO> {
 
   list(agentId: string, filters: CommitmentListFilters = {}): Promise<CommitmentResponseDTO[]> {
     return this.repository.list(agentId, filters);
+  }
+
+  listPage(
+    agentId: string,
+    filters: CommitmentListFilters,
+    page: number,
+    pageSize: number,
+  ): Promise<PaginatedResult<CommitmentResponseDTO>> {
+    return this.repository.listPage(agentId, filters, page, pageSize);
   }
 
   /** Deshace un cierre equivocado. Ver `CommitmentRepository.reopen`. */

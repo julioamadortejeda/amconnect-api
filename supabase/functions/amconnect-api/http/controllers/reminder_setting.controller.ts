@@ -2,6 +2,8 @@ import { Context } from "hono";
 import { sendSuccess } from "../../shared/api_response.ts";
 import { ReminderSettingRequestSchema } from "../../modules/reminder/reminder_setting.dto.ts";
 import { ReminderSettingService } from "../../modules/reminder/reminder_setting.service.ts";
+import { validated } from "../middleware/validate.ts";
+import { ReminderSettingOverrideParamSchema } from "../routes/route_schemas.ts";
 
 export class ReminderSettingController {
   static async getAll(c: Context) {
@@ -19,8 +21,7 @@ export class ReminderSettingController {
 
   // Quitar la excepción de un ramo — el ramo vuelve a seguir el default.
   static async removeOverride(c: Context) {
-    const typeCode = c.req.param("typeCode") as string;
-    const branchId = c.req.param("branchId") as string;
+    const { typeCode, branchId } = validated(c, "param", ReminderSettingOverrideParamSchema);
     const service: ReminderSettingService = c.get("services").reminderSettingService;
     return sendSuccess(c, await service.removeOverride(typeCode, branchId));
   }

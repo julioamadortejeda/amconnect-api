@@ -1,4 +1,5 @@
 import { Context } from "hono";
+import { sendSuccess } from "../../shared/api_response.ts";
 import { AppError } from "../../shared/errors.ts";
 import { VoiceChatService } from "../../features/ai_chat/voice_chat.service.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
@@ -67,7 +68,7 @@ export class VoiceChatController {
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
     const result = await voiceChatService.createEphemeralToken(systemInstruction, tools);
-    return c.json({ ...result, aiBackend: AI_BACKEND_NAME });
+    return sendSuccess(c, { ...result, aiBackend: AI_BACKEND_NAME });
   }
 
   static async initSession(c: Context): Promise<Response> {
@@ -90,7 +91,7 @@ export class VoiceChatController {
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
     const config = await voiceChatService.initSession(agentId, timezone, resumeSessionId, context, localeFromHeader(c.req.header("Accept-Language")));
 
-    return c.json(config);
+    return sendSuccess(c, config);
   }
 
   static async initSessionWithToken(c: Context): Promise<Response> {
@@ -117,7 +118,7 @@ export class VoiceChatController {
       config.tools,
     );
 
-    return c.json({
+    return sendSuccess(c, {
       ...config,
       ...tokenData,
       aiBackend: AI_BACKEND_NAME,
@@ -138,7 +139,7 @@ export class VoiceChatController {
     } catch (e) {
       const message = e instanceof Error ? e.message : "Has alcanzado el límite de tu plan.";
       console.warn(`[VOICE] Quota exceeded on execute-tool for agent ${agentId}: ${message}`);
-      return c.json({ quotaExceeded: true, message });
+      return sendSuccess(c, { quotaExceeded: true, message });
     }
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
@@ -150,7 +151,7 @@ export class VoiceChatController {
       args,
     );
 
-    return c.json(result);
+    return sendSuccess(c, result);
   }
 
   static async saveRound(c: Context): Promise<Response> {
@@ -188,6 +189,6 @@ export class VoiceChatController {
       },
     );
 
-    return c.json(result);
+    return sendSuccess(c, result);
   }
 }

@@ -15,6 +15,12 @@ Route → Controller → Service → Repository → Supabase
 - Nuevo módulo = `modules/<n>/<n>.dto.ts` + `.repository.ts` + `.service.ts`, registrar en `http/middleware/di/index.ts` y rutas en `http/routes/index.ts`.
 - Servicios caros (IA, embeddings, ingestión) se instancian lazy en el DI — no romper ese patrón.
 
+## 1.1 Contrato de respuesta y parámetros (2026-11-21)
+
+- **Éxito: siempre `sendSuccess` → `{ success: true, data }`**, también en voz y health. Nada de `c.json(...)` suelto en un controller.
+- **Listados: siempre la misma página**, dentro de `data`: `{ data: [...], total, page, pageSize, hasMore }`. Entrada `?page=1&pageSize=20` (defaults; tope 100). Se arma con `buildPage` (`shared/pagination.ts`); si la fuente no puede contar (RPC), `buildPageByLookahead` y `total` se omite. Un listado nuevo NO inventa otro formato ni devuelve el arreglo pelón.
+- **Params de URL: `validate("param"|"query", Schema)` en la ruta** (`http/middleware/validate.ts`, esquemas en `http/routes/route_schemas.ts`) y el controller lee `validated(c, ...)`. Un uuid mal formado o un `page=abc` es 422 `VALIDATION_FAILED`, nunca un error de BD. Prohibido `c.req.param()`/`c.req.query()` en controllers.
+
 ## 2. Manejo de errores (contrato único)
 
 - **Nunca** hacer `c.json({error: ...})` manual ni `try/catch` que trague errores en controllers. Lanzar SIEMPRE una subclase de `AppError` (`shared/errors.ts`) y dejar que `globalErrorHandler` responda.

@@ -17,6 +17,6 @@ export class DeviceTokenController {
     // deno-lint-ignore no-explicit-any
     const service = (c.get("services") as any).deviceTokenService;
     await service.removeToken(token);
-    return sendSuccess(c, { success: true });
+    return sendSuccess(c, { deregistered: true });
   }
 }

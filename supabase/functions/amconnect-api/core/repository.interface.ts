@@ -1,6 +1,7 @@
 export interface PaginatedResult<T> {
   data: T[];
-  total: number;
+  /** Ausente solo cuando la fuente no puede contar (ver `buildPageByLookahead`). */
+  total?: number;
   page: number;
   pageSize: number;
   hasMore: boolean;

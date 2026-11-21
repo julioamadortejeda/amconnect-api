@@ -22,6 +22,19 @@ import {
   ReminderStatusController,
 } from "../controllers/catalog.controller.ts";
 
+import { validate } from "../middleware/validate.ts";
+import {
+  CommitmentsQuerySchema,
+  ContactIdParamSchema,
+  IdParamSchema,
+  NotesSearchQuerySchema,
+  PaginationQuerySchema,
+  ReminderSettingOverrideParamSchema,
+  RemindersQuerySchema,
+  SessionIdParamSchema,
+  UploadUrlQuerySchema,
+} from "./route_schemas.ts";
+
 export const apiRouter = new Hono();
 
 // ─── Agents ───────────────────────────────────────────────────────────────────
@@ -39,10 +52,10 @@ apiRouter.post("/subscription/apply-promo", SubscriptionController.applyPromo);
 // ─── AI ───────────────────────────────────────────────────────────────────────
 apiRouter.post("/ai/ingest-policy", AiController.ingestPolicy);
 apiRouter.post("/ai/chat", AiController.chat);
-apiRouter.post("/ai/sessions/:sessionId/cancel", AiController.cancelSession);
-apiRouter.post("/ai/sessions/:sessionId/resolve-contact-mismatch", AiController.resolveContactMismatch);
-apiRouter.get("/ai/sessions/:sessionId/cost", AiController.getSessionCost);
-apiRouter.get("/ai/upload-url", AiController.getUploadUrl);
+apiRouter.post("/ai/sessions/:sessionId/cancel", validate("param", SessionIdParamSchema), AiController.cancelSession);
+apiRouter.post("/ai/sessions/:sessionId/resolve-contact-mismatch", validate("param", SessionIdParamSchema), AiController.resolveContactMismatch);
+apiRouter.get("/ai/sessions/:sessionId/cost", validate("param", SessionIdParamSchema), AiController.getSessionCost);
+apiRouter.get("/ai/upload-url", validate("query", UploadUrlQuerySchema), AiController.getUploadUrl);
 apiRouter.post("/ai/ingest", AiController.ingest);
 apiRouter.post("/ai/ingest-text", AiController.ingestText);
 apiRouter.post("/ai/confirm-policy", AiController.confirmPolicy);
@@ -54,63 +67,63 @@ apiRouter.post("/ai/voice/execute-tool", VoiceChatController.executeTool);
 apiRouter.post("/ai/voice/save-round", VoiceChatController.saveRound);
 
 // ─── Contacts ─────────────────────────────────────────────────────────────────
-apiRouter.get("/contacts", ContactController.getAll);
-apiRouter.get("/contacts/:id", ContactController.getById);
-apiRouter.get("/contacts/:id/notes", ContactController.getNotes);
+apiRouter.get("/contacts", validate("query", PaginationQuerySchema), ContactController.getAll);
+apiRouter.get("/contacts/:id", validate("param", IdParamSchema), ContactController.getById);
+apiRouter.get("/contacts/:id/notes", validate("param", IdParamSchema), validate("query", PaginationQuerySchema), ContactController.getNotes);
 apiRouter.get("/notes/summary", ContactController.getNotesSummary);
-apiRouter.get("/notes/search", ContactController.searchNotes);
+apiRouter.get("/notes/search", validate("query", NotesSearchQuerySchema), ContactController.searchNotes);
 apiRouter.post("/contacts", ContactController.create);
-apiRouter.patch("/contacts/:id", ContactController.update);
-apiRouter.delete("/contacts/:id", ContactController.remove);
+apiRouter.patch("/contacts/:id", validate("param", IdParamSchema), ContactController.update);
+apiRouter.delete("/contacts/:id", validate("param", IdParamSchema), ContactController.remove);
 
 // ─── Policies ─────────────────────────────────────────────────────────────────
-apiRouter.get("/policies", PolicyController.getAll);
-apiRouter.get("/policies/:id", PolicyController.getById);
-apiRouter.get("/contacts/:contactId/policies", PolicyController.getByContact);
+apiRouter.get("/policies", validate("query", PaginationQuerySchema), PolicyController.getAll);
+apiRouter.get("/policies/:id", validate("param", IdParamSchema), PolicyController.getById);
+apiRouter.get("/contacts/:contactId/policies", validate("param", ContactIdParamSchema), validate("query", PaginationQuerySchema), PolicyController.getByContact);
 apiRouter.post("/policies", PolicyController.create);
-apiRouter.patch("/policies/:id", PolicyController.update);
-apiRouter.delete("/policies/:id", PolicyController.remove);
-apiRouter.get("/policies/:id/notes", PolicyController.getNotes);
-apiRouter.post("/policies/:id/notes", PolicyController.addNote);
-apiRouter.post("/policies/:id/participants", PolicyController.addParticipant);
-apiRouter.post("/policies/:id/beneficiaries", PolicyController.addBeneficiary);
-apiRouter.delete("/notes/:id", PolicyController.deleteNote);
+apiRouter.patch("/policies/:id", validate("param", IdParamSchema), PolicyController.update);
+apiRouter.delete("/policies/:id", validate("param", IdParamSchema), PolicyController.remove);
+apiRouter.get("/policies/:id/notes", validate("param", IdParamSchema), validate("query", PaginationQuerySchema), PolicyController.getNotes);
+apiRouter.post("/policies/:id/notes", validate("param", IdParamSchema), PolicyController.addNote);
+apiRouter.post("/policies/:id/participants", validate("param", IdParamSchema), PolicyController.addParticipant);
+apiRouter.post("/policies/:id/beneficiaries", validate("param", IdParamSchema), PolicyController.addBeneficiary);
+apiRouter.delete("/notes/:id", validate("param", IdParamSchema), PolicyController.deleteNote);
 
 // ─── Reminders ────────────────────────────────────────────────────────────────
 // Compromisos: lo que quedó pendiente con cada cliente, extraído de las notas.
-apiRouter.get("/commitments", CommitmentController.getAll);
-apiRouter.patch("/commitments/:id/close", CommitmentController.close);
+apiRouter.get("/commitments", validate("query", CommitmentsQuerySchema), CommitmentController.getAll);
+apiRouter.patch("/commitments/:id/close", validate("param", IdParamSchema), CommitmentController.close);
 
-apiRouter.get("/reminders", ReminderController.getAll);
+apiRouter.get("/reminders", validate("query", RemindersQuerySchema), ReminderController.getAll);
 // Antes de /reminders/:id — si no, "settings" se leería como un id.
 apiRouter.get("/reminders/settings", ReminderSettingController.getAll);
 apiRouter.patch("/reminders/settings", ReminderSettingController.update);
-apiRouter.delete("/reminders/settings/:typeCode/branches/:branchId", ReminderSettingController.removeOverride);
-apiRouter.get("/reminders/:id", ReminderController.getById);
+apiRouter.delete("/reminders/settings/:typeCode/branches/:branchId", validate("param", ReminderSettingOverrideParamSchema), ReminderSettingController.removeOverride);
+apiRouter.get("/reminders/:id", validate("param", IdParamSchema), ReminderController.getById);
 apiRouter.post("/reminders", ReminderController.create);
-apiRouter.patch("/reminders/:id", ReminderController.update);
-apiRouter.patch("/reminders/:id/done", ReminderController.markDone);
-apiRouter.delete("/reminders/:id", ReminderController.remove);
-apiRouter.get("/reminders/:id/notes", ReminderController.getNotes);
+apiRouter.patch("/reminders/:id", validate("param", IdParamSchema), ReminderController.update);
+apiRouter.patch("/reminders/:id/done", validate("param", IdParamSchema), ReminderController.markDone);
+apiRouter.delete("/reminders/:id", validate("param", IdParamSchema), ReminderController.remove);
+apiRouter.get("/reminders/:id/notes", validate("param", IdParamSchema), validate("query", PaginationQuerySchema), ReminderController.getNotes);
 
 // ─── Catálogos por agente (CRUD) ──────────────────────────────────────────────
 apiRouter.get("/catalog/carriers", CarrierController.getAll);
-apiRouter.get("/catalog/carriers/:id", CarrierController.getById);
+apiRouter.get("/catalog/carriers/:id", validate("param", IdParamSchema), CarrierController.getById);
 apiRouter.post("/catalog/carriers", CarrierController.create);
-apiRouter.patch("/catalog/carriers/:id", CarrierController.update);
-apiRouter.delete("/catalog/carriers/:id", CarrierController.remove);
+apiRouter.patch("/catalog/carriers/:id", validate("param", IdParamSchema), CarrierController.update);
+apiRouter.delete("/catalog/carriers/:id", validate("param", IdParamSchema), CarrierController.remove);
 
 apiRouter.get("/catalog/branches", BranchController.getAll);
-apiRouter.get("/catalog/branches/:id", BranchController.getById);
+apiRouter.get("/catalog/branches/:id", validate("param", IdParamSchema), BranchController.getById);
 apiRouter.post("/catalog/branches", BranchController.create);
-apiRouter.patch("/catalog/branches/:id", BranchController.update);
-apiRouter.delete("/catalog/branches/:id", BranchController.remove);
+apiRouter.patch("/catalog/branches/:id", validate("param", IdParamSchema), BranchController.update);
+apiRouter.delete("/catalog/branches/:id", validate("param", IdParamSchema), BranchController.remove);
 
 apiRouter.get("/catalog/products", ProductController.getAll);
-apiRouter.get("/catalog/products/:id", ProductController.getById);
+apiRouter.get("/catalog/products/:id", validate("param", IdParamSchema), ProductController.getById);
 apiRouter.post("/catalog/products", ProductController.create);
-apiRouter.patch("/catalog/products/:id", ProductController.update);
-apiRouter.delete("/catalog/products/:id", ProductController.remove);
+apiRouter.patch("/catalog/products/:id", validate("param", IdParamSchema), ProductController.update);
+apiRouter.delete("/catalog/products/:id", validate("param", IdParamSchema), ProductController.remove);
 
 // ─── Catálogos globales (solo lectura) ────────────────────────────────────────
 apiRouter.get("/catalog/currencies", CurrencyController.getAll);

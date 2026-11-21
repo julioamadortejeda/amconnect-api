@@ -20,6 +20,9 @@ import {
   NOTE_MAX_LENGTH,
   AiResolveContactMismatchSchema,
 } from "../../features/ai_chat/ai.dto.ts";
+import { validated } from "../middleware/validate.ts";
+import { SessionIdParamSchema, UploadUrlQuerySchema } from "../routes/route_schemas.ts";
+
 export class AiController {
   static async chat(c: Context) {
     const agentId: string = c.get("agent_id");
@@ -50,8 +53,7 @@ export class AiController {
   }
 
   static async cancelSession(c: Context) {
-    const sessionId = c.req.param("sessionId");
-    if (!sessionId) throw new AppError("El parámetro 'sessionId' es requerido.", 400);
+    const { sessionId } = validated(c, "param", SessionIdParamSchema);
 
     const { aiChatService, aiSessionService, embeddingsService } = c.get("services");
     const agentId: string = c.get("agent_id");
@@ -69,9 +71,7 @@ export class AiController {
   static async getUploadUrl(c: Context) {
     const agentId: string = c.get("agent_id");
 
-    const fileName = c.req.query("fileName");
-    const mimeType = c.req.query("mimeType") ?? "application/pdf";
-    if (!fileName) throw new AppError("Se requiere el parámetro 'fileName'.", 400);
+    const { fileName, mimeType } = validated(c, "query", UploadUrlQuerySchema);
 
     const storageService = c.get("storage_service") as StorageService;
     const result = await storageService.getSignedUploadUrl(agentId, fileName, mimeType);
@@ -109,8 +109,7 @@ export class AiController {
   // Resuelve la pregunta sí/no de contact_mismatch — ver
   // PolicyIngestionOrchestrator.resolveContactMismatch.
   static async resolveContactMismatch(c: Context) {
-    const sessionId = c.req.param("sessionId");
-    if (!sessionId) throw new AppError("El parámetro 'sessionId' es requerido.", 400);
+    const { sessionId } = validated(c, "param", SessionIdParamSchema);
 
     const agentId: string = c.get("agent_id");
     const parsed = AiResolveContactMismatchSchema.parse(await c.req.json());
@@ -218,8 +217,7 @@ export class AiController {
   }
 
   static async getSessionCost(c: Context) {
-    const sessionId = c.req.param("sessionId");
-    if (!sessionId) throw new AppError("El parámetro 'sessionId' es requerido.", 400);
+    const { sessionId } = validated(c, "param", SessionIdParamSchema);
 
     const aiSessionService = c.get("services").aiSessionService as AiSessionService;
     const result = await aiSessionService.getSessionCost(sessionId);

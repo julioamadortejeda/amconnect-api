@@ -4,6 +4,7 @@ import { authMiddleware } from "./http/middleware/auth.middleware.ts";
 import { injectServices } from "./http/middleware/di/index.ts";
 import { globalErrorHandler } from "./http/middleware/error.middleware.ts";
 import { apiRouter } from "./http/routes/index.ts";
+import { sendSuccess } from "./shared/api_response.ts";
 import { NotificationController } from "./http/controllers/notification.controller.ts";
 import { ReminderGenerationController } from "./http/controllers/reminder_generation.controller.ts";
 
@@ -20,7 +21,7 @@ app.use("*", async (c, next) => {
   await cors(allowedOrigin ? { origin: allowedOrigin } : {})(c, next);
 });
 
-app.get("/amconnect-api/health", (c: Context) => c.json({ status: "ok", timestamp: new Date().toISOString() }));
+app.get("/amconnect-api/health", (c: Context) => sendSuccess(c, { status: "ok", timestamp: new Date().toISOString() }));
 
 // Endpoint interno disparado por pg_cron para enviar notificaciones de recordatorios vencidos
 app.post("/amconnect-api/notifications/send-due", NotificationController.sendDueNotifications);
