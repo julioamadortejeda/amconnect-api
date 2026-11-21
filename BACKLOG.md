@@ -42,6 +42,7 @@ Estado: `[ ]` pendiente · `[~]` en progreso · `[x]` resuelto · `[-]` descarta
 ### S3 — CORS abierto en producción
 **Archivos:** `index.ts`
 **Fix aplicado:** Lee `ALLOWED_ORIGIN` del entorno. Si está definida restringe el origen; si no (dev local), cors queda abierto. Agregar `ALLOWED_ORIGIN=https://dominio.com` en las variables de producción de Supabase.
+**Reemplazado (2026-11-21, D-027):** `ALLOWED_ORIGIN` ya no se lee. CORS cerrado por defecto; la lista de orígenes vive en `functions/amconnect-api/shared/security.config.ts` (`CORS_ALLOWED_ORIGINS`, hoy vacía).
 **Estado:** `[x]`
 
 ### S4 — `QuotaExceededError` (429) se guarda en `error_logs`

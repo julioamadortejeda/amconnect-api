@@ -34,6 +34,18 @@ deno task test                          # = deno test --allow-env --deny-net
 - **`supabase/tests/tenant_isolation.test.sql`** prueba que un asesor no puede leer, editar, dar de baja, borrar ni insertar a nombre de otro en NINGUNA tabla de `public` ni en Storage. Sus meta-pruebas truenan si una tabla de `public` no tiene RLS, no tiene policies o **no está clasificada en `t_class`**: al crear una tabla nueva, agrégala ahí con su tipo (`agent`, `child`, `catalog`, `server_only`, ...) y hereda todas las pruebas de aislamiento. Lo mismo con una función `security definer` nueva: hay que revisarla y agregarla a la lista.
 - **Harness de Deno** en `functions/amconnect-api/shared/testing/`: `fakes.ts` (repos falsos que implementan la interfaz real + builders), `fake_supabase.ts` (cliente falso encadenable, solo para repos y middleware que reciben el `SupabaseClient`), `test_app.ts` (app Hono con el `globalErrorHandler` real y auth simulada), `fake_skill_context.ts` (SkillContext falso para probar skills por `executeSkill`, con los workflow services reales encima) y `test_env.ts` (importarlo PRIMERO en tests que cargan `shared/config.ts`). Los tests van junto al archivo: `<nombre>_test.ts`.
 
+## Seguridad: dónde se configura
+
+**Un solo archivo:** `supabase/functions/amconnect-api/shared/security.config.ts` (D-027). Ahí, con comentarios de cómo cambiarlos:
+
+- `CORS_ALLOWED_ORIGINS` — orígenes de navegador permitidos. Hoy **vacío** (no hay web); la app móvil no usa CORS. Cuando exista la web, agregar su dominio exacto (`https://...`, sin `/` final). Nunca `"*"`.
+- `RATE_LIMITS` — límite por asesor: `general` 60/min y `ai` (asistente, `/ai/*`) 20/min. Cada petición gasta de un solo cupo. Al pasarse: 429 `RATE_LIMITED` + `Retry-After`.
+- `AI_ROUTES_IN_GENERAL_BUCKET` — rutas de `/ai/*` que cuentan como generales (`execute-tool` y `save-round` de una voz ya abierta).
+
+Cambiar un valor = editar ese archivo y desplegar la función; no lleva migración (la BD solo guarda contadores, en `rate_limit_buckets`). Sin límite: `/health`, `/openapi.json` y los endpoints de cron, porque se montan antes de auth en `app.ts`. Si el contador falla, la petición pasa (fail-open) y queda `[RATE_LIMIT]` en los logs; la cuota mensual sigue cuidando el dinero.
+
+**Auth:** `auth.middleware.ts` verifica el JWT con `auth.getClaims(token)`. Con llaves asimétricas (JWT Signing Keys) verifica firma + `exp` localmente contra el JWKS (sin red por petición); con el secreto HS256 legado (stack local; prod mientras no migre) supabase-js cae solo a `getUser()`. Trade-off con asimétricas: una sesión cerrada sigue valiendo hasta su `exp` (1 h), igual que en PostgREST.
+
 ## Estructura
 
 ```
@@ -47,7 +59,8 @@ supabase/
     ├── features/        # rag/, document_processing/, ai_chat/ (skills/, voice), notification/
     ├── http/            # controllers/, routes/, middleware/ (auth, error, di/)
     ├── prompts/         # dev_prompts.ts (solo local con USE_FILE_PROMPTS=true)
-    └── index.ts         # Entry point
+    ├── app.ts           # Arma la app (orden de middleware: CORS → públicas → auth → límite → DI → router)
+    └── index.ts         # Entry point (solo Deno.serve)
 ```
 
 ## Patrones del codebase

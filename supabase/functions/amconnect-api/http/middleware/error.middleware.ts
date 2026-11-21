@@ -1,5 +1,5 @@
 import { Context } from "hono";
-import { AppError } from "../../shared/errors.ts";
+import { AppError, RateLimitedError } from "../../shared/errors.ts";
 import { ErrorLogRepository } from "../../modules/error_log/error_log.repository.ts";
 import { ErrorLogService } from "../../modules/error_log/error_log.service.ts";
 import { ZodError } from "zod";
@@ -67,6 +67,14 @@ export const globalErrorHandler = async (err: Error, c: Context) => {
   // en beta: cuotas alcanzadas, validaciones fallidas, conflictos, etc.
   if (err instanceof AppError) {
     const errorCode = err.errorCode ?? fallbackCodeFor(err.statusCode);
+
+    // 429 del límite por minuto: NO se persiste. Un cliente en bucle generaría
+    // un insert en error_logs por cada rechazo — justo la carga que el límite
+    // quiere frenar.
+    if (err instanceof RateLimitedError) {
+      c.header("Retry-After", String(Math.max(1, Math.ceil(err.retryAfterSeconds))));
+      return c.json({ success: false, error: err.message, errorCode }, 429);
+    }
 
     let errorId: string | null = null;
     if (!SKIP_PERSIST_STATUS.has(err.statusCode)) {

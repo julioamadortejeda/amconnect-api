@@ -77,6 +77,21 @@ Deno.test("openapi: 402 en las rutas con cobro y no en las exentas; 422 donde ha
   assert.ok(doc.paths["/ai/chat"].post.responses["429"]);
 });
 
+Deno.test("openapi: 429 RATE_LIMITED con Retry-After en toda ruta autenticada; QUOTA_EXCEEDED solo donde hay cuota", () => {
+  for (const r of operations()) {
+    if (ROUTE_DOCS[r.key]?.internal) continue;
+    const res = doc.paths[toOpenApiPath(r.path)][r.method.toLowerCase()].responses["429"];
+    assert.ok(res, r.key);
+    assert.ok(res.headers["Retry-After"], r.key);
+    const examples = res.content["application/json"].examples;
+    assert.equal(examples.RATE_LIMITED.value.errorCode, "RATE_LIMITED", r.key);
+    assert.equal(Boolean(examples.QUOTA_EXCEEDED), Boolean(ROUTE_DOCS[r.key]?.quota), r.key);
+  }
+  assert.ok(doc.paths["/ai/chat"].post.responses["429"].content["application/json"].examples.QUOTA_EXCEEDED);
+  assert.equal(doc.paths["/health"].get.responses["429"], undefined);
+  assert.equal(doc.paths["/openapi.json"].get.responses["429"], undefined);
+});
+
 Deno.test("openapi: el body referencia el esquema del DTO (PATCH = parcial)", () => {
   const post = doc.paths["/catalog/products"].post.requestBody.content["application/json"].schema;
   const patch = doc.paths["/catalog/products/{id}"].patch.requestBody.content["application/json"].schema;

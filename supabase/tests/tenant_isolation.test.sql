@@ -121,6 +121,7 @@ select * from (values
   ('system_prompts',        'catalog'),
   ('privacy_consents',      'own_readonly'),
   ('promo_codes',           'server_only'),
+  ('rate_limit_buckets',    'server_only'),
   ('reminder_push_deliveries', 'server_only')
 ) v(tbl, kind)
 where to_regclass('public.' || v.tbl) is not null;
@@ -187,13 +188,15 @@ select is_empty(
 -- llama). Una nueva rompe esta prueba hasta que se revise y se agregue aquí.
 -- accept_privacy_policy / record_privacy_consent: rama de consentimiento;
 -- ambas toman el asesor de auth.uid(), no de un parámetro.
+-- consume_rate_limit (D-027): toma el asesor de auth.uid() (sin parámetro de
+-- agente) y solo suma; sus pruebas de aislamiento están en rate_limit.test.sql.
 select is_empty(
   $$ select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public' and p.prosecdef
         and p.proname not in ('apply_promo_code', 'increment_monthly_usage',
                               'refund_usage_charge', 'claim_device_token',
                               'assert_usage_caller', 'accept_privacy_policy',
-                              'record_privacy_consent',
+                              'record_privacy_consent', 'consume_rate_limit',
                               'tgfn_create_agent_profile') $$,
   'META: no hay funciones security definer sin revisar en public'
 );
