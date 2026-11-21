@@ -30,18 +30,8 @@ export class EmbeddingsService {
   ) {}
 
   async saveDocument(agentId: string, input: DocumentInput): Promise<SaveDocumentResult> {
-    const noteId = await this.repository.insertNote({
-      agentId,
-      contactId: input.contactId ?? null,
-      policyId: input.policyId ?? null,
-      reminderId: input.reminderId ?? null,
-      sourceType: input.sourceType,
-      content: input.content,
-      documentMetadataId: input.documentMetadataId ?? null,
-      noteOrigin: input.noteOrigin ?? 'knowledge',
-      summary: input.summary ?? null,
-    });
-
+    // Los embeddings se generan ANTES de guardar nada: si el proveedor falla no
+    // queda una nota huérfana sin fragmentos.
     const chunks = this.textSplitter.split(input.content);
     const textsToEmbed = input.summary
       ? [...chunks, input.summary]
@@ -56,25 +46,28 @@ export class EmbeddingsService {
       );
     }
 
-    const chunkRows = chunks.map((content, i) => ({
-      noteId,
-      agentId,
+    // El summary va como último fragmento (chunk_index = chunks.length).
+    const chunkRows = textsToEmbed.map((content, i) => ({
       chunkIndex: i,
       content,
-      embedding: JSON.stringify(embeddings[i]),
+      embedding: embeddings[i],
     }));
 
-    if (input.summary) {
-      chunkRows.push({
-        noteId,
+    const noteId = await this.repository.insertNoteWithChunks(
+      {
         agentId,
-        chunkIndex: chunks.length,
-        content: input.summary,
-        embedding: JSON.stringify(embeddings[chunks.length]),
-      });
-    }
+        contactId: input.contactId ?? null,
+        policyId: input.policyId ?? null,
+        reminderId: input.reminderId ?? null,
+        sourceType: input.sourceType,
+        content: input.content,
+        documentMetadataId: input.documentMetadataId ?? null,
+        noteOrigin: input.noteOrigin ?? 'knowledge',
+        summary: input.summary ?? null,
+      },
+      chunkRows,
+    );
 
-    await this.repository.insertChunks(chunkRows);
     return { noteId, embeddingTotalTokens, embeddingCount: textsToEmbed.length };
   }
 

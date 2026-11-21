@@ -43,20 +43,19 @@ export class RagRepository implements IRagRepository {
     limit: number,
     options?: SearchNoteChunksOptions,
   ): Promise<NoteMatch[]> {
-    // deno-lint-ignore no-explicit-any
-    let query = (this.supabase.rpc as any)("search_agent_note_chunks", {
+    // Los filtros van DENTRO de la función SQL, antes del LIMIT. Aplicarlos con
+    // `.eq(...)` sobre el resultado de la RPC filtraba los N fragmentos más
+    // parecidos de TODO el asesor y la búsqueda acotada volvía vacía cuando
+    // esos N eran de otros clientes (migración 20261120235540_rag_scoped_search).
+    const { data, error } = await this.supabase.rpc("search_agent_note_chunks", {
       p_agent_id: agentId,
       p_query_embedding: queryEmbedding,
       p_match_threshold: threshold,
       p_match_count: limit,
+      p_contact_id: options?.contactId ?? null,
+      p_policy_id: options?.policyId ?? null,
+      p_reminder_id: options?.reminderId ?? null,
     });
-
-    if (options?.contactId) query = query.eq("contact_id", options.contactId);
-    if (options?.policyId) query = query.eq("policy_id", options.policyId);
-    if (options?.reminderId) query = query.eq("reminder_id", options.reminderId);
-
-    // deno-lint-ignore no-explicit-any
-    const { data, error } = await (query as any);
 
     // Un fallo de BD NO debe presentarse como "sin resultados": propagar por el
     // contrato de errores (RULES §2) en vez de `return []`.

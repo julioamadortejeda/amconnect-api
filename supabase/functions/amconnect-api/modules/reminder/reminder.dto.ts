@@ -23,13 +23,15 @@ export interface ReminderCommentDTO {
   createdAt: string;
 }
 
+// ReminderService convierte la fila completa con objectToCamelCaseDeep, así que
+// las notas embebidas también llegan en camelCase.
 export interface ReminderNoteDTO {
   id: string;
   content: string | null;
   summary: string | null;
-  source_type: string;
-  created_at: string;
-  document_metadata?: { file_name: string | null; storage_path: string | null } | null;
+  sourceType: string;
+  createdAt: string;
+  documentMetadata?: { fileName: string | null; storagePath: string | null } | null;
 }
 
 export interface ReminderResponseDTO {
