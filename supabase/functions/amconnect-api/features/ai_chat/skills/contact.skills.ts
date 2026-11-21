@@ -2,6 +2,7 @@ import { z } from "zod";
 import { assertHasChanges, SkillDefinition } from "./skill.core.ts";
 import { ContactResponseDTO } from "../../../modules/contact/contact.dto.ts";
 import { QUICK_NOTE_MAX_LENGTH } from "../../document_processing/knowledge_ingestion.service.ts";
+import { entityThreshold } from "../../rag/rag.service.ts";
 
 const slimContact = (c: ContactResponseDTO) => ({
   id: c.id,
@@ -236,7 +237,7 @@ export const contactSkills: SkillDefinition[] = [
     async execute({ query, contact_id }, ctx) {
       return await ctx.ragService.searchNotes(ctx.agentId, query as string, {
         contactId: contact_id as string | undefined,
-        threshold: 0.65,
+        threshold: entityThreshold(contact_id as string | undefined),
       });
     },
   },

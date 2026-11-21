@@ -3,6 +3,7 @@ import { assertHasChanges, SkillDefinition } from "./skill.core.ts";
 import { PolicyResponseDTO } from "../../../modules/policy/policy.dto.ts";
 import { appendNote, assertNoDuplicatePolicyNumber, resolveCatalogId } from "../../../shared/utils.ts";
 import { objectToCamelCase } from "../../../shared/case_converter.ts";
+import { entityThreshold } from "../../rag/rag.service.ts";
 
 const slimPolicy = (p: PolicyResponseDTO) => ({
   id: p.id,
@@ -196,7 +197,7 @@ export const policySkills: SkillDefinition[] = [
     async execute({ query, policy_id }, ctx) {
       return await ctx.ragService.searchNotes(ctx.agentId, query as string, {
         policyId: policy_id as string | undefined,
-        threshold: 0.65,
+        threshold: entityThreshold(policy_id as string | undefined),
       });
     },
   },

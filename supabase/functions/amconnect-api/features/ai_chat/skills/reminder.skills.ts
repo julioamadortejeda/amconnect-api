@@ -3,6 +3,7 @@ import { assertHasChanges, SkillContext, SkillDefinition } from "./skill.core.ts
 import { ReminderResponseDTO } from "../../../modules/reminder/reminder.dto.ts";
 import { utcToLocalIso } from "../../../shared/datetime.ts";
 import { daysFromNowRange, isUuid } from "../../../shared/utils.ts";
+import { entityThreshold } from "../../rag/rag.service.ts";
 
 // Postgres devuelve timestamptz en UTC; al modelo se le entregan ya convertidos
 // al timezone del asesor para que no tenga que hacer aritmética de husos horarios.
@@ -417,7 +418,7 @@ export const reminderSkills: SkillDefinition[] = [
     async execute({ query, reminder_id }, ctx) {
       return await ctx.ragService.searchNotes(ctx.agentId, query as string, {
         reminderId: reminder_id as string | undefined,
-        threshold: 0.65,
+        threshold: entityThreshold(reminder_id as string | undefined),
       });
     },
   },
