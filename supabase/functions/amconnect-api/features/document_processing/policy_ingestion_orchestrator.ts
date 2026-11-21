@@ -102,7 +102,7 @@ export class PolicyIngestionOrchestrator {
         isDuplicate: ingestResult.status === "duplicate_detected",
       };
     } catch (err) {
-      await compensateIngestionFailure(err, this.aiSessionService, this.usageService, agentId, sessionId, chargeId);
+      await compensateIngestionFailure(err, this.aiSessionService, this.usageService, sessionId, chargeId);
       throw err;
     }
   }
@@ -119,7 +119,6 @@ export class PolicyIngestionOrchestrator {
     assignToScreenContact: boolean,
   ): Promise<ResolveContactMismatchResult> {
     const { extraction, documentMetadataId } = await this.policyIngestionService.resolveContactMismatch(
-      agentId,
       sessionId,
       assignToScreenContact,
     );

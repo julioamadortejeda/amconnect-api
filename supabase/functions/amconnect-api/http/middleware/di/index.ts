@@ -16,7 +16,6 @@ import { AgentService } from "../../../modules/agent/agent.service.ts";
 import { AgentRepository } from "../../../modules/agent/agent.repository.ts";
 import { DeviceTokenRepository } from "../../../modules/agent/device_token.repository.ts";
 import { DeviceTokenService } from "../../../modules/agent/device_token.service.ts";
-import { NotificationService } from "../../../features/notification/notification.service.ts";
 import { SubscriptionService } from "../../../modules/subscription/subscription.service.ts";
 import { SubscriptionRepository } from "../../../modules/subscription/subscription.repository.ts";
 import { UsageService } from "../../../modules/subscription/usage.service.ts";
@@ -37,7 +36,6 @@ import { AiChatService } from "../../../features/ai_chat/ai_chat.service.ts";
 import { AiSessionService } from "../../../features/ai_chat/ai_session.service.ts";
 import { AiSessionRepository } from "../../../features/ai_chat/ai_session.repository.ts";
 import { TextSplitter } from "../../../shared/text_splitter.ts";
-import { DocumentProcessorService } from "../../../features/document_processing/document_processor.service.ts";
 import { KnowledgeIngestionService } from "../../../features/document_processing/knowledge_ingestion.service.ts";
 import { PolicyIngestionService } from "../../../features/document_processing/policy_ingestion.service.ts";
 import { PolicyIngestionOrchestrator } from "../../../features/document_processing/policy_ingestion_orchestrator.ts";
@@ -105,6 +103,25 @@ async function checkModelCatalog(supabase: SupabaseClient): Promise<void> {
   modelCatalogChecked = true;
 }
 
+// Rutas que deben responder aunque la suscripción esté vencida. Sin ellas, un
+// asesor con el trial vencido no puede ver su cuenta ni los planes, aplicar un
+// código promocional, ni desregistrar su dispositivo al cerrar sesión (el token
+// push quedaría vivo y le seguirían llegando notificaciones). Lista explícita
+// a propósito: cualquier ruta nueva queda protegida por defecto.
+const SUBSCRIPTION_EXEMPT_ROUTES = new Set([
+  "GET /agents/me",
+  "DELETE /agents/device-tokens",
+  "GET /subscription",
+  "GET /subscription/plans",
+  "POST /subscription/apply-promo",
+]);
+
+function requiresActiveSubscription(c: Context): boolean {
+  // El router está montado en /amconnect-api; la lista se escribe sin prefijo.
+  const path = c.req.path.replace(/^\/amconnect-api/, "");
+  return !SUBSCRIPTION_EXEMPT_ROUTES.has(`${c.req.method} ${path}`);
+}
+
 export const injectServices = async (c: Context, next: Next) => {
   const supabase: SupabaseClient = c.get("supabase");
   const agentId: string = c.get("agent_id");
@@ -118,7 +135,7 @@ export const injectServices = async (c: Context, next: Next) => {
   const subscriptionRepository = new SubscriptionRepository(supabase);
   const subscriptionService = new SubscriptionService(subscriptionRepository, usageService);
 
-  const agentStatus = await subscriptionService.checkSubscriptionActive(agentId);
+  const agentStatus = await subscriptionService.checkSubscriptionActive(agentId, requiresActiveSubscription(c));
   c.set("subscription_service", subscriptionService);
   c.set("usage_service", usageService);
 
@@ -163,7 +180,6 @@ export const injectServices = async (c: Context, next: Next) => {
   const reportedTimezone = clientTimezone ?? agentStatus.timezone ?? DEFAULT_TIMEZONE;
   const deviceTokenRepository = new DeviceTokenRepository(supabase);
   const deviceTokenService = new DeviceTokenService(deviceTokenRepository, subscriptionRepository);
-  const notificationService = new NotificationService(deviceTokenRepository, new ReminderRepository(supabase));
   const promptService = new PromptService(supabase);
   const storageService = new StorageService(new StorageRepository(supabase));
   c.set("storage_service", storageService);
@@ -190,7 +206,6 @@ export const injectServices = async (c: Context, next: Next) => {
   let aiChatService: AiChatService | undefined;
   let voiceChatService: VoiceChatService | undefined;
   let docProvider: GoogleGenAiProvider | undefined;
-  let documentProcessorService: DocumentProcessorService | undefined;
   let knowledgeIngestionService: KnowledgeIngestionService | undefined;
   let policyIngestionService: PolicyIngestionService | undefined;
   let policyIngestionOrchestrator: PolicyIngestionOrchestrator | undefined;
@@ -280,13 +295,6 @@ export const injectServices = async (c: Context, next: Next) => {
     return docProvider;
   };
 
-  const getDocumentProcessorService = () => {
-    if (!documentProcessorService) {
-      documentProcessorService = new DocumentProcessorService(storageService, documentMetadataRepository, getDocProvider(), getEmbeddingsService(), promptService);
-    }
-    return documentProcessorService;
-  };
-
   const getKnowledgeIngestionService = () => {
     if (!knowledgeIngestionService) {
       knowledgeIngestionService = new KnowledgeIngestionService(documentMetadataRepository, getDocProvider(), getEmbeddingsService(), getEmbeddingProvider(), aiSessionService, storageService, promptService);
@@ -338,7 +346,6 @@ export const injectServices = async (c: Context, next: Next) => {
   c.set("services", {
     agentService,
     deviceTokenService,
-    notificationService,
     catalogServices,
     contactService,
     policyService,
@@ -352,14 +359,8 @@ export const injectServices = async (c: Context, next: Next) => {
     get embeddingsService() {
       return getEmbeddingsService();
     },
-    get ragService() {
-      return getRagService();
-    },
     get aiChatService() {
       return getAiChatService();
-    },
-    get documentProcessorService() {
-      return getDocumentProcessorService();
     },
     get knowledgeIngestionService() {
       return getKnowledgeIngestionService();

@@ -1,5 +1,5 @@
 import type { IUsageRepository, TokenUsageParams } from "./usage.repository.ts";
-import { AppError, QuotaExceededError, internalError } from "../../shared/errors.ts";
+import { QuotaExceededError, internalError } from "../../shared/errors.ts";
 
 export interface MonthlyUsage {
   chatCount: number;

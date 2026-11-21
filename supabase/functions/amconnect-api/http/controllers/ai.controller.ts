@@ -18,7 +18,6 @@ import {
   AiIngestPolicySchema,
   AiIngestTextSchema,
   NOTE_MAX_LENGTH,
-  AiProcessDocumentRequestSchema,
   AiResolveContactMismatchSchema,
 } from "../../features/ai_chat/ai.dto.ts";
 export class AiController {
@@ -65,25 +64,6 @@ export class AiController {
 
     const result = await (aiChatService as AiChatService).cancelSession(sessionId);
     return sendSuccess(c, { cancelled: true, ...result });
-  }
-
-  static async processDocument(c: Context) {
-    const agentId: string = c.get("agent_id");
-    const { filePath, fileName } = AiProcessDocumentRequestSchema.parse(await c.req.json());
-    const result = await c.get("services").documentProcessorService.processDocument(agentId, filePath, fileName);
-    return sendSuccess(c, result);
-  }
-
-  static async uploadFile(c: Context) {
-    const agentId: string = c.get("agent_id");
-    const formData = await c.req.formData();
-    const file = formData.get("file") as File | null;
-    if (!file) throw new AppError("Se requiere el archivo en el campo 'file'.", 400);
-
-    const storageService = c.get("storage_service") as StorageService;
-    const result = await storageService.upload(agentId, file);
-
-    return sendSuccess(c, result, 201);
   }
 
   static async getUploadUrl(c: Context) {
@@ -172,7 +152,7 @@ export class AiController {
         message: responseMessage,
       }, 201);
     } catch (err) {
-      await compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId, chargeId);
+      await compensateIngestionFailure(err, aiSessionService, usageService, sessionId, chargeId);
       throw err;
     }
   }
@@ -219,7 +199,7 @@ export class AiController {
         message: responseMessage,
       }, 201);
     } catch (err) {
-      await compensateIngestionFailure(err, aiSessionService, usageService, agentId, sessionId, chargeId);
+      await compensateIngestionFailure(err, aiSessionService, usageService, sessionId, chargeId);
       throw err;
     }
   }
@@ -241,21 +221,5 @@ export class AiController {
     const aiSessionService = c.get("services").aiSessionService as AiSessionService;
     const result = await aiSessionService.getSessionCost(sessionId);
     return sendSuccess(c, result);
-  }
-
-  static async ragSearch(c: Context) {
-    const agentId: string = c.get("agent_id");
-    const body = await c.req.json();
-    const { query, contactId, policyId, threshold, limit } = body;
-    if (!query || typeof query !== "string") throw new AppError("El campo 'query' es requerido.", 400);
-
-    const ragService = c.get("services").ragService;
-    const results = await ragService.searchNotes(agentId, query, {
-      contactId: contactId ?? undefined,
-      policyId: policyId ?? undefined,
-      threshold: typeof threshold === "number" ? threshold : 0.5,
-      limit: typeof limit === "number" ? limit : 10,
-    });
-    return sendSuccess(c, results);
   }
 }

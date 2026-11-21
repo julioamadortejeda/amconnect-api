@@ -3,7 +3,6 @@ import { sendSuccess } from "../../shared/api_response.ts";
 import { ContactService } from "../../modules/contact/contact.service.ts";
 import { ContactRequestSchema } from "../../modules/contact/contact.dto.ts";
 import { NoteService } from "../../modules/note/note.service.ts";
-import { AppError } from "../../shared/errors.ts";
 import { parsePagination } from "../../shared/pagination.ts";
 
 export class ContactController {
@@ -18,15 +17,6 @@ export class ContactController {
   static async getById(c: Context) {
     const service: ContactService = c.get("services").contactService;
     const data = await service.getById(c.req.param("id") as string);
-    return sendSuccess(c, data);
-  }
-
-  static async search(c: Context) {
-    const agentId: string = c.get("agent_id");
-    const query = c.req.query("q");
-    if (!query) throw new AppError("Parámetro 'q' requerido.", 400);
-    const service: ContactService = c.get("services").contactService;
-    const data = await service.findSimilarContact(agentId, query);
     return sendSuccess(c, data);
   }
 
@@ -54,13 +44,6 @@ export class ContactController {
   static async getNotes(c: Context) {
     const service: NoteService = c.get("services").noteService;
     const notes = await service.getByContactId(c.req.param("id") as string);
-    return sendSuccess(c, { data: notes });
-  }
-
-  static async getRecentNotes(c: Context) {
-    const service: NoteService = c.get("services").noteService;
-    const limit = Math.min(parseInt(c.req.query("limit") ?? "20", 10), 50);
-    const notes = await service.getRecent(limit);
     return sendSuccess(c, { data: notes });
   }
 

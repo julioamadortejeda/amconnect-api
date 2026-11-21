@@ -56,10 +56,10 @@ export interface PolicyResponseDTO {
   // Relaciones expandidas
   contact?: { id: string; fullName: string };
   product?: { id: string; name: string; carrier: { id: string; name: string }; branch: { id: string; name: string } };
-  status?: { id: string; name: string };
+  status?: { id: string; code: string; name: string };
   currency?: { id: string; code: string; name: string };
-  paymentFrequency?: { id: string; name: string; months: number };
-  paymentMethod?: { id: string; name: string };
+  paymentFrequency?: { id: string; code: string; name: string; months: number };
+  paymentMethod?: { id: string; code: string; name: string };
   /**
    * Calendario de pago ya resuelto en el servidor: la regla atemporal
    * ("paga el 10 de may y el 10 de nov") más la siguiente fecha real.

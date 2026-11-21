@@ -31,19 +31,6 @@ export class StorageService {
     return `${agentId}/${Date.now()}-${safeName}`;
   }
 
-  async upload(
-    agentId: string,
-    file: File,
-    bucket = "policies",
-  ): Promise<{ storagePath: string; fileName: string; mimeType: string }> {
-    const mimeType = file.type || "application/octet-stream";
-    this.validateMimeType(mimeType);
-
-    const storagePath = this.buildStoragePath(agentId, file.name);
-    await this.repository.upload(bucket, storagePath, await file.arrayBuffer(), mimeType);
-    return { storagePath, fileName: file.name, mimeType };
-  }
-
   async getSignedUploadUrl(
     agentId: string,
     fileName: string,
@@ -57,11 +44,6 @@ export class StorageService {
     return { uploadUrl: signedUrl, storagePath, token, mimeType };
   }
 
-  async download(bucket: string, filePath: string): Promise<Uint8Array> {
-    const blob = await this.repository.download(bucket, filePath);
-    return new Uint8Array(await blob.arrayBuffer());
-  }
-
   async downloadAsBase64(bucket: string, filePath: string): Promise<string> {
     const blob = await this.repository.download(bucket, filePath);
     const bytes = new Uint8Array(await blob.arrayBuffer());
@@ -70,23 +52,5 @@ export class StorageService {
       binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
     }
     return btoa(binary);
-  }
-
-  getMimeType(filePath: string): string {
-    const ext = filePath.split(".").pop()?.toLowerCase();
-    switch (ext) {
-      case "jpg":
-      case "jpeg":
-        return "image/jpeg";
-      case "png":
-        return "image/png";
-      case "webp":
-        return "image/webp";
-      case "gif":
-        return "image/gif";
-      case "pdf":
-      default:
-        return "application/pdf";
-    }
   }
 }

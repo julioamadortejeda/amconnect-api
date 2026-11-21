@@ -36,7 +36,6 @@ apiRouter.get("/subscription/plans", SubscriptionController.getPlans);
 apiRouter.post("/subscription/apply-promo", SubscriptionController.applyPromo);
 
 // ─── AI ───────────────────────────────────────────────────────────────────────
-apiRouter.post("/ai/upload", AiController.uploadFile);
 apiRouter.post("/ai/ingest-policy", AiController.ingestPolicy);
 apiRouter.post("/ai/chat", AiController.chat);
 apiRouter.post("/ai/sessions/:sessionId/cancel", AiController.cancelSession);
@@ -46,22 +45,17 @@ apiRouter.get("/ai/upload-url", AiController.getUploadUrl);
 apiRouter.post("/ai/ingest", AiController.ingest);
 apiRouter.post("/ai/ingest-text", AiController.ingestText);
 apiRouter.post("/ai/confirm-policy", AiController.confirmPolicy);
-apiRouter.post("/ai/rag-search", AiController.ragSearch);
 apiRouter.get("/ai/voice", VoiceChatController.connect);
 apiRouter.post("/ai/voice/token", VoiceChatController.getToken);
 apiRouter.post("/ai/voice/init", VoiceChatController.initSession);
 apiRouter.post("/ai/voice/init-session", VoiceChatController.initSessionWithToken);
 apiRouter.post("/ai/voice/execute-tool", VoiceChatController.executeTool);
 apiRouter.post("/ai/voice/save-round", VoiceChatController.saveRound);
-// Deprecado — mantener por compatibilidad, redirige internamente a ingest
-apiRouter.post("/ai/process-document", AiController.processDocument);
 
 // ─── Contacts ─────────────────────────────────────────────────────────────────
 apiRouter.get("/contacts", ContactController.getAll);
-apiRouter.get("/contacts/search", ContactController.search);
 apiRouter.get("/contacts/:id", ContactController.getById);
 apiRouter.get("/contacts/:id/notes", ContactController.getNotes);
-apiRouter.get("/notes/recent", ContactController.getRecentNotes);
 apiRouter.get("/notes/summary", ContactController.getNotesSummary);
 apiRouter.get("/notes/search", ContactController.searchNotes);
 apiRouter.post("/contacts", ContactController.create);
@@ -87,7 +81,6 @@ apiRouter.get("/commitments", CommitmentController.getAll);
 apiRouter.patch("/commitments/:id/close", CommitmentController.close);
 
 apiRouter.get("/reminders", ReminderController.getAll);
-apiRouter.get("/reminders/upcoming", ReminderController.getUpcoming);
 // Antes de /reminders/:id — si no, "settings" se leería como un id.
 apiRouter.get("/reminders/settings", ReminderSettingController.getAll);
 apiRouter.patch("/reminders/settings", ReminderSettingController.update);

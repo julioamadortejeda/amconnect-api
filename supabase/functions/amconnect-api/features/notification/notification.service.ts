@@ -1,4 +1,4 @@
-import { SignJWT, importPKCS8 } from "npm:jose";
+import { SignJWT, importPKCS8 } from "jose";
 import { IDeviceTokenRepository } from "../../modules/agent/device_token.repository.ts";
 import { INotificationReminderRepository } from "../../modules/reminder/reminder.repository.ts";
 
@@ -26,7 +26,7 @@ export class NotificationService {
       serviceAccountJson = serviceAccountJson.trim().replace(/^['"]|['"]$/g, "").replace(/%$/, "").trim();
     }
     if (!serviceAccountJson) {
-      let base64 = Deno.env.get("FIREBASE_SERVICE_ACCOUNT_BASE64");
+      const base64 = Deno.env.get("FIREBASE_SERVICE_ACCOUNT_BASE64");
       if (base64) {
         const cleaned = base64.trim().replace(/^['"]|['"]$/g, "").replace(/%$/, "").trim();
         if (cleaned.startsWith("{")) {

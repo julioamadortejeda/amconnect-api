@@ -20,10 +20,6 @@ export class NoteService {
     return this.repository.getByReminderId(reminderId);
   }
 
-  getRecent(limit = 20): Promise<RecentNoteRow[]> {
-    return this.repository.getRecent(limit);
-  }
-
   deleteNote(agentId: string, noteId: string): Promise<void> {
     return this.repository.deleteNote(agentId, noteId);
   }

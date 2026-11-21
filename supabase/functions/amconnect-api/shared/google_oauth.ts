@@ -1,4 +1,4 @@
-import { importPKCS8, SignJWT } from "npm:jose";
+import { importPKCS8, SignJWT } from "jose";
 
 // Token OAuth2 de Google Cloud emitido con la service account de
 // FIREBASE_SERVICE_ACCOUNT (scope cloud-platform). Caché a nivel de módulo:

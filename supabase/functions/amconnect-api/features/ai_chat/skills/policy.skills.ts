@@ -24,6 +24,64 @@ const slimPolicy = (p: PolicyResponseDTO) => ({
   status: p.status,
 });
 
+const CreatePolicySchema = z.object({
+  contact_id: z.string({ required_error: "The contact/client UUID is required." }).uuid(),
+  product_id: z.string({ required_error: "The product UUID is required." }).uuid(),
+  policy_number: z.string().optional().describe("Policy number"),
+  premium: z.number().optional().describe("Policy premium"),
+  sum_insured: z.number().optional().describe("Sum insured"),
+  start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
+  end_date: z.string().optional().describe("End date (YYYY-MM-DD)"),
+  renewal_date: z.string().optional().describe("Renewal date (YYYY-MM-DD)"),
+  next_payment_date: z.string().optional().describe("Next payment date (YYYY-MM-DD)"),
+  status: z.string().optional().describe("Policy status (e.g., 'Vigente', 'Cancelada', 'Vencida'). Defaults to 'Vigente'"),
+  currency: z.string().optional().describe("Policy currency (e.g., 'MXN', 'USD'). Defaults to 'MXN'"),
+  payment_frequency: z.string().optional().describe("Payment frequency (e.g., 'Anual', 'Mensual', 'Semestral', 'Trimestral'). Defaults to 'Anual'"),
+  payment_method: z.string().optional().describe("Payment method (e.g., 'Domiciliación', 'Transferencia Bancaria', 'Tarjeta de Crédito')"),
+  notes: z.string().optional().describe("Additional notes"),
+  deductible: z.string().optional().describe("Deductible (amount or percentage, e.g. '10%' or '$5,000')"),
+  coinsurance: z.string().optional().describe("Coinsurance percentage (e.g. '10%'), common on GMM policies"),
+  seniority_date: z.string().optional().describe("Recognized seniority date (antigüedad reconocida), YYYY-MM-DD — common on GMM/Life policies, distinct from start_date"),
+  insured_item: z.string().optional().describe("Short label of the insured asset for Auto/Hogar/Mascotas policies (e.g. 'Suzuki Swift 2021 · ABC-123'). Leave empty for policies insuring a person."),
+  policy_version: z.string().optional().describe("Policy version or endorsement number"),
+});
+
+const UpdatePolicySchema = z.object({
+  policy_id: z.string({ required_error: "The UUID of the policy to update is required." }).uuid(),
+  policy_number: z.string().optional(),
+  premium: z.number().optional(),
+  sum_insured: z.number().optional(),
+  start_date: z.string().optional().describe("Date (YYYY-MM-DD)"),
+  end_date: z.string().optional().describe("Date (YYYY-MM-DD)"),
+  renewal_date: z.string().optional().describe("Date (YYYY-MM-DD)"),
+  next_payment_date: z.string().optional().describe("Date (YYYY-MM-DD)"),
+  status: z.string().optional().describe("New status (e.g., 'Vigente', 'Cancelada')"),
+  currency: z.string().optional().describe("New currency (e.g., 'MXN', 'USD')"),
+  payment_frequency: z.string().optional().describe("New payment frequency"),
+  payment_method: z.string().optional().describe("New payment method"),
+  notes: z.string().optional(),
+  deductible: z.string().optional().describe("Deductible (amount or percentage, e.g. '10%' or '$5,000')"),
+  coinsurance: z.string().optional().describe("Coinsurance percentage (e.g. '10%'), common on GMM policies"),
+  seniority_date: z.string().optional().describe("Recognized seniority date (antigüedad reconocida), YYYY-MM-DD"),
+  insured_item: z.string().optional().describe("Short label of the insured asset (Auto/Hogar/Mascotas)"),
+  policy_version: z.string().optional().describe("Policy version or endorsement number"),
+});
+
+// Tarjeta de pólizas del chat (metadata `policy_list`).
+const policyCardItem = (p: PolicyResponseDTO) => ({
+  id: p.id,
+  policyNumber: p.policyNumber,
+  holderName: p.contact?.fullName ?? "",
+  carrierName: p.product?.carrier?.name ?? "",
+  branchName: p.product?.branch?.name ?? "",
+  productName: p.product?.name ?? "",
+  statusName: p.status?.name ?? "",
+  premium: p.premium,
+  sumInsured: p.sumInsured,
+  renewalDate: p.renewalDate,
+  nextPaymentDate: p.nextPaymentDate,
+});
+
 export const policySkills: SkillDefinition[] = [
   {
     domain: "policy",
@@ -51,19 +109,7 @@ export const policySkills: SkillDefinition[] = [
         policies: list,
         __skillMetadata: {
           type: "policy_list",
-          policies: (policies ?? []).map((p: any) => ({
-            id: p.id,
-            policyNumber: p.policyNumber,
-            holderName: p.contact?.fullName ?? p.contactName ?? "",
-            carrierName: p.product?.branch?.carrier?.name ?? "",
-            branchName: p.product?.branch?.name ?? "",
-            productName: p.product?.name ?? "",
-            statusName: p.status?.name ?? "",
-            premium: p.premium,
-            sumInsured: p.sumInsured,
-            renewalDate: p.renewalDate,
-            nextPaymentDate: p.nextPaymentDate,
-          })),
+          policies: (policies ?? []).map(policyCardItem),
         },
       };
     },
@@ -85,19 +131,7 @@ export const policySkills: SkillDefinition[] = [
         policies: list,
         __skillMetadata: {
           type: "policy_list",
-          policies: (policies ?? []).map((p: any) => ({
-            id: p.id,
-            policyNumber: p.policyNumber,
-            holderName: p.contact?.fullName ?? p.contactName ?? "",
-            carrierName: p.product?.branch?.carrier?.name ?? "",
-            branchName: p.product?.branch?.name ?? "",
-            productName: p.product?.name ?? "",
-            statusName: p.status?.name ?? "",
-            premium: p.premium,
-            sumInsured: p.sumInsured,
-            renewalDate: p.renewalDate,
-            nextPaymentDate: p.nextPaymentDate,
-          })),
+          policies: (policies ?? []).map(policyCardItem),
         },
       };
     },
@@ -171,30 +205,10 @@ export const policySkills: SkillDefinition[] = [
     declaration: {
       name: "create_policy",
       description: "Creates a new insurance policy manually for the advisor. Requires contact_id and product_id. You can pass friendly names for status (e.g., 'Vigente'), currency (e.g., 'MXN', 'USD'), payment_frequency (e.g., 'Anual', 'Mensual') and they will be resolved automatically.",
-      schema: z.object({
-        contact_id: z.string({ required_error: "The contact/client UUID is required." }).uuid(),
-        product_id: z.string({ required_error: "The product UUID is required." }).uuid(),
-        policy_number: z.string().optional().describe("Policy number"),
-        premium: z.number().optional().describe("Policy premium"),
-        sum_insured: z.number().optional().describe("Sum insured"),
-        start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
-        end_date: z.string().optional().describe("End date (YYYY-MM-DD)"),
-        renewal_date: z.string().optional().describe("Renewal date (YYYY-MM-DD)"),
-        next_payment_date: z.string().optional().describe("Next payment date (YYYY-MM-DD)"),
-        status: z.string().optional().describe("Policy status (e.g., 'Vigente', 'Cancelada', 'Vencida'). Defaults to 'Vigente'"),
-        currency: z.string().optional().describe("Policy currency (e.g., 'MXN', 'USD'). Defaults to 'MXN'"),
-        payment_frequency: z.string().optional().describe("Payment frequency (e.g., 'Anual', 'Mensual', 'Semestral', 'Trimestral'). Defaults to 'Anual'"),
-        payment_method: z.string().optional().describe("Payment method (e.g., 'Domiciliación', 'Transferencia Bancaria', 'Tarjeta de Crédito')"),
-        notes: z.string().optional().describe("Additional notes"),
-        deductible: z.string().optional().describe("Deductible (amount or percentage, e.g. '10%' or '$5,000')"),
-        coinsurance: z.string().optional().describe("Coinsurance percentage (e.g. '10%'), common on GMM policies"),
-        seniority_date: z.string().optional().describe("Recognized seniority date (antigüedad reconocida), YYYY-MM-DD — common on GMM/Life policies, distinct from start_date"),
-        insured_item: z.string().optional().describe("Short label of the insured asset for Auto/Hogar/Mascotas policies (e.g. 'Suzuki Swift 2021 · ABC-123'). Leave empty for policies insuring a person."),
-        policy_version: z.string().optional().describe("Policy version or endorsement number"),
-      }),
+      schema: CreatePolicySchema,
     },
     async execute(args, ctx) {
-      const params = args as any;
+      const params = args as z.infer<typeof CreatePolicySchema>;
       await assertNoDuplicatePolicyNumber(ctx.policyService, ctx.agentId, params.policy_number);
       const statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "ACTIVE" });
       const currencyId = await resolveCatalogId(ctx.catalogServices.currencyService, params.currency, { key: "code", value: "MXN" });
@@ -236,29 +250,10 @@ export const policySkills: SkillDefinition[] = [
     declaration: {
       name: "update_policy",
       description: "Modifies the data of an existing policy. Requires policy_id.",
-      schema: z.object({
-        policy_id: z.string({ required_error: "The UUID of the policy to update is required." }).uuid(),
-        policy_number: z.string().optional(),
-        premium: z.number().optional(),
-        sum_insured: z.number().optional(),
-        start_date: z.string().optional().describe("Date (YYYY-MM-DD)"),
-        end_date: z.string().optional().describe("Date (YYYY-MM-DD)"),
-        renewal_date: z.string().optional().describe("Date (YYYY-MM-DD)"),
-        next_payment_date: z.string().optional().describe("Date (YYYY-MM-DD)"),
-        status: z.string().optional().describe("New status (e.g., 'Vigente', 'Cancelada')"),
-        currency: z.string().optional().describe("New currency (e.g., 'MXN', 'USD')"),
-        payment_frequency: z.string().optional().describe("New payment frequency"),
-        payment_method: z.string().optional().describe("New payment method"),
-        notes: z.string().optional(),
-        deductible: z.string().optional().describe("Deductible (amount or percentage, e.g. '10%' or '$5,000')"),
-        coinsurance: z.string().optional().describe("Coinsurance percentage (e.g. '10%'), common on GMM policies"),
-        seniority_date: z.string().optional().describe("Recognized seniority date (antigüedad reconocida), YYYY-MM-DD"),
-        insured_item: z.string().optional().describe("Short label of the insured asset (Auto/Hogar/Mascotas)"),
-        policy_version: z.string().optional().describe("Policy version or endorsement number"),
-      }),
+      schema: UpdatePolicySchema,
     },
     async execute(args, ctx) {
-      const params = args as any;
+      const params = args as z.infer<typeof UpdatePolicySchema>;
       // El modelo manda snake_case y prepareForUpdate lee camelCase: se convierte
       // el objeto COMPLETO de una vez. Mapear campo por campo ya había dejado
       // fuera las fechas y los montos — el update salía vacío y Supabase

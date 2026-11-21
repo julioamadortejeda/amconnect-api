@@ -1,7 +1,7 @@
 import { BaseService } from "../../core/base_service.ts";
 import { ReminderRequestDTO, ReminderResponseDTO } from "./reminder.dto.ts";
 import { ReminderRepository } from "./reminder.repository.ts";
-import { objectToCamelCaseDeep, stripUndefined } from "../../shared/case_converter.ts";
+import { objectToCamelCaseDeep } from "../../shared/case_converter.ts";
 import { AppError } from "../../shared/errors.ts";
 import { daysFromNowRange } from "../../shared/utils.ts";
 
