@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { rrfMerge } from "./rrf.ts";
 import { capPerDocument } from "./cap_per_document.ts";
-import { fetchSizeFor, paginate } from "./paginate.ts";
+import { fetchSizeFor } from "./paginate.ts";
+import { paginateWithBudget } from "./paginate_budget.ts";
 import { applyBudget, countWords } from "./budget.ts";
 import type { SearchHit } from "../../shared/search_hits.ts";
 
@@ -37,19 +38,10 @@ Deno.test("capPerDocument: tope por documento, marca moreInDocument y ordena por
   assert.equal(out[1].moreInDocument, false);
 });
 
-Deno.test("paginate: moreAvailable con límite + 1", () => {
-  const items = [1, 2, 3, 4, 5];
-  assert.deepEqual(paginate(items, 1, 2), { items: [1, 2], moreAvailable: true });
-  assert.deepEqual(paginate(items, 3, 2), { items: [5], moreAvailable: false });
-  assert.deepEqual(paginate(items.slice(0, 2), 1, 2), { items: [1, 2], moreAvailable: false });
-  assert.deepEqual(paginate(items, 4, 2), { items: [], moreAvailable: false });
-});
-
-Deno.test("paginate: página inválida es la 1; fetchSizeFor pide límite + 1", () => {
-  assert.deepEqual(paginate([1, 2, 3], 0, 2), { items: [1, 2], moreAvailable: true });
-  assert.deepEqual(paginate([1, 2, 3], 1.5, 2), { items: [1, 2], moreAvailable: true });
+Deno.test("fetchSizeFor: pide límite + 1; página inválida es la 1", () => {
   assert.equal(fetchSizeFor(1, 10), 11);
   assert.equal(fetchSizeFor(3, 10), 31);
+  assert.equal(fetchSizeFor(0, 10), 11);
 });
 
 Deno.test("applyBudget: sin recorte cuando cabe todo", () => {
@@ -73,4 +65,45 @@ Deno.test("applyBudget: siempre entra un elemento aunque exceda el presupuesto",
 
 Deno.test("applyBudget: grupos vacíos", () => {
   assert.deepEqual(applyBudget({ a: [], b: [] }, 10, countWords), { groups: { a: [], b: [] }, omitted: {} });
+});
+
+const words = (_g: string, item: string) => countWords(item);
+
+Deno.test("paginateWithBudget: sin presupuesto que estorbe pagina por límite con moreAvailable", () => {
+  const g = { a: ["1", "2", "3", "4", "5"] };
+  assert.deepEqual(paginateWithBudget(g, 1, 2, 100, words), { a: { items: ["1", "2"], moreAvailable: true } });
+  assert.deepEqual(paginateWithBudget(g, 3, 2, 100, words), { a: { items: ["5"], moreAvailable: false } });
+  assert.deepEqual(paginateWithBudget(g, 4, 2, 100, words), { a: { items: [], moreAvailable: false } });
+  assert.deepEqual(paginateWithBudget(g, 0, 2, 100, words).a.items, ["1", "2"]);
+});
+
+Deno.test("paginateWithBudget: lo recortado por tamaño abre la página siguiente, sin perder ni repetir", () => {
+  const big = "p q r s"; // 4 palabras
+  const items = ["a", "b", "c", "d", "e", "f"].map((x) => `${big} ${x}`); // 5 palabras c/u
+  const seen: string[] = [];
+  for (let page = 1; page <= 6; page++) {
+    const r = paginateWithBudget({ g: items }, page, 10, 12, words).g; // caben 2 por página
+    assert.ok(r.items.length <= 2);
+    seen.push(...r.items);
+    assert.equal(r.moreAvailable, seen.length < items.length);
+  }
+  assert.deepEqual(seen, items);
+});
+
+Deno.test("paginateWithBudget: es determinista y avanza aunque un elemento exceda el presupuesto", () => {
+  const items = ["uno dos tres cuatro cinco seis", "x"];
+  const p1 = paginateWithBudget({ g: items }, 1, 10, 2, words);
+  assert.deepEqual(p1.g, { items: [items[0]], moreAvailable: true });
+  assert.deepEqual(paginateWithBudget({ g: items }, 1, 10, 2, words), p1);
+  assert.deepEqual(paginateWithBudget({ g: items }, 2, 10, 2, words).g, { items: ["x"], moreAvailable: false });
+});
+
+Deno.test("paginateWithBudget: varios grupos, cada uno con su cursor", () => {
+  const big = "p q r s";
+  const g = { a: [big, big, big], b: [big, big] };
+  const p1 = paginateWithBudget(g, 1, 10, 9, words);
+  assert.deepEqual([p1.a.items.length, p1.b.items.length], [1, 1]);
+  assert.equal(p1.a.moreAvailable && p1.b.moreAvailable, true);
+  const p2 = paginateWithBudget(g, 2, 10, 9, words);
+  assert.deepEqual([p2.a.items.length, p2.b.items.length], [1, 1]);
 });

@@ -1,6 +1,6 @@
 import "../../../shared/testing/test_env.ts";
 import assert from "node:assert/strict";
-import { recallResult } from "./recall.mapper.ts";
+import { recallResult, weighRecallItem } from "./recall.mapper.ts";
 import { getSkillByName } from "./index.ts";
 import type { RecallResult } from "../../recall/recall.types.ts";
 import type { SkillContext } from "./skill.core.ts";
@@ -21,12 +21,19 @@ Deno.test("recallResult: el modelo ve extractos, nunca vectores ni puntajes; tra
   assert.deepEqual((out.groups.documents.items[0] as { excerpts: string[] }).excerpts, ["palabra palabra palabra"]);
 });
 
-Deno.test("recallResult: aplica el presupuesto y reporta omittedForSize", () => {
-  const input: RecallResult = { searchId: "", page: 1, groups: { notes: { items: [doc("a", 50), doc("b", 50), doc("c", 50)], moreAvailable: false } } };
-  const out = recallResult(input, "UTC", 120);
+Deno.test("weighRecallItem: pesa lo que el modelo ve (extractos recortados), no el DTO crudo", () => {
+  const small = weighRecallItem("documents", doc("a", 3));
+  const big = weighRecallItem("documents", doc("a", 50));
+  assert.ok(big > small && big >= 50);
+  assert.equal(weighRecallItem("chunks", doc("a", 7).chunks[0]), 7);
+});
+
+Deno.test("recallResult: no recorta ni inventa campos de paginación (omittedForSize ya no existe)", () => {
+  const input: RecallResult = { searchId: "", page: 1, groups: { notes: { items: [doc("a", 50), doc("b", 50)], moreAvailable: true } } };
+  const out = recallResult(input, "UTC");
   assert.equal(out.groups.notes.items.length, 2);
-  assert.deepEqual(out.omittedForSize, { notes: 1 });
-  assert.equal("searchId" in out, false);
+  assert.equal(out.groups.notes.moreAvailable, true);
+  assert.equal("omittedForSize" in out, false);
 });
 
 Deno.test("skill recall: valida args y es un adaptador delgado sobre RecallService", async () => {
@@ -39,7 +46,8 @@ Deno.test("skill recall: valida args y es un adaptador delgado sobre RecallServi
     agentId: "a1", timezone: "UTC",
     recallService: { recall: (_a: string, p: unknown) => (received = p, Promise.resolve({ searchId: "s", page: 2, groups: {} })) },
   } as unknown as SkillContext;
-  const out = await skill.execute({ query: "hernia", contact_id: "c1", page: 2, groups: ["notes"], search_id: "s" }, ctx);
-  assert.deepEqual(received, { query: "hernia", contactId: "c1", page: 2, groups: ["notes"], searchId: "s" });
+  const out = await skill.execute({ query: "hernia", contact_id: "c1", page: 2, groups: ["notes"], search_id: "s", note_id: "n1" }, ctx);
+  assert.deepEqual(received, { query: "hernia", contactId: "c1", page: 2, groups: ["notes"], searchId: "s", noteId: "n1" });
+  assert.ok(skill.declaration.description.includes("note_id"));
   assert.equal((out as { searchId: string }).searchId, "s");
 });

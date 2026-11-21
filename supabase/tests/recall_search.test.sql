@@ -1,7 +1,7 @@
 -- Pruebas de `recall` (migraciones 20261121074654_recall_search y
 -- 20261121074733_recall_searches). Correr con: supabase test db
 begin;
-select plan(19);
+select plan(24);
 
 insert into auth.users (id, email, raw_user_meta_data)
 values
@@ -125,6 +125,40 @@ select is(
   (select count(*)::int from search_agent_note_chunks_text('11111111-1111-1111-1111-111111111111', 'hernia GMM', 10)
    where note_id = 'd0000000-0000-0000-0000-00000000000b'),
   0, 'RLS: la búsqueda de texto de A nunca ve el fragmento de B'
+);
+
+-- ─── note_id (más de UN documento) ───────────────────────────────────────────
+
+select is(
+  (select array_agg(chunk_id order by chunk_id) from search_agent_note_chunks_exact(
+     '11111111-1111-1111-1111-111111111111', pg_temp.vec(0), 0.0, 10, p_note_id => 'd0000000-0000-0000-0000-000000000002')),
+  array['a0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000002']::uuid[],
+  'p_note_id acota la exacta a los fragmentos de ese documento'
+);
+
+select is(
+  (select array_agg(chunk_id) from search_agent_note_chunks_text(
+     '11111111-1111-1111-1111-111111111111', 'hernia nota rodilla', 10, p_note_id => 'd0000000-0000-0000-0000-000000000002')),
+  array['a0000000-0000-0000-0000-000000000001']::uuid[],
+  'p_note_id acota la búsqueda de texto a ese documento'
+);
+
+select is(
+  (select count(*)::int from search_agent_note_chunks_exact(
+     '11111111-1111-1111-1111-111111111111', pg_temp.vec(0), 0.0, 10, p_note_id => 'd0000000-0000-0000-0000-00000000000b')),
+  0, 'RLS: A con el note_id de un documento de B no obtiene nada (exacta)'
+);
+
+select is(
+  (select count(*)::int from search_agent_note_chunks_text(
+     '11111111-1111-1111-1111-111111111111', 'hernia', 10, p_note_id => 'd0000000-0000-0000-0000-00000000000b')),
+  0, 'RLS: A con el note_id de un documento de B no obtiene nada (texto)'
+);
+
+select is(
+  (select count(*)::int from search_agent_note_chunks_exact(
+     '11111111-1111-1111-1111-111111111111', pg_temp.vec(0), 0.0, 10, p_note_id => gen_random_uuid())),
+  0, 'un note_id inexistente devuelve vacío'
 );
 
 -- ─── recall_searches ─────────────────────────────────────────────────────────

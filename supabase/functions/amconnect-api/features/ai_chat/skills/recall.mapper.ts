@@ -1,8 +1,13 @@
 // Lo que el MODELO ve del resultado de `recall`. Solo forma: buscar, agrupar,
 // paginar y combinar viven en RecallService y las funciones puras de features/recall.
-import type { RecallDocument, RecallGroups, RecallResult } from "../../recall/recall.types.ts";
-import { RECALL_CHUNK_MAX_CHARS, RECALL_WORD_BUDGET } from "../../recall/recall.config.ts";
-import { applyBudget, countWords } from "../../recall/budget.ts";
+import { RECALL_GROUPS, type RecallDocument, type RecallGroup, type RecallGroupResult, type RecallResult } from "../../recall/recall.types.ts";
+import { RECALL_CHUNK_MAX_CHARS } from "../../recall/recall.config.ts";
+import { countWords } from "../../recall/budget.ts";
+import type { ContactResponseDTO } from "../../../modules/contact/contact.dto.ts";
+import type { PolicyResponseDTO } from "../../../modules/policy/policy.dto.ts";
+import type { ReminderResponseDTO } from "../../../modules/reminder/reminder.dto.ts";
+import type { CommitmentResponseDTO } from "../../commitments/commitment.dto.ts";
+import type { NoteMatch } from "../../rag/rag.repository.ts";
 import { slimContact } from "./contact.mapper.ts";
 import { slimPolicy } from "./policy.mapper.ts";
 import { slimReminder } from "./reminder.mapper.ts";
@@ -23,31 +28,49 @@ export const slimRecallDocument = (d: RecallDocument) => ({
   moreInDocument: d.moreInDocument,
 });
 
-export function recallResult(
-  result: RecallResult,
-  timezone: string,
-  maxWords = RECALL_WORD_BUDGET,
-) {
-  const g: RecallGroups = result.groups;
-  const mapped: Record<string, unknown[]> = {};
-  if (g.contacts) mapped.contacts = g.contacts.items.map(slimContact);
-  if (g.policies) mapped.policies = g.policies.items.map(slimPolicy);
-  if (g.reminders) mapped.reminders = g.reminders.items.map((r) => slimReminder(r, timezone));
-  if (g.commitments) mapped.commitments = g.commitments.items.map(commitmentSummary);
-  if (g.notes) mapped.notes = g.notes.items.map(slimRecallDocument);
-  if (g.documents) mapped.documents = g.documents.items.map(slimRecallDocument);
+/**
+ * Palabras que ocupa un elemento en lo que ve el modelo. Es la medida de
+ * RecallService para paginar contra el presupuesto, así que usa la misma forma
+ * que `recallResult` entrega. El huso horario solo cambia el largo de una fecha:
+ * se fija en UTC para que las fronteras de página no dependan del asesor.
+ */
+export function weighRecallItem(group: RecallGroup | "chunks", item: unknown): number {
+  return countWords(JSON.stringify(renderItem(group, item, "UTC")));
+}
 
-  const { groups: kept, omitted } = applyBudget(mapped, maxWords, (item) => countWords(JSON.stringify(item)));
+function renderItem(group: RecallGroup | "chunks", item: unknown, timezone: string): unknown {
+  switch (group) {
+    case "contacts":
+      return slimContact(item as ContactResponseDTO);
+    case "policies":
+      return slimPolicy(item as PolicyResponseDTO);
+    case "reminders":
+      return slimReminder(item as ReminderResponseDTO, timezone);
+    case "commitments":
+      return commitmentSummary(item as CommitmentResponseDTO);
+    case "notes":
+    case "documents":
+      return slimRecallDocument(item as RecallDocument);
+    case "chunks":
+      return clip((item as NoteMatch).content);
+  }
+}
 
+/**
+ * Solo da forma: qué entra en cada página y `moreAvailable` ya los decidió
+ * RecallService (paginateWithBudget); aquí no se recorta nada.
+ */
+export function recallResult(result: RecallResult, timezone: string) {
   const out: Record<string, { items: unknown[]; moreAvailable: boolean }> = {};
-  for (const name of Object.keys(kept)) {
-    out[name] = { items: kept[name], moreAvailable: g[name as keyof RecallGroups]!.moreAvailable };
+  for (const group of RECALL_GROUPS) {
+    const g = result.groups[group] as RecallGroupResult<unknown> | undefined;
+    if (!g) continue;
+    out[group] = { items: g.items.map((item) => renderItem(group, item, timezone)), moreAvailable: g.moreAvailable };
   }
   return {
     // Solo hay searchId si se buscó en notas/documentos (es el vector guardado).
     ...(result.searchId ? { searchId: result.searchId } : {}),
     page: result.page,
     groups: out,
-    ...(Object.keys(omitted).length > 0 ? { omittedForSize: omitted } : {}),
   };
 }

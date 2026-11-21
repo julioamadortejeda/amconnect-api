@@ -50,4 +50,9 @@ export interface RecallParams {
   page?: number;
   groups?: RecallGroup[];
   searchId?: string;
+  /** Busca solo dentro de este documento (sin tope por documento; la página es de fragmentos). */
+  noteId?: string;
 }
+
+/** Cuántas palabras ocupa un elemento en lo que ve el modelo (`"chunks"`: fragmento al pedir un documento). */
+export type RecallWeigh = (group: RecallGroup | "chunks", item: unknown) => number;

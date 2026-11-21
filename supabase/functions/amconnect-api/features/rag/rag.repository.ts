@@ -27,6 +27,8 @@ export interface SearchNoteChunksOptions {
 export interface RecallChunkFilters extends SearchNoteChunksOptions {
   /** `agent_notes.source_type` permitidos; sin él, todos. */
   sourceTypes?: readonly string[];
+  /** Solo los fragmentos de esta nota (documento). */
+  noteId?: string;
 }
 
 export interface IRagRepository {
@@ -96,6 +98,7 @@ export class RagRepository implements IRagRepository {
       p_contact_id: filters?.contactId ?? null,
       p_policy_id: filters?.policyId ?? null,
       p_reminder_id: filters?.reminderId ?? null,
+      p_note_id: filters?.noteId ?? null,
     });
     if (error) handleSupabaseError(error, "Error en la búsqueda exacta de notas");
     return await this.toMatches(data);
@@ -115,6 +118,7 @@ export class RagRepository implements IRagRepository {
       p_contact_id: filters?.contactId ?? null,
       p_policy_id: filters?.policyId ?? null,
       p_reminder_id: filters?.reminderId ?? null,
+      p_note_id: filters?.noteId ?? null,
     });
     if (error) handleSupabaseError(error, "Error en la búsqueda de texto de notas");
     return await this.toMatches(data);

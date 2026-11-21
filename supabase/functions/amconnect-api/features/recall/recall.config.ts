@@ -5,6 +5,8 @@
 export const RECALL_GROUP_LIMIT = 10;
 /** Fragmentos que se muestran de un mismo documento; el resto se marca `moreInDocument`. */
 export const RECALL_MAX_PER_DOCUMENT = 5;
+/** Fragmentos por página al pedir más de UN documento (`note_id`). */
+export const RECALL_CHUNKS_PER_PAGE = 10;
 /** Fragmentos candidatos por búsqueda (vectorial y de texto) en notas/documentos. */
 export const RECALL_CANDIDATES = 50;
 /** Tope duro de candidatos al pedir páginas profundas. */

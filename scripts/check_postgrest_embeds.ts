@@ -127,6 +127,11 @@ await check("cron: contactos con cumpleaños", () => job.findContactsWithBirthda
 const rag = new RagRepository(supabase);
 const unit = JSON.stringify([1, ...Array(767).fill(0)]);
 await check("recall: notas vectorial exacta (RPC)", () => rag.searchNoteChunksExact(agentId, unit, 0, 5, { sourceTypes: ["text"] }));
+await check("recall: un documento (note_id) exacta + texto", async () => {
+  const noteId = crypto.randomUUID();
+  await rag.searchNoteChunksText(agentId, "poliza", 5, { noteId });
+  return await rag.searchNoteChunksExact(agentId, unit, 0, 5, { noteId });
+});
 await check("recall: notas texto completo (RPC)", () => rag.searchNoteChunksText(agentId, "poliza hernia", 5, { sourceTypes: ["pdf"] }));
 await check("recall: búsqueda guardada (insert, find, delete)", async () => {
   const repo = new RecallSearchRepository(supabase);

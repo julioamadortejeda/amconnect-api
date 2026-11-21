@@ -32,6 +32,7 @@ import { EmbeddingsService } from "../../../features/rag/embeddings.service.ts";
 import { EmbeddingsRepository } from "../../../features/rag/embeddings.repository.ts";
 import { RagService } from "../../../features/rag/rag.service.ts";
 import { RagRepository } from "../../../features/rag/rag.repository.ts";
+import { weighRecallItem } from "../../../features/ai_chat/skills/recall.mapper.ts";
 import { RecallService } from "../../../features/recall/recall.service.ts";
 import { RecallSearchService } from "../../../features/recall/recall_search.service.ts";
 import { RecallSearchRepository } from "../../../features/recall/recall_search.repository.ts";
@@ -283,6 +284,7 @@ export const injectServices = async (c: Context, next: Next) => {
         recallService: new RecallService(
           { contacts: contactService, policies: policyService, reminders: reminderService, commitments: commitmentService, notes: ragService },
           new RecallSearchService(new RecallSearchRepository(supabase), (q) => ragService.embedQuery(q)),
+          weighRecallItem,
         ),
         embeddingsService,
         catalogServices,

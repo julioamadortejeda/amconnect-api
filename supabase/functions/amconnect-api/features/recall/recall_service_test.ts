@@ -4,7 +4,7 @@ import { RecallService, type RecallSources } from "./recall.service.ts";
 import { RecallSearchService } from "./recall_search.service.ts";
 import type { SearchHit, SearchOptions } from "../../shared/search_hits.ts";
 import type { NoteMatch } from "../rag/rag.repository.ts";
-import { RECALL_GROUP_LIMIT, RECALL_MAX_PER_DOCUMENT } from "./recall.config.ts";
+import { RECALL_CHUNKS_PER_PAGE, RECALL_GROUP_LIMIT, RECALL_MAX_PER_DOCUMENT } from "./recall.config.ts";
 
 const chunk = (chunkId: string, noteId: string, sourceType = "pdf"): NoteMatch => ({
   chunkId, noteId, content: `c ${chunkId}`, contactId: null, policyId: null, similarity: 0.9,
@@ -16,7 +16,9 @@ const simpleHits = <T>(source: SearchHit<T>["source"], n: number, mk: (i: number
 
 interface Calls { opts: Record<string, SearchOptions[]>; embeds: number; stored: number }
 
-function setup(over: Partial<{ failing: string; contacts: number; docChunks: NoteMatch[]; textChunks: NoteMatch[] }> = {}) {
+function setup(
+  over: Partial<{ failing: string; contacts: number; docChunks: NoteMatch[]; textChunks: NoteMatch[]; weigh: (g: string, i: unknown) => number; maxWords: number }> = {},
+) {
   const calls: Calls = { opts: {}, embeds: 0, stored: 0 };
   const rec = (k: string, o?: SearchOptions) => (calls.opts[k] ??= []).push(o ?? {});
   const guard = (k: string) => over.failing === k ? Promise.reject(new Error(`fallo ${k}`)) : null;
@@ -41,7 +43,7 @@ function setup(over: Partial<{ failing: string; contacts: number; docChunks: Not
     insert: () => (calls.stored++, Promise.resolve("sid-1")),
     deleteExpired: () => Promise.resolve(),
   }, () => (calls.embeds++, Promise.resolve([0.5])));
-  return { service: new RecallService(sources, searches), calls };
+  return { service: new RecallService(sources, searches, over.weigh ?? (() => 1), over.maxWords), calls };
 }
 
 Deno.test("recall: llama a las seis fuentes, separa notas y documentos por source_type y devuelve searchId", async () => {
@@ -97,4 +99,55 @@ Deno.test("recall: con contact_id se salta el grupo contacts y propaga el filtro
 Deno.test("recall: una fuente que falla hace fallar la búsqueda (nunca []) ", async () => {
   await assert.rejects(setup({ failing: "policies" }).service.recall("a1", { query: "x" }), /fallo policies/);
   await assert.rejects(setup({ failing: "text" }).service.recall("a1", { query: "x" }), /fallo text/);
+});
+
+Deno.test("recall: lo que no cabe en el presupuesto abre la página siguiente (nada se pierde) ", async () => {
+  const { service } = setup({ contacts: 5, weigh: () => 10, maxWords: 25 }); // caben 2 por página
+  const seen: string[] = [];
+  for (let page = 1; page <= 3; page++) {
+    const r = await service.recall("a1", { query: "x", groups: ["contacts"], page });
+    const g = r.groups.contacts!;
+    assert.ok(g.items.length <= 2);
+    seen.push(...g.items.map((c) => (c as unknown as { id: string }).id));
+    assert.equal(g.moreAvailable, seen.length < 5, `moreAvailable en página ${page}`);
+  }
+  assert.deepEqual(seen, ["c0", "c1", "c2", "c3", "c4"]);
+});
+
+Deno.test("recall note_id: solo ese documento, sin tope por documento, reutiliza el vector y pagina por fragmento", async () => {
+  const many = Array.from({ length: RECALL_CHUNKS_PER_PAGE + 3 }, (_, i) => chunk(`v${i}`, "doc-1"));
+  const { service, calls } = setup({ docChunks: many });
+  const p1 = await service.recall("a1", { query: "x", noteId: "doc-1", groups: ["policies"] });
+  // las otras fuentes ni se tocan
+  assert.equal(calls.opts.policies, undefined);
+  assert.equal(calls.opts.contacts, undefined);
+  const o = calls.opts["vec:undefined"][0];
+  assert.equal(o.noteId, "doc-1");
+  assert.equal(o.sourceTypes, undefined);
+  assert.deepEqual(o.queryEmbedding, [0.5]);
+  const d1 = p1.groups.documents!;
+  assert.equal(d1.items.length, 1);
+  assert.equal(d1.items[0].chunks.length, RECALL_CHUNKS_PER_PAGE, "más fragmentos que el tope por documento");
+  assert.ok(RECALL_CHUNKS_PER_PAGE > RECALL_MAX_PER_DOCUMENT);
+  assert.equal(d1.moreAvailable, true);
+  const p2 = await service.recall("a1", { query: "x", noteId: "doc-1", page: 2 });
+  assert.equal(p2.groups.documents!.items[0].chunks.length, 3);
+  assert.equal(p2.groups.documents!.moreAvailable, false);
+  assert.deepEqual(
+    [...p1.groups.documents!.items[0].chunks, ...p2.groups.documents!.items[0].chunks].map((c) => c.chunkId),
+    many.map((c) => c.chunkId),
+  );
+});
+
+Deno.test("recall note_id: un documento ajeno o inexistente (sin fragmentos) devuelve grupo vacío", async () => {
+  const { service } = setup();
+  const r = await service.recall("a1", { query: "x", noteId: "ajeno" });
+  assert.deepEqual(r.groups.documents, { items: [], moreAvailable: false });
+});
+
+Deno.test("recall note_id: una nota de texto sale en el grupo notes", async () => {
+  const { service } = setup({ docChunks: [chunk("1", "n1", "text")] });
+  const r = await service.recall("a1", { query: "x", noteId: "n1" });
+  assert.equal(r.groups.notes!.items.length, 1);
+  assert.equal(r.groups.documents, undefined);
 });

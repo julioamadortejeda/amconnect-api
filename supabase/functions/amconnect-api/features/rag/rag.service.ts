@@ -64,14 +64,14 @@ export class RagService implements Searchable<NoteMatch> {
    * `score` es la similitud coseno.
    */
   async searchHits(agentId: string, query: string, opts: SearchOptions = {}): Promise<SearchHit<NoteMatch>[]> {
-    const scoped = !!(opts.contactId || opts.policyId || opts.reminderId);
+    const scoped = !!(opts.contactId || opts.policyId || opts.reminderId || opts.noteId);
     const embedding = opts.queryEmbedding ?? await this.embedQuery(query);
     const matches = await this.repository.searchNoteChunksExact(
       agentId,
       JSON.stringify(embedding),
       scoped ? RAG_THRESHOLD_SCOPED : RAG_THRESHOLD_BROAD,
       opts.limit ?? 5,
-      { contactId: opts.contactId, policyId: opts.policyId, reminderId: opts.reminderId, sourceTypes: opts.sourceTypes },
+      { contactId: opts.contactId, policyId: opts.policyId, reminderId: opts.reminderId, sourceTypes: opts.sourceTypes, noteId: opts.noteId },
     );
     return toSearchHits("note", matches, (m) => m.chunkId, { scoreOf: (m) => m.similarity });
   }
@@ -88,6 +88,7 @@ export class RagService implements Searchable<NoteMatch> {
       policyId: opts.policyId,
       reminderId: opts.reminderId,
       sourceTypes: opts.sourceTypes,
+      noteId: opts.noteId,
     });
     return toSearchHits("note", matches, (m) => m.chunkId, { scoreOf: (m) => m.similarity });
   }
