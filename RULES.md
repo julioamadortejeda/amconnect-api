@@ -21,6 +21,12 @@ Route → Controller → Service → Repository → Supabase
 - **Listados: siempre la misma página**, dentro de `data`: `{ data: [...], total, page, pageSize, hasMore }`. Entrada `?page=1&pageSize=20` (defaults; tope 100). Se arma con `buildPage` (`shared/pagination.ts`); si la fuente no puede contar (RPC), `buildPageByLookahead` y `total` se omite. Un listado nuevo NO inventa otro formato ni devuelve el arreglo pelón.
 - **Params de URL: `validate("param"|"query", Schema)` en la ruta** (`http/middleware/validate.ts`, esquemas en `http/routes/route_schemas.ts`) y el controller lee `validated(c, ...)`. Un uuid mal formado o un `page=abc` es 422 `VALIDATION_FAILED`, nunca un error de BD. Prohibido `c.req.param()`/`c.req.query()` en controllers.
 
+## 1.2 Contrato OpenAPI (2026-11-21)
+
+- `GET /amconnect-api/openapi.json` (público, sin auth ni cobro, como `/health`) se genera en `http/openapi/` desde el router real y los esquemas Zod. Es la excepción a `sendSuccess`: se sirve crudo.
+- **Ruta nueva = entrada en `http/openapi/route_docs.ts`** (resumen + esquema del body si hay DTO). Params y query se documentan solos si usas `validate()`. `openapi_test.ts` truena si falta una.
+- No inventes formas: sin esquema de respuesta, queda un objeto genérico.
+
 ## 2. Manejo de errores (contrato único)
 
 - **Nunca** hacer `c.json({error: ...})` manual ni `try/catch` que trague errores en controllers. Lanzar SIEMPRE una subclase de `AppError` (`shared/errors.ts`) y dejar que `globalErrorHandler` responda.
