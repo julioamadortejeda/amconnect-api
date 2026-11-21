@@ -5,6 +5,7 @@ import { injectServices } from "./http/middleware/di/index.ts";
 import { globalErrorHandler } from "./http/middleware/error.middleware.ts";
 import { apiRouter } from "./http/routes/index.ts";
 import { sendSuccess } from "./shared/api_response.ts";
+import { OpenApiController } from "./http/controllers/openapi.controller.ts";
 import { NotificationController } from "./http/controllers/notification.controller.ts";
 import { ReminderGenerationController } from "./http/controllers/reminder_generation.controller.ts";
 
@@ -22,6 +23,9 @@ app.use("*", async (c, next) => {
 });
 
 app.get("/amconnect-api/health", (c: Context) => sendSuccess(c, { status: "ok", timestamp: new Date().toISOString() }));
+
+// Contrato OpenAPI: público y sin cobro, como /health (se monta antes de auth y DI)
+app.get("/amconnect-api/openapi.json", OpenApiController.getDocument);
 
 // Endpoint interno disparado por pg_cron para enviar notificaciones de recordatorios vencidos
 app.post("/amconnect-api/notifications/send-due", NotificationController.sendDueNotifications);

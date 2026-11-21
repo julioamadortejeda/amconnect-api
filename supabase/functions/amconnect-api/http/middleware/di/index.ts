@@ -57,6 +57,7 @@ import { ContactWorkflowService } from "../../../modules/contact/contact_workflo
 import { PolicyWorkflowService } from "../../../modules/policy/policy_workflow.service.ts";
 import { ReminderWorkflowService } from "../../../modules/reminder/reminder_workflow.service.ts";
 import { PolicyConfirmationService } from "../../../features/document_processing/policy_confirmation.service.ts";
+import { SUBSCRIPTION_EXEMPT_ROUTES } from "../subscription_exempt.ts";
 import type { SkillServices } from "../../../features/ai_chat/skills/skill.core.ts";
 
 // Switch único gratis ↔ pago: AI_BACKEND=studio (default, Gemini API con
@@ -116,20 +117,6 @@ async function checkModelCatalog(supabase: SupabaseClient): Promise<void> {
   }
   modelCatalogChecked = true;
 }
-
-// Rutas que deben responder aunque la suscripción esté vencida. Sin ellas, un
-// asesor con el trial vencido no puede ver su cuenta ni los planes, aplicar un
-// código promocional, ni desregistrar su dispositivo al cerrar sesión (el token
-// push quedaría vivo y le seguirían llegando notificaciones). Lista explícita
-// a propósito: cualquier ruta nueva queda protegida por defecto.
-const SUBSCRIPTION_EXEMPT_ROUTES = new Set([
-  "GET /agents/me",
-  "POST /agents/me/privacy-consent",
-  "DELETE /agents/device-tokens",
-  "GET /subscription",
-  "GET /subscription/plans",
-  "POST /subscription/apply-promo",
-]);
 
 function requiresActiveSubscription(c: Context): boolean {
   // El router está montado en /amconnect-api; la lista se escribe sin prefijo.

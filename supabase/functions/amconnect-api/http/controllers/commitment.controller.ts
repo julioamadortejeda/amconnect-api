@@ -6,7 +6,7 @@ import { CommitmentService } from "../../features/commitments/commitment.service
 import { validated } from "../middleware/validate.ts";
 import { CommitmentsQuerySchema, IdParamSchema } from "../routes/route_schemas.ts";
 
-const CloseCommitmentSchema = z.object({
+export const CloseCommitmentSchema = z.object({
   resolutionNote: z.string().optional().nullable(),
   /** true cuando el compromiso dejó de aplicar en vez de haberse cumplido. */
   dismissed: z.boolean().optional(),
