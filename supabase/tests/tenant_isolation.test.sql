@@ -662,6 +662,23 @@ select is_empty(
   'META: toda tabla hija sin agent_id con dos padres de asesor tiene su trigger declarado'
 );
 
+-- META: una sola FK por par de tablas (en la misma dirección). PostgREST arma
+-- sus embeds desde pg_constraint y con dos FKs entre las mismas tablas todo
+-- embed sin hint responde PGRST201. Pasó el 2026-11-21: las compuestas
+-- convivieron con las simples y GET /reminders y /policies dieron 500.
+-- Excepción declarada: ai_sessions -> ai_models (model_name, embedding_model_name,
+-- tts_model_name), tres FKs reales que nadie embebe; un embed ahí necesita hint
+-- por nombre de constraint.
+select is_empty(
+  $$ select conrelid::regclass || ' -> ' || confrelid::regclass || ': ' || string_agg(conname, ', ')
+       from pg_constraint
+      where contype = 'f' and connamespace = 'public'::regnamespace
+        and (conrelid::regclass::text, confrelid::regclass::text) <> ('ai_sessions', 'ai_models')
+      group by conrelid, confrelid
+     having count(*) > 1 $$,
+  'META: no hay dos FKs entre el mismo par de tablas (PostgREST: embed ambiguo, PGRST201)'
+);
+
 select cmp_ok((select count(*)::int from v_same_agent_fk), '>=', 21,
   'SETUP: las FKs compuestas de mismo asesor existen');
 

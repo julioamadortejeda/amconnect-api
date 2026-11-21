@@ -85,7 +85,7 @@ export class ReminderGenerationRepository implements IReminderGenerationReposito
   async findPolicyScheduleInfo(policyId: string): Promise<PolicyScheduleInfo | null> {
     const { data, error } = await this.supabase
       .from("policies")
-      .select("product:products!product_id(branch_id), frequency:payment_frequencies!payment_frequency_id(months)")
+      .select("product:products(branch_id), frequency:payment_frequencies!payment_frequency_id(months)")
       .eq("id", policyId)
       .maybeSingle();
 
