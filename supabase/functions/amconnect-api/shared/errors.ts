@@ -56,6 +56,19 @@ export class QuotaExceededError extends AppError {
   }
 }
 
+/**
+ * Límite por minuto del asesor rebasado (D-027). Distinto de QUOTA_EXCEEDED,
+ * que es la cuota MENSUAL del plan: este se arregla esperando unos segundos.
+ * `retryAfterSeconds` viaja en el header `Retry-After` (lo pone el
+ * globalErrorHandler).
+ */
+export class RateLimitedError extends AppError {
+  constructor(public readonly retryAfterSeconds: number) {
+    super("Vas muy rápido, espera un momento e intenta de nuevo.", 429, "RATE_LIMITED");
+    this.name = "RateLimitedError";
+  }
+}
+
 export class AiError extends AppError {
   constructor(message: string) {
     super(message, 502, "AI_ERROR");

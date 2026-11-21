@@ -4,6 +4,8 @@
 // - Rutas, params y query: del router + `validatorMeta` (lo que `validate()` valida).
 // - Body: de `ROUTE_DOCS` (mismo esquema del DTO que parsea el controller).
 // - 402: de `SUBSCRIPTION_EXEMPT_ROUTES` (misma lista que usa el DI).
+// - 429: en toda ruta autenticada (límite por minuto, D-027) y además la cuota
+//   mensual en las rutas con `quota`.
 // Zod → JSON Schema con `zod-to-json-schema` (ya es dependencia del backend).
 import type { Hono } from "hono";
 import { zodToJsonSchema } from "zod-to-json-schema";
@@ -74,6 +76,43 @@ function errorResponse(description: string, errorCode: string): Json {
   };
 }
 
+// 429 posible en TODA ruta autenticada: límite por minuto del asesor (D-027,
+// shared/security.config.ts). En las rutas que cobran cuota también puede ser la
+// cuota mensual del plan; mismo status, distinto errorCode. Solo RATE_LIMITED
+// trae `Retry-After`.
+function tooManyRequestsResponse(quota: boolean): Json {
+  const rateLimited = "Vas muy rápido, espera un momento e intenta de nuevo.";
+  const examples: Json = {
+    RATE_LIMITED: {
+      summary: "Límite por minuto rebasado (esperar Retry-After segundos)",
+      value: { success: false, error: rateLimited, errorCode: "RATE_LIMITED" },
+    },
+  };
+  if (quota) {
+    examples.QUOTA_EXCEEDED = {
+      summary: "Cuota mensual del plan agotada",
+      value: { success: false, error: "Cuota mensual del plan agotada.", errorCode: "QUOTA_EXCEEDED" },
+    };
+  }
+  return {
+    description: quota
+      ? "Límite por minuto rebasado (RATE_LIMITED) o cuota mensual del plan agotada (QUOTA_EXCEEDED)."
+      : "Límite por minuto rebasado (RATE_LIMITED).",
+    headers: {
+      "Retry-After": {
+        description: "Segundos a esperar antes de reintentar (solo con RATE_LIMITED).",
+        schema: { type: "integer", minimum: 1 },
+      },
+    },
+    content: {
+      "application/json": {
+        schema: { $ref: "#/components/schemas/ErrorEnvelope" },
+        examples,
+      },
+    },
+  };
+}
+
 /** `:id` → `{id}` */
 function toOpenApiPath(path: string): string {
   return path.replace(/:([A-Za-z0-9_]+)/g, "{$1}");
@@ -123,7 +162,7 @@ function buildOperation(route: { method: string; path: string; handlers: unknown
   };
   if (billed) responses["402"] = errorResponse("Suscripción vencida o periodo de prueba terminado.", "SUBSCRIPTION_REQUIRED");
   if (validated || doc.body) responses["422"] = errorResponse("Parámetros, query o body inválidos.", "VALIDATION_FAILED");
-  if (doc.quota) responses["429"] = errorResponse("Cuota mensual del plan agotada.", "QUOTA_EXCEEDED");
+  responses["429"] = tooManyRequestsResponse(Boolean(doc.quota));
 
   const op: Json = {
     operationId: `${route.method.toLowerCase()}_${route.path.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "")}`,
