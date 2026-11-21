@@ -4,8 +4,10 @@ import { ReminderRepository } from "./reminder.repository.ts";
 import { objectToCamelCaseDeep } from "../../shared/case_converter.ts";
 import { AppError, handleSupabaseError } from "../../shared/errors.ts";
 import { daysFromNowRange } from "../../shared/utils.ts";
+import { type Searchable, type SearchHit, type SearchOptions, toSearchHits } from "../../shared/search_hits.ts";
 
-export class ReminderService extends BaseService<ReminderRequestDTO, ReminderResponseDTO> {
+export class ReminderService extends BaseService<ReminderRequestDTO, ReminderResponseDTO>
+  implements Searchable<ReminderResponseDTO> {
   private reminderRepo: ReminderRepository;
 
   constructor(repository: ReminderRepository) {
@@ -226,5 +228,16 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
   ): Promise<ReminderResponseDTO[]> {
     const items = await this.reminderRepo.searchReminders(agentId, queryText, statusCode, contactId);
     return items.map((r) => this.toDTO(r));
+  }
+
+  /**
+   * Fuente "reminder" de `recall` (ver shared/search_hits.ts). Mismo
+   * `search_reminder_ids` que la skill `search_reminders`, sin filtro de
+   * estado: incluye hechos y cancelados, igual que esa skill sin `status`.
+   * No hay puntaje: el `rank` sigue el orden por `due_date`.
+   */
+  async searchHits(agentId: string, query: string, opts: SearchOptions = {}): Promise<SearchHit<ReminderResponseDTO>[]> {
+    const items = await this.searchReminders(agentId, query, undefined, opts.contactId);
+    return toSearchHits("reminder", items, (r) => r.id, { limit: opts.limit });
   }
 }

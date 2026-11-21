@@ -1,5 +1,6 @@
 import { CommitmentCloseResult, CommitmentListFilters, CommitmentResponseDTO } from "./commitment.dto.ts";
 import { CommitmentRepository, CommitmentUpdate } from "./commitment.repository.ts";
+import { type Searchable, type SearchHit, type SearchOptions, toSearchHits } from "../../shared/search_hits.ts";
 
 /** Solo lo que se puede cambiar después. `quote` no: ver `CommitmentUpdate`. */
 export interface UpdateCommitmentInput {
@@ -46,7 +47,7 @@ function normalize(text: string): string {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-export class CommitmentService {
+export class CommitmentService implements Searchable<CommitmentResponseDTO> {
   constructor(private repository: CommitmentRepository) {}
 
   /**
@@ -170,5 +171,16 @@ export class CommitmentService {
     sessionId?: string,
   ): Promise<CommitmentCloseResult> {
     return this.repository.close(agentId, id, status, resolutionNote, sessionId);
+  }
+
+  /**
+   * Fuente "commitment" de `recall` (ver shared/search_hits.ts). Mismo
+   * `search_commitment_ids` que `get_commitments` con `query`; solo abiertos.
+   * No hay puntaje: el `rank` sigue el orden por fecha (`due_to`, sin fecha al
+   * final).
+   */
+  async searchHits(agentId: string, query: string, opts: SearchOptions = {}): Promise<SearchHit<CommitmentResponseDTO>[]> {
+    const items = await this.repository.list(agentId, { query, contactId: opts.contactId });
+    return toSearchHits("commitment", items, (c) => c.id, { limit: opts.limit });
   }
 }

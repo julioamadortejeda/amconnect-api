@@ -11,6 +11,11 @@ import { AiSessionService } from "../ai_session.service.ts";
 import { CatalogServices } from "../../../modules/catalog/catalog.service.ts";
 import { UsageService } from "../../../modules/subscription/usage.service.ts";
 import { CommitmentService } from "../../commitments/commitment.service.ts";
+import { hasAnyChange } from "../../../shared/utils.ts";
+import { ContactWorkflowService } from "../../../modules/contact/contact_workflow.service.ts";
+import { PolicyWorkflowService } from "../../../modules/policy/policy_workflow.service.ts";
+import { ReminderWorkflowService } from "../../../modules/reminder/reminder_workflow.service.ts";
+import { PolicyConfirmationService } from "../../document_processing/policy_confirmation.service.ts";
 
 export interface SkillContext {
   agentId: string;
@@ -46,7 +51,20 @@ export interface SkillContext {
   aiSessionService: AiSessionService;
   catalogServices: CatalogServices;
   commitmentService: CommitmentService;
+  // Reglas de negocio que antes vivían dentro de las skills. Una skill es un
+  // adaptador: valida argumentos, llama a estos services y da forma al
+  // resultado para el modelo (mapper junto a la skill).
+  contactWorkflow: ContactWorkflowService;
+  policyWorkflow: PolicyWorkflowService;
+  reminderWorkflow: ReminderWorkflowService;
+  policyConfirmation: PolicyConfirmationService;
 }
+
+/**
+ * Lo que el DI le entrega a los servicios de chat y voz para armar el
+ * `SkillContext` de cada turno: todo menos lo que depende de la sesión.
+ */
+export type SkillServices = Omit<SkillContext, "agentId" | "sessionId" | "aiSessionService" | "timezone" | "timezoneOffset">;
 
 /**
  * Truena si una skill de actualización no recibió un solo campo que cambiar.
@@ -66,14 +84,16 @@ export interface SkillContext {
  * fila pero sí inserta un comentario, así que cuenta.
  */
 export function assertHasChanges(fields: Record<string, unknown>): void {
-  const hasAny = Object.values(fields).some((v) =>
-    v !== undefined && !(typeof v === "string" && v.trim() === "")
-  );
-  if (!hasAny) {
-    throw new Error(
-      "Nothing to update: no field to change was provided.",
-    );
-  }
+  if (!hasAnyChange(fields)) throw nothingToUpdate();
+}
+
+/**
+ * El mismo error de `assertHasChanges`, para cuando quien detectó la
+ * actualización vacía fue el service (devuelve `{ outcome: "no_changes" }`) y
+ * la skill solo tiene que contestárselo al modelo.
+ */
+export function nothingToUpdate(): Error {
+  return new Error("Nothing to update: no field to change was provided.");
 }
 
 export interface SkillDefinition {

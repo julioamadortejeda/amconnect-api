@@ -11,7 +11,7 @@ import { GeminiLiveProvider } from "../../providers/gemini_live.provider.ts";
 import { LIVE_AUDIO_MODEL } from "../../shared/config.ts";
 import { buildToolDeclarations } from "../../shared/tool_declarations.ts";
 import { executeSkill } from "./skills/skill_executor.ts";
-import { SkillContext } from "./skills/skill.core.ts";
+import { SkillContext, SkillServices } from "./skills/skill.core.ts";
 import { buildLocalDateTime, calcTimezoneOffset } from "../../shared/datetime.ts";
 import { AiSessionService } from "./ai_session.service.ts";
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
@@ -91,7 +91,7 @@ function buildVoiceContext(timezone: string): string {
 export class VoiceChatService {
   constructor(
     private aiProvider: GoogleGenAiProvider,
-    private skillContext: Omit<SkillContext, "agentId" | "sessionId" | "aiSessionService" | "timezone" | "timezoneOffset">,
+    private skillContext: SkillServices,
     private aiSessionService: AiSessionService,
     private promptService: PromptService,
     private usageService: UsageService,

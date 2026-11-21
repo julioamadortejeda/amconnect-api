@@ -1,29 +1,8 @@
 import { z } from "zod";
-import { assertHasChanges, SkillDefinition } from "./skill.core.ts";
-import { PolicyResponseDTO } from "../../../modules/policy/policy.dto.ts";
-import { appendNote, assertNoDuplicatePolicyNumber, resolveCatalogId } from "../../../shared/utils.ts";
+import { nothingToUpdate, SkillDefinition } from "./skill.core.ts";
 import { objectToCamelCase } from "../../../shared/case_converter.ts";
 import { entityThreshold } from "../../rag/rag.service.ts";
-
-const slimPolicy = (p: PolicyResponseDTO) => ({
-  id: p.id,
-  policyNumber: p.policyNumber,
-  contact: p.contact,
-  premium: p.premium,
-  sumInsured: p.sumInsured,
-  startDate: p.startDate,
-  endDate: p.endDate,
-  renewalDate: p.renewalDate,
-  nextPaymentDate: p.nextPaymentDate,
-  notes: p.notes,
-  deductible: p.deductible,
-  coinsurance: p.coinsurance,
-  seniorityDate: p.seniorityDate,
-  insuredItem: p.insuredItem,
-  policyVersion: p.policyVersion,
-  product: p.product,
-  status: p.status,
-});
+import { policyDetailResult, policyListResult, portfolioStatsResult, slimPolicy } from "./policy.mapper.ts";
 
 const CreatePolicySchema = z.object({
   contact_id: z.string({ required_error: "The contact/client UUID is required." }).uuid(),
@@ -68,21 +47,6 @@ const UpdatePolicySchema = z.object({
   policy_version: z.string().optional().describe("Policy version or endorsement number"),
 });
 
-// Tarjeta de pólizas del chat (metadata `policy_list`).
-const policyCardItem = (p: PolicyResponseDTO) => ({
-  id: p.id,
-  policyNumber: p.policyNumber,
-  holderName: p.contact?.fullName ?? "",
-  carrierName: p.product?.carrier?.name ?? "",
-  branchName: p.product?.branch?.name ?? "",
-  productName: p.product?.name ?? "",
-  statusName: p.status?.name ?? "",
-  premium: p.premium,
-  sumInsured: p.sumInsured,
-  renewalDate: p.renewalDate,
-  nextPaymentDate: p.nextPaymentDate,
-});
-
 export const policySkills: SkillDefinition[] = [
   {
     domain: "policy",
@@ -105,14 +69,7 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute(_args, ctx) {
       const policies = await ctx.policyService.getByField("agent_id", ctx.agentId);
-      const list = (policies ?? []).map(slimPolicy);
-      return {
-        policies: list,
-        __skillMetadata: {
-          type: "policy_list",
-          policies: (policies ?? []).map(policyCardItem),
-        },
-      };
+      return policyListResult(policies);
     },
   },
   {
@@ -127,14 +84,7 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute({ contact_id }, ctx) {
       const policies = await ctx.policyService.getByField("contact_id", contact_id as string);
-      const list = (policies ?? []).map(slimPolicy);
-      return {
-        policies: list,
-        __skillMetadata: {
-          type: "policy_list",
-          policies: (policies ?? []).map(policyCardItem),
-        },
-      };
+      return policyListResult(policies);
     },
   },
   {
@@ -153,35 +103,7 @@ export const policySkills: SkillDefinition[] = [
         ctx.policyService.getParticipants(policy_id as string),
         ctx.policyService.getBeneficiaries(policy_id as string),
       ]);
-      if (!policy) return { policy: null, participants: [], beneficiaries: [] };
-      // deno-lint-ignore no-explicit-any
-      const policyAny = policy as any;
-      return {
-        policy,
-        participants,
-        beneficiaries,
-        __skillMetadata: {
-          type: "policy_info",
-          policyId: policy.id,
-          policyNumber: policy.policyNumber,
-          carrierName: policyAny.product?.branch?.carrier?.name ?? "",
-          branchName: policyAny.product?.branch?.name ?? "",
-          productName: policyAny.product?.name ?? "",
-          holderName: policy.contact?.fullName ?? "",
-          premium: policy.premium,
-          sumInsured: policy.sumInsured,
-          startDate: policy.startDate,
-          endDate: policy.endDate,
-          renewalDate: policy.renewalDate,
-          nextPaymentDate: policy.nextPaymentDate,
-          statusName: policyAny.status?.name ?? "",
-          deductible: policy.deductible,
-          coinsurance: policy.coinsurance,
-          seniorityDate: policy.seniorityDate,
-          insuredItem: policy.insuredItem,
-          policyVersion: policy.policyVersion,
-        },
-      };
+      return policyDetailResult(policy, participants, beneficiaries);
     },
   },
   {
@@ -210,24 +132,13 @@ export const policySkills: SkillDefinition[] = [
     },
     async execute(args, ctx) {
       const params = args as z.infer<typeof CreatePolicySchema>;
-      await assertNoDuplicatePolicyNumber(ctx.policyService, ctx.agentId, params.policy_number);
-      const statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "ACTIVE" });
-      const currencyId = await resolveCatalogId(ctx.catalogServices.currencyService, params.currency, { key: "code", value: "MXN" });
-      const paymentFrequencyId = params.payment_frequency 
-        ? await resolveCatalogId(ctx.catalogServices.paymentFrequencyService, params.payment_frequency, { key: "name", value: "Anual" })
-        : null;
-      const paymentMethodId = params.payment_method
-        ? await resolveCatalogId(ctx.catalogServices.paymentMethodService, params.payment_method, { key: "name", value: "Tarjeta de Crédito" })
-        : null;
-
-      const policy = await ctx.policyService.create({
-        agentId: ctx.agentId,
+      const policy = await ctx.policyWorkflow.createByNames(ctx.agentId, {
         contactId: params.contact_id,
         productId: params.product_id,
-        statusId,
-        currencyId,
-        paymentFrequencyId,
-        paymentMethodId,
+        status: params.status,
+        currency: params.currency,
+        paymentFrequency: params.payment_frequency,
+        paymentMethod: params.payment_method,
         policyNumber: params.policy_number,
         sumInsured: params.sum_insured,
         premium: params.premium,
@@ -242,7 +153,6 @@ export const policySkills: SkillDefinition[] = [
         insuredItem: params.insured_item,
         policyVersion: params.policy_version,
       });
-
       return policy ? slimPolicy(policy) : null;
     },
   },
@@ -259,33 +169,11 @@ export const policySkills: SkillDefinition[] = [
       // el objeto COMPLETO de una vez. Mapear campo por campo ya había dejado
       // fuera las fechas y los montos — el update salía vacío y Supabase
       // respondía "sin filas", que el cliente traducía como 404.
-      const updates: Record<string, unknown> = objectToCamelCase({ ...params });
-      delete updates.policyId;
-      delete updates.status;
-      delete updates.currency;
-      delete updates.paymentFrequency;
-      delete updates.paymentMethod;
-
-      if (params.status) {
-        updates.statusId = await resolveCatalogId(ctx.catalogServices.policyStatusService, params.status, { key: "code", value: "ACTIVE" });
-      }
-      if (params.currency) {
-        updates.currencyId = await resolveCatalogId(ctx.catalogServices.currencyService, params.currency, { key: "code", value: "MXN" });
-      }
-      if (params.payment_frequency) {
-        updates.paymentFrequencyId = await resolveCatalogId(ctx.catalogServices.paymentFrequencyService, params.payment_frequency, { key: "name", value: "Anual" });
-      }
-      if (params.payment_method) {
-        updates.paymentMethodId = await resolveCatalogId(ctx.catalogServices.paymentMethodService, params.payment_method, { key: "name", value: "Tarjeta de Crédito" });
-      }
-
-      if (params.notes) {
-        const existing = await ctx.policyService.getById(params.policy_id);
-        updates.notes = appendNote(existing?.notes, params.notes);
-      }
-
-      assertHasChanges(updates);
-      const result = await ctx.policyService.update(params.policy_id, updates as never);
+      const fields: Record<string, unknown> = objectToCamelCase({ ...params });
+      delete fields.policyId;
+      const outcome = await ctx.policyWorkflow.updateByNames(params.policy_id, fields);
+      if (outcome.outcome === "no_changes") throw nothingToUpdate();
+      const result = outcome.policy;
       return result ? slimPolicy(result) : null;
     },
   },
@@ -311,34 +199,7 @@ export const policySkills: SkillDefinition[] = [
       schema: z.object({}),
     },
     async execute(_args, ctx) {
-      const policies = await ctx.policyService.getByField("agent_id", ctx.agentId);
-      if (!policies || policies.length === 0) {
-        return { totalPolicies: 0, message: "You have no policies in your portfolio." };
-      }
-
-      const statusCounts: Record<string, number> = {};
-      const branchCounts: Record<string, number> = {};
-      const premiumSums: Record<string, number> = {};
-
-      for (const p of policies) {
-        const statusName = p.status?.name || "Unknown";
-        statusCounts[statusName] = (statusCounts[statusName] || 0) + 1;
-
-        const branchName = p.product?.branch?.name || "Unknown";
-        branchCounts[branchName] = (branchCounts[branchName] || 0) + 1;
-
-        if (p.premium) {
-          const currencyCode = p.currency?.code || "MXN";
-          premiumSums[currencyCode] = (premiumSums[currencyCode] || 0) + p.premium;
-        }
-      }
-
-      return {
-        totalPolicies: policies.length,
-        statusBreakdown: statusCounts,
-        branchBreakdown: branchCounts,
-        premiumSummaries: premiumSums,
-      };
+      return portfolioStatsResult(await ctx.policyWorkflow.getPortfolioStats(ctx.agentId));
     },
   },
   {
@@ -367,18 +228,15 @@ export const policySkills: SkillDefinition[] = [
       }),
     },
     async execute({ client_name, policy_query }, ctx) {
-      const contacts = await ctx.contactService.findSimilarContact(ctx.agentId, client_name as string);
-      if (!contacts || contacts.length === 0) {
+      const result = await ctx.policyWorkflow.findByClientName(
+        ctx.agentId,
+        client_name as string,
+        policy_query as string | undefined,
+      );
+      if (result.outcome === "no_client") {
         return { error: `No client found matching '${client_name}'.` };
       }
-      const allPolicies: PolicyResponseDTO[] = [];
-      for (const contact of contacts) {
-        const policies = policy_query
-          ? await ctx.policyService.searchPolicies(ctx.agentId, policy_query as string, contact.id)
-          : await ctx.policyService.getByField("contact_id", contact.id);
-        if (policies) allPolicies.push(...policies);
-      }
-      return allPolicies.map(slimPolicy);
+      return result.policies.map(slimPolicy);
     },
   },
 ];

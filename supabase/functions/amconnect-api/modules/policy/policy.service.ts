@@ -7,8 +7,10 @@ import { objectToCamelCaseDeep, stripUndefined } from "../../shared/case_convert
 import { EmbeddingsService } from "../../features/rag/embeddings.service.ts";
 import { DEFAULT_TIMEZONE, todayInTimezone } from "../../shared/datetime.ts";
 import { buildPaymentSchedule } from "../../shared/payment_schedule.ts";
+import { type Searchable, type SearchHit, type SearchOptions, toSearchHits } from "../../shared/search_hits.ts";
 
-export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseDTO> {
+export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseDTO>
+  implements Searchable<PolicyResponseDTO> {
   private participantRepo: SupabaseRepository<Record<string, unknown>>;
   private beneficiaryRepo: SupabaseRepository<Record<string, unknown>>;
   private policyRepo: PolicyRepository;
@@ -159,4 +161,15 @@ export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseD
     const rows = await this.policyRepo.getByIds(ids);
     return rows.map((r) => this.toDTO(r));
   }
+
+  /**
+   * Fuente "policy" de `recall` (ver shared/search_hits.ts). Mismo
+   * `search_policy_ids` que la skill `search_policies`; el `rank` es su orden
+   * de relevancia (la función no expone el puntaje).
+   */
+  async searchHits(agentId: string, query: string, opts: SearchOptions = {}): Promise<SearchHit<PolicyResponseDTO>[]> {
+    const items = await this.searchPolicies(agentId, query, opts.contactId);
+    return toSearchHits("policy", items ?? [], (p) => p.id, { limit: opts.limit });
+  }
+
 }

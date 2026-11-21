@@ -2,8 +2,10 @@ import { BaseService } from "../../core/base_service.ts";
 import { ContactRequestDTO, ContactResponseDTO } from "./contact.dto.ts";
 import { ContactRepository } from "./contact.repository.ts";
 import { objectToCamelCaseDeep, stripUndefined, toTitleCase } from "../../shared/case_converter.ts";
+import { type Searchable, type SearchHit, type SearchOptions, toSearchHits } from "../../shared/search_hits.ts";
 
-export class ContactService extends BaseService<ContactRequestDTO, ContactResponseDTO> {
+export class ContactService extends BaseService<ContactRequestDTO, ContactResponseDTO>
+  implements Searchable<ContactResponseDTO> {
   private contactRepo: ContactRepository;
 
   constructor(repository: ContactRepository) {
@@ -53,6 +55,19 @@ export class ContactService extends BaseService<ContactRequestDTO, ContactRespon
   async findSimilarContact(agentId: string, query: string): Promise<ContactResponseDTO[]> {
     const rows = await this.contactRepo.findSimilar(agentId, query);
     return rows.map((r) => this.toDTO(r));
+  }
+
+  /**
+   * Fuente "contact" de `recall` (ver shared/search_hits.ts). Mismo
+   * `search_contacts` que la skill `search_contact`; `score` es su
+   * word_similarity. `contactId` no aplica aquí y se ignora.
+   */
+  async searchHits(agentId: string, query: string, opts: SearchOptions = {}): Promise<SearchHit<ContactResponseDTO>[]> {
+    const contacts = await this.findSimilarContact(agentId, query);
+    return toSearchHits("contact", contacts, (c) => c.id, {
+      limit: opts.limit,
+      scoreOf: (c) => (c as ContactResponseDTO & { similarity?: number }).similarity,
+    });
   }
 
   /** Busca un contacto existente por RFC o similitud de nombre, sin crear nada. */

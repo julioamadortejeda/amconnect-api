@@ -49,6 +49,11 @@ import { NoteService } from "../../../modules/note/note.service.ts";
 import { CommitmentService } from "../../../features/commitments/commitment.service.ts";
 import { CommitmentRepository } from "../../../features/commitments/commitment.repository.ts";
 import { localeFromHeader, localeToBackfill } from "../../../shared/locale.ts";
+import { ContactWorkflowService } from "../../../modules/contact/contact_workflow.service.ts";
+import { PolicyWorkflowService } from "../../../modules/policy/policy_workflow.service.ts";
+import { ReminderWorkflowService } from "../../../modules/reminder/reminder_workflow.service.ts";
+import { PolicyConfirmationService } from "../../../features/document_processing/policy_confirmation.service.ts";
+import type { SkillServices } from "../../../features/ai_chat/skills/skill.core.ts";
 
 // Switch único gratis ↔ pago: AI_BACKEND=studio (default, Gemini API con
 // GEMINI_API_KEY) | vertex (Vertex AI con VERTEX_API_KEY). Aplica a chat,
@@ -248,23 +253,48 @@ export const injectServices = async (c: Context, next: Next) => {
     return ragService;
   };
 
+  // Services que reciben las skills (chat de texto y voz comparten la misma
+  // instancia). Los *Workflow* y PolicyConfirmation tienen las reglas de
+  // negocio que antes vivían dentro de las skills.
+  let skillServices: SkillServices | undefined;
+  const getSkillServices = (): SkillServices => {
+    if (!skillServices) {
+      const knowledgeIngestionService = getKnowledgeIngestionService();
+      const embeddingsService = getEmbeddingsService();
+      const contactWorkflow = new ContactWorkflowService(contactService, usageService, knowledgeIngestionService);
+      skillServices = {
+        contactService,
+        knowledgeIngestionService,
+        usageService,
+        policyService,
+        reminderService,
+        reminderGenerationService,
+        reminderSettingService,
+        ragService: getRagService(),
+        commitmentService,
+        embeddingsService,
+        catalogServices,
+        contactWorkflow,
+        policyWorkflow: new PolicyWorkflowService(policyService, contactService, catalogServices),
+        reminderWorkflow: new ReminderWorkflowService(reminderService, contactWorkflow, catalogServices),
+        policyConfirmation: new PolicyConfirmationService(
+          policyService,
+          contactService,
+          catalogServices,
+          embeddingsService,
+          aiSessionService,
+          reminderGenerationService,
+        ),
+      };
+    }
+    return skillServices;
+  };
+
   const getAiChatService = () => {
     if (!aiChatService) {
       aiChatService = new AiChatService(
         getGeminiProvider(),
-        {
-          contactService,
-          knowledgeIngestionService: getKnowledgeIngestionService(),
-          usageService,
-          policyService,
-          reminderService,
-          reminderGenerationService,
-          reminderSettingService,
-          ragService: getRagService(),
-          commitmentService,
-          embeddingsService: getEmbeddingsService(),
-          catalogServices,
-        },
+        getSkillServices(),
         aiSessionService,
         promptService,
       );
@@ -276,19 +306,7 @@ export const injectServices = async (c: Context, next: Next) => {
     if (!voiceChatService) {
       voiceChatService = new VoiceChatService(
         getGeminiProvider(),
-        {
-          contactService,
-          knowledgeIngestionService: getKnowledgeIngestionService(),
-          usageService,
-          policyService,
-          reminderService,
-          reminderGenerationService,
-          reminderSettingService,
-          ragService: getRagService(),
-          commitmentService,
-          embeddingsService: getEmbeddingsService(),
-          catalogServices,
-        },
+        getSkillServices(),
         aiSessionService,
         promptService,
         usageService,

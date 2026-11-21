@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { executeSkill } from "./skill_executor.ts";
 import type { SkillContext } from "./skill.core.ts";
 import { RAG_THRESHOLD_ENTITY_UNSCOPED, RAG_THRESHOLD_SCOPED } from "../../rag/rag.service.ts";
+import { withRealWorkflows } from "../../../shared/testing/skill_workflows.ts";
 
 const AGENT = "agent-1";
 const UUID = "3f1c2a8e-5b7d-4e19-9a0c-2d6f8b1e4c37";
@@ -47,7 +48,10 @@ function fakeCtx(): { ctx: SkillContext; calls: Calls } {
       getById: () => Promise.resolve({ notes: null }),
     },
   } as unknown as SkillContext;
-  return { ctx, calls };
+  // Las reglas de las skills viven en los workflow services; se montan los
+  // reales sobre estos fakes, así que las aserciones sobre `reminderService` y
+  // `policyService` siguen viendo exactamente lo mismo que antes del refactor.
+  return { ctx: withRealWorkflows(ctx), calls };
 }
 
 function quiet<T>(fn: () => Promise<T>): Promise<T> {

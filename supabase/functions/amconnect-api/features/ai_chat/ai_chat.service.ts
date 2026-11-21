@@ -3,50 +3,23 @@ import { AiSessionService } from "./ai_session.service.ts";
 import { AiProviderError } from "../../shared/errors.ts";
 import { buildToolDeclarations } from "../../shared/tool_declarations.ts";
 import { executeSkill } from "./skills/skill_executor.ts";
-import { SkillContext } from "./skills/skill.core.ts";
+import { SkillContext, SkillServices } from "./skills/skill.core.ts";
 import { buildLocalDateTime, DEFAULT_TIMEZONE } from "../../shared/datetime.ts";
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
 import type { PolicyChange } from "../document_processing/policy_diff.ts";
 import { AiChatContext } from "./ai.dto.ts";
 import { languageName } from "../../shared/locale.ts";
+import {
+  AVAILABLE_DOMAINS,
+  buildContextPrefix,
+  collectAdvisorWords,
+  lastReplyLanguage,
+  POLICY_INGESTION_DOMAINS,
+  resolveChatDomains,
+} from "./chat_turn.ts";
+import { extractCitations, RagAttachmentCollector } from "./rag_attachments.ts";
 
-const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "commitment", "pending_task", "catalog", "knowledge"];
-const POLICY_INGESTION_DOMAINS = ["policy_ingestion"];
 const MAX_LOOPS = 6;
-
-// Skills de búsqueda vectorial que devuelven NoteMatch[]: sus resultados pueden
-// traer documentos adjuntos que alimentan el attachment_list (botón "abrir
-// archivo") aunque la nota se haya encontrado por similitud y no por pantalla.
-const RAG_SEARCH_SKILLS = ["search_knowledge", "search_contact_notes", "search_policy_notes", "search_reminder_notes"];
-
-// Margen de relevancia para adjuntos: dentro de una misma búsqueda, solo se
-// adjuntan resultados cuya similitud esté a lo sumo esta distancia por debajo
-// del mejor match. Evita adjuntar documentos que apenas cruzaron el threshold
-// absoluto pero no tienen relación real con la pregunta (ej. una póliza de
-// otro ramo apareciendo junto al documento realmente citado en la respuesta),
-// mientras conserva múltiples adjuntos cuando genuinamente son parecidos entre
-// sí (ej. varios documentos de un mismo cliente en una pregunta de resumen).
-const ATTACHMENT_RELEVANCE_GAP = 0.15;
-
-// Marcador inline que el modelo agrega junto a cada hecho tomado de una nota
-// RAG ([[cite:noteId]], instrucción en RAG SOURCE CITATION RULE del prompt).
-// Es el filtro AUTORITATIVO de qué adjuntar — el score de similitud (threshold
-// + ATTACHMENT_RELEVANCE_GAP) no discrimina bien para queries cortas/genéricas
-// (ver historial en RULES.md §5); lo que el modelo realmente citó en su texto
-// sí es confiable. Se extrae y se limpia del texto antes de guardarlo/mostrarlo.
-const CITE_MARKER_RE = /\s?\[\[cite:([0-9a-fA-F-]{36})\]\]/g;
-
-function extractCitations(text: string): { displayText: string; citedNoteIds: Set<string> } {
-  const citedNoteIds = new Set<string>();
-  const displayText = text
-    .replace(CITE_MARKER_RE, (_match, id: string) => {
-      citedNoteIds.add(id);
-      return "";
-    })
-    .replace(/[ \t]+\n/g, "\n")
-    .trim();
-  return { displayText, citedNoteIds };
-}
 
 export interface ChatResponse {
   text: string;
@@ -56,54 +29,10 @@ export interface ChatResponse {
   metadata?: Record<string, unknown>;
 }
 
-/** El bloque [CONTEXT] que se antepone al mensaje: va hasta el primer renglón en blanco. */
-const CONTEXT_PREFIX_RE = /^\[CONTEXT\][\s\S]*?\n\n/;
-
-/** El `Reply language` del bloque [CONTEXT], que se guarda con cada turno. */
-const REPLY_LANGUAGE_RE = /\| Reply language: ([^\n|]+)/;
-
-/**
- * El idioma en que se contestó por última vez en esta conversación.
- *
- * Se lee del historial y no de una columna nueva: el bloque [CONTEXT] viaja
- * dentro del mensaje del asesor y se persiste con él, así que el dato ya está
- * ahí. Se recorre de atrás hacia adelante para quedarse con el más reciente.
- */
-function lastReplyLanguage(history: AiMessage[]): string | undefined {
-  for (let i = history.length - 1; i >= 0; i--) {
-    for (const part of (history[i].parts ?? []) as { text?: unknown }[]) {
-      if (typeof part.text !== "string") continue;
-      const match = part.text.match(REPLY_LANGUAGE_RE);
-      if (match) return match[1].trim();
-    }
-  }
-  return undefined;
-}
-
-/**
- * Junta lo que el asesor ha ESCRITO en la conversación, para las skills que
- * verifican citas (ver `SkillContext.advisorWords`).
- *
- * Descarta los turnos del modelo y los resultados de funciones —que también
- * viajan con rol USER pero no traen texto— y le quita a cada mensaje el bloque
- * [CONTEXT] que le antepone este servicio: son fechas y datos de pantalla que
- * el asesor nunca tecleó, y dejarlos ahí permitiría validar una cita contra
- * algo que él no dijo.
- */
-function collectAdvisorWords(history: AiMessage[]): string {
-  return history
-    .filter((m) => m.role === AiRole.USER)
-    .flatMap((m) => (m.parts ?? []) as { text?: unknown }[])
-    .map((p) => p.text)
-    .filter((t): t is string => typeof t === "string")
-    .map((t) => t.replace(CONTEXT_PREFIX_RE, ""))
-    .join("\n");
-}
-
 export class AiChatService {
   constructor(
     private aiProvider: IAiProvider,
-    private skillContext: Omit<SkillContext, "agentId" | "sessionId" | "aiSessionService" | "timezone" | "timezoneOffset">,
+    private skillContext: SkillServices,
     private aiSessionService: AiSessionService,
     private promptService: PromptService,
   ) {}
@@ -156,36 +85,10 @@ export class AiChatService {
       activeDomains = POLICY_INGESTION_DOMAINS;
     } else {
       // TODO: Previously 'catalog' was always active. Kept as dynamic load to save tokens.
-      const ALWAYS_ACTIVE = ["pending_task", "knowledge"];
       const { domains, usage, language } = await this.aiProvider.classifyMessage(message, AVAILABLE_DOMAINS);
       classifyUsage = usage;
       detectedLanguage = language;
-      
-      const parsedDomains = domains.length > 0 ? domains : AVAILABLE_DOMAINS;
-      
-      // If a screen context domain is supplied, ensure the domain is active
-      if (context && !parsedDomains.includes(context.type)) {
-        parsedDomains.push(context.type);
-      }
-
-      // If policy is active, we also activate catalog since policy tasks depend on catalog lookup
-      if (parsedDomains.includes("policy") && !parsedDomains.includes("catalog")) {
-        parsedDomains.push("catalog");
-      }
-
-      // "¿Qué tengo que hacer en septiembre?" es una sola pregunta para el
-      // asesor, pero sus pendientes viven en DOS lados: los recordatorios que
-      // él creó y los compromisos que la IA sacó de sus notas. El clasificador
-      // lee eso como agenda y devuelve solo "reminder" — y la respuesta sale
-      // incompleta sin que nadie se entere. Van juntos siempre.
-      if (parsedDomains.includes("reminder") && !parsedDomains.includes("commitment")) {
-        parsedDomains.push("commitment");
-      }
-      if (parsedDomains.includes("commitment") && !parsedDomains.includes("reminder")) {
-        parsedDomains.push("reminder");
-      }
-      
-      activeDomains = [...new Set([...ALWAYS_ACTIVE, ...parsedDomains])];
+      activeDomains = resolveChatDomains(domains, context);
     }
 
     // Sin tareas pendientes, `resolve_pending_task` ni siquiera se ofrece.
@@ -239,21 +142,7 @@ export class AiChatService {
     const replyLanguage = detectedLanguage ??
       lastReplyLanguage(history) ??
       languageName(advisorLocale);
-    const contextLines = [
-      `[CONTEXT] Current date/time: ${localIso} | Timezone offset: ${offsetStr} | Reply language: ${replyLanguage}`,
-    ];
-    if (pendingTasks.length > 0) {
-      const tasksText = pendingTasks
-        .map((t) => `- ID: ${t.id}, tipo: ${t.taskType}, datos: ${JSON.stringify(t.payload)}`)
-        .join("\n");
-      contextLines.push(`Active pending tasks requiring resolution:\n${tasksText}`);
-    }
-    if (context) {
-      contextLines.push(
-        `Active screen context (${context.type}${context.id ? ` ID: ${context.id}` : ""}):\n${JSON.stringify(context.data, null, 2)}`
-      );
-    }
-    const contextPrefix = contextLines.join("\n") + "\n\n";
+    const contextPrefix = buildContextPrefix({ localIso, offsetStr, replyLanguage, pendingTasks, context });
 
     history.push({ role: AiRole.USER, parts: [{ text: contextPrefix + message }] });
 
@@ -281,10 +170,8 @@ export class AiChatService {
     let skillMetadata: Record<string, unknown> | undefined;
     let nextInteractionInput: string | Record<string, unknown>[] = contextPrefix + message;
 
-    // Adjuntos recolectados de los hits de RAG durante el bucle (dedupe por
-    // nota — puede haber varios chunks de la misma nota en un mismo resultado).
-    const ragAttachments: Record<string, unknown>[] = [];
-    const ragHarvestSeenIds = new Set<string>();
+    // Adjuntos recolectados de los hits de RAG durante el bucle.
+    const ragAttachments = new RagAttachmentCollector();
     // Notas citadas explícitamente por el modelo en su respuesta final (ver CITE_MARKER_RE).
     let citedNoteIds = new Set<string>();
 
@@ -349,37 +236,10 @@ export class AiChatService {
         if (execution.metadata) skillMetadata = execution.metadata;
         const response = execution.response;
 
-        // Si la base de conocimiento o notas de contacto/póliza devuelven vacío, forzamos que en el siguiente turno genere texto directo
-        if (RAG_SEARCH_SKILLS.includes(call.name) && Array.isArray(response)) {
-          if (response.length === 0) {
-            forceNextTurnToGenerateText = true;
-          }
-          // Cosechar adjuntos de las notas encontradas por similitud, filtrando
-          // por relevancia relativa al mejor match de esta búsqueda (ver
-          // ATTACHMENT_RELEVANCE_GAP).
-          const hits = response as Record<string, unknown>[];
-          const similarities = hits
-            .map((h) => h.similarity as number | undefined)
-            .filter((s): s is number => typeof s === "number");
-          const maxSimilarity = similarities.length > 0 ? Math.max(...similarities) : undefined;
-
-          for (const hit of hits) {
-            const storagePath = (hit.storagePath ?? hit.storage_path) as string | undefined;
-            const id = (hit.noteId ?? hit.note_id ?? hit.id) as string | undefined;
-            const similarity = hit.similarity as number | undefined;
-            const isRelevantEnough = maxSimilarity === undefined || similarity === undefined ||
-              similarity >= maxSimilarity - ATTACHMENT_RELEVANCE_GAP;
-            if (storagePath && id && isRelevantEnough && !ragHarvestSeenIds.has(id)) {
-              ragHarvestSeenIds.add(id);
-              ragAttachments.push({
-                id,
-                fileName: hit.fileName ?? hit.file_name ?? hit.summary ?? "Documento",
-                storagePath,
-                sourceType: hit.sourceType ?? hit.source_type ?? "document",
-                summary: hit.summary ?? hit.content,
-              });
-            }
-          }
+        // Si la base de conocimiento o notas de contacto/póliza devuelven vacío,
+        // forzamos que en el siguiente turno genere texto directo.
+        if (ragAttachments.harvest(call.name, response).emptyRagSearch) {
+          forceNextTurnToGenerateText = true;
         }
 
         functionResults.push({
@@ -502,40 +362,7 @@ export class AiChatService {
     // RAG con documento adjunto (búsqueda vectorial) y las notas del contexto de
     // pantalla. Solo se emite si ninguna skill ya produjo su propio metadata.
     if (!skillMetadata) {
-      // Filtro autoritativo: solo adjuntar notas RAG que el modelo citó en su
-      // respuesta. Si no citó ninguna (respuesta sin RAG, o no cumplió la
-      // instrucción esta vez), se conserva el set ya filtrado por relevancia
-      // relativa como resguardo — mejor eso que ocultar adjuntos de golpe.
-      const citedRagAttachments = citedNoteIds.size > 0
-        ? ragAttachments.filter((a) => citedNoteIds.has(a.id as string))
-        : ragAttachments;
-
-      const attachments: Record<string, unknown>[] = [...citedRagAttachments];
-      const seenAttachmentIds = new Set(attachments.map((a) => a.id as string));
-
-      if (context?.data?.notes && Array.isArray(context.data.notes)) {
-        const contextAttachments = (context.data.notes as Record<string, unknown>[])
-          .filter((n) => n.storage_path || n.storagePath || n.fileName || n.file_name)
-          .map((n): Record<string, unknown> => ({
-            id: n.id,
-            fileName: n.fileName || n.file_name || n.summary || "Documento",
-            storagePath: n.storagePath || n.storage_path,
-            sourceType: n.sourceType || n.source_type || "document",
-            summary: n.summary || n.content,
-          }));
-        for (const att of contextAttachments) {
-          if (att.id && seenAttachmentIds.has(att.id as string)) continue;
-          if (att.id) seenAttachmentIds.add(att.id as string);
-          attachments.push(att);
-        }
-      }
-
-      if (attachments.length > 0) {
-        skillMetadata = {
-          type: "attachment_list",
-          attachments,
-        };
-      }
+      skillMetadata = ragAttachments.buildAttachmentList(citedNoteIds, context);
     }
 
     return { text: finalText, sessionId: currentSessionId!, usage: totalUsage, sessionUsage, metadata: skillMetadata };
