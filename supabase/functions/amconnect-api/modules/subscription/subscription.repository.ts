@@ -1,5 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
-import { AppError } from "../../shared/errors.ts";
+import { AppError, handleSupabaseError } from "../../shared/errors.ts";
 import type { PlanLimits } from "./subscription.dto.ts";
 
 export interface AgentPlanInfo {
@@ -86,9 +86,12 @@ export class SubscriptionRepository implements ISubscriptionRepository {
       .from("agents")
       .select("subscription_status, trial_ends_at, timezone, locale")
       .eq("id", agentId)
-      .single();
+      .maybeSingle();
 
-    if (error || !agent) return null;
+    // Error de BD ≠ "agente no encontrado": antes devolvía null y el middleware
+    // respondía 404, que la app puede leer como cuenta inexistente.
+    if (error) handleSupabaseError(error, "subscription.getAgentStatus");
+    if (!agent) return null;
     return {
       subscriptionStatus: agent.subscription_status,
       trialEndsAt: agent.trial_ends_at ?? null,

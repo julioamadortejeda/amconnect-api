@@ -83,19 +83,22 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
 
     if (note.is_active) {
       // Nota activa (creada a mano por el asesor) — soft-delete estándar.
-      await this.supabase
+      const { error } = await this.supabase
         .from("agent_notes")
         .update({ is_active: false, discard_reason: "user_deleted" })
         .eq("id", noteId);
+      // Sin esto la app mostraba la nota como borrada cuando el UPDATE falló.
+      if (error) handleSupabaseError(error, "note.deleteNote");
       return;
     }
 
     if (note.discard_reason === "policy_updated") {
       // Versión obsoleta tras re-ingesta de PDF — el asesor la limpia manualmente.
-      await this.supabase
+      const { error } = await this.supabase
         .from("agent_notes")
         .update({ discard_reason: "user_deleted" })
         .eq("id", noteId);
+      if (error) handleSupabaseError(error, "note.deleteNote");
       return;
     }
 
@@ -120,6 +123,11 @@ export class NoteRepository extends SupabaseRepository<NoteResponseDTO> {
       this.supabase.from("agent_notes").select("*", { count: "exact", head: true }).eq("is_active", true).eq("source_type", "whatsapp"),
       this.supabase.from("ai_sessions").select("*", { count: "exact", head: true }).eq("type", "chat"),
     ]);
+
+    // Un conteo fallido no es 0 notas: la pantalla mostraría el resumen vacío.
+    for (const res of [pdfRes, docRes, imgRes, audioRes, textRes, waRes, chatRes]) {
+      if (res.error) handleSupabaseError(res.error, "note.getNotesSummary");
+    }
 
     return {
       pdf: (pdfRes.count ?? 0) + (docRes.count ?? 0),

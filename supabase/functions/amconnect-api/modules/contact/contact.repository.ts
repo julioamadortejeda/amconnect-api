@@ -1,13 +1,14 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { SupabaseRepository } from "../../core/base_repository.ts";
 import { ContactResponseDTO } from "./contact.dto.ts";
+import { handleSupabaseError } from "../../shared/errors.ts";
 
 export class ContactRepository extends SupabaseRepository<ContactResponseDTO> {
   constructor(supabase: SupabaseClient) {
     super(supabase, "contacts");
   }
 
-  async findSimilar(agentId: string, query: string): Promise<ContactResponseDTO[] | null> {
+  async findSimilar(agentId: string, query: string): Promise<ContactResponseDTO[]> {
     // Sin `p_threshold`: el umbral vive en el default de la función SQL porque
     // es propiedad de la escala que usa (word_similarity, no similarity), no de
     // quien la llama. Mandarlo desde aquí ya costó caro una vez — el 0.2
@@ -19,10 +20,8 @@ export class ContactRepository extends SupabaseRepository<ContactResponseDTO> {
       p_query: query,
     });
 
-    if (error) {
-      console.error("[ContactRepository.findSimilar]:", error);
-      return null;
-    }
-    return data as ContactResponseDTO[];
+    // Lanzar, no devolver null: el asistente lo leería como "no existe ese cliente".
+    if (error) handleSupabaseError(error, "contact.findSimilar");
+    return (data ?? []) as ContactResponseDTO[];
   }
 }

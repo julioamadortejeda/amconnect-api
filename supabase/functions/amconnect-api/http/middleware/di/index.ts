@@ -41,7 +41,7 @@ import { PolicyIngestionService } from "../../../features/document_processing/po
 import { PolicyIngestionOrchestrator } from "../../../features/document_processing/policy_ingestion_orchestrator.ts";
 import { ConfirmPolicyService } from "../../../features/document_processing/confirm_policy.service.ts";
 import { DocumentMetadataRepository } from "../../../modules/document_metadata/document_metadata.repository.ts";
-import { AppError } from "../../../shared/errors.ts";
+import { internalError } from "../../../shared/errors.ts";
 import { AI_MODEL } from "../../../shared/config.ts";
 import { PromptService } from "../../../modules/prompt/prompt.service.ts";
 import { NoteRepository } from "../../../modules/note/note.repository.ts";
@@ -64,11 +64,11 @@ function getBackendApiKey(): string {
     // Sin fallback a GEMINI_API_KEY: una key de AI Studio no sirve en Vertex
     // y produciría 401s confusos en runtime — mejor fallar claro al arrancar.
     const apiKey = Deno.env.get("VERTEX_API_KEY");
-    if (!apiKey) throw new AppError("AI_BACKEND=vertex pero VERTEX_API_KEY no está configurada.", 500);
+    if (!apiKey) throw internalError("Servicio no disponible temporalmente.", "AI_BACKEND=vertex but VERTEX_API_KEY is not set");
     return apiKey;
   }
   const apiKey = Deno.env.get("GEMINI_API_KEY");
-  if (!apiKey) throw new AppError("GEMINI_API_KEY no configurada.", 500);
+  if (!apiKey) throw internalError("Servicio no disponible temporalmente.", "GEMINI_API_KEY is not set");
   return apiKey;
 }
 
@@ -91,13 +91,18 @@ async function checkModelCatalog(supabase: SupabaseClient): Promise<void> {
     .select("model_name")
     .in("model_name", required)
     .eq("is_active", true);
-  if (error) throw new AppError("No se pudo validar el catálogo de modelos (ai_models).", 500);
+  if (error) {
+    throw internalError(
+      "Servicio no disponible temporalmente.",
+      `Model catalog check failed (ai_models) (${error.code}: ${error.message})`,
+    );
+  }
   const found = new Set((data ?? []).map((r: { model_name: string }) => r.model_name));
   const missing = required.filter((m) => !found.has(m));
   if (missing.length > 0) {
-    throw new AppError(
-      `Modelos configurados sin fila activa en ai_models: ${missing.join(", ")}. Agrégalos al catálogo (migración) o corrige el env.`,
-      500,
+    throw internalError(
+      "Servicio no disponible temporalmente.",
+      `Configured models without active row in ai_models: ${missing.join(", ")}. Add them to the catalog (migration) or fix the env.`,
     );
   }
   modelCatalogChecked = true;

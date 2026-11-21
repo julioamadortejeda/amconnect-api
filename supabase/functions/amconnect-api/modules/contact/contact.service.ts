@@ -50,9 +50,9 @@ export class ContactService extends BaseService<ContactRequestDTO, ContactRespon
     });
   }
 
-  async findSimilarContact(agentId: string, query: string): Promise<ContactResponseDTO[] | null> {
+  async findSimilarContact(agentId: string, query: string): Promise<ContactResponseDTO[]> {
     const rows = await this.contactRepo.findSimilar(agentId, query);
-    return rows ? rows.map((r) => this.toDTO(r)) : null;
+    return rows.map((r) => this.toDTO(r));
   }
 
   /** Busca un contacto existente por RFC o similitud de nombre, sin crear nada. */

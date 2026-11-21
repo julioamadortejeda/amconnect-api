@@ -1,6 +1,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { BaseService } from "../../core/base_service.ts";
 import { SupabaseRepository } from "../../core/base_repository.ts";
+import { handleSupabaseError } from "../../shared/errors.ts";
 import { objectToCamelCaseDeep, objectToSnakeCase, toTitleCase } from "../../shared/case_converter.ts";
 
 // ─── Catálogo global — solo lectura ──────────────────────────────────────────
@@ -53,8 +54,9 @@ function makeAgentCatalogService(supabase: SupabaseClient, tableName: string, ag
         .ilike("name", `%${query}%`)
         .order("name")
         .limit(10);
-      if (error) console.error(`[catalog.search] ${tableName}:`, error.message);
-      return data ? data.map((r) => this.toDTO(r)) : [];
+      // Lanzar: un fallo no es "ese catálogo no tiene coincidencias".
+      if (error) handleSupabaseError(error, `catalog.search ${tableName}`);
+      return (data ?? []).map((r) => this.toDTO(r));
     }
   })(repo);
 }
@@ -70,7 +72,7 @@ export function createCatalogServices(supabase: SupabaseClient, agentId: string)
           .eq("agent_id", agentId)
           .eq("is_active", true)
           .order("name");
-        if (error) console.error("[catalog.getProductsWithRelations]:", error.message);
+        if (error) handleSupabaseError(error, "catalog.getProductsWithRelations");
         return data ?? [];
       },
     },

@@ -2,7 +2,7 @@ import { BaseService } from "../../core/base_service.ts";
 import { ReminderRequestDTO, ReminderResponseDTO } from "./reminder.dto.ts";
 import { ReminderRepository } from "./reminder.repository.ts";
 import { objectToCamelCaseDeep } from "../../shared/case_converter.ts";
-import { AppError } from "../../shared/errors.ts";
+import { AppError, handleSupabaseError } from "../../shared/errors.ts";
 import { daysFromNowRange } from "../../shared/utils.ts";
 
 export class ReminderService extends BaseService<ReminderRequestDTO, ReminderResponseDTO> {
@@ -118,9 +118,8 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
           agent_id: existing.agentId,
           content: data.comment.trim(),
         });
-      if (commentErr) {
-        console.error("[ReminderService.update] Error saving comment:", commentErr.message);
-      }
+      // Lanzar: antes el comentario se perdía y el asesor veía "guardado".
+      if (commentErr) handleSupabaseError(commentErr, "reminder.update.comment");
     }
 
     if (data.contactId !== undefined) updatePayload.contact_id = data.contactId;
@@ -173,14 +172,14 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     fromDate?: string | null,
     toDate?: string | null,
     contactId?: string,
-  ): Promise<ReminderResponseDTO[] | null> {
+  ): Promise<ReminderResponseDTO[]> {
     const defaultRange = daysFromNowRange(7);
     const from = fromDate === undefined ? defaultRange.from : fromDate;
     const to = toDate === undefined ? defaultRange.to : toDate;
 
     const excludedIds = await this.excludedStatusIds();
     const items = await this.reminderRepo.getUpcomingReminders(agentId, from, to, excludedIds, contactId);
-    return items ? items.map((r) => this.toDTO(r)) : null;
+    return items.map((r) => this.toDTO(r));
   }
 
   /**
@@ -204,11 +203,14 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
 
   /** DONE y CANCELLED no son pendientes: fuera de listados y de conteos. */
   private async excludedStatusIds(): Promise<string[]> {
-    const { data } = await this.reminderRepo.client
+    const { data, error } = await this.reminderRepo.client
       .from("reminder_statuses")
       .select("id")
       .in("code", ["DONE", "CANCELLED"]);
-    return data ? data.map((s) => s.id) : [];
+    // Sin los ids excluidos los listados incluirían recordatorios ya hechos
+    // como pendientes: mejor fallar que mostrar una agenda equivocada.
+    if (error) handleSupabaseError(error, "reminder.excludedStatusIds");
+    return (data ?? []).map((s) => s.id);
   }
 
   /** Ids que coinciden con el texto, para el listado paginado. */
@@ -221,8 +223,8 @@ export class ReminderService extends BaseService<ReminderRequestDTO, ReminderRes
     queryText: string,
     statusCode?: string,
     contactId?: string,
-  ): Promise<ReminderResponseDTO[] | null> {
+  ): Promise<ReminderResponseDTO[]> {
     const items = await this.reminderRepo.searchReminders(agentId, queryText, statusCode, contactId);
-    return items ? items.map((r) => this.toDTO(r)) : null;
+    return items.map((r) => this.toDTO(r));
   }
 }

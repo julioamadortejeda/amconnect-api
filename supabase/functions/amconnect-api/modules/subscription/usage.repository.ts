@@ -1,4 +1,5 @@
 import { SupabaseClient } from "@supabase/supabase-js";
+import { handleSupabaseError } from "../../shared/errors.ts";
 
 export interface MonthlyUsageRow {
   chatCount: number;
@@ -55,13 +56,16 @@ export class UsageRepository implements IUsageRepository {
   }
 
   async getMonthlyUsage(agentId: string, yearMonth: string): Promise<MonthlyUsageRow | null> {
-    const { data } = await this.supabase
+    const { data, error } = await this.supabase
       .from("agent_monthly_usage")
       .select("chat_count, ingestion_count")
       .eq("agent_id", agentId)
       .eq("year_month", yearMonth)
       .maybeSingle();
 
+    // Sin fila = aún no ha usado nada este mes (legítimo). Con error NO es 0 uso:
+    // fallaría abierto y regalaría mensajes por encima de la cuota.
+    if (error) handleSupabaseError(error, "usage.getMonthlyUsage");
     if (!data) return null;
     return { chatCount: data.chat_count, ingestionCount: data.ingestion_count };
   }
@@ -82,11 +86,13 @@ export class UsageRepository implements IUsageRepository {
   }
 
   async getChatLimit(agentId: string): Promise<number> {
-    const { data } = await this.supabase
+    const { data, error } = await this.supabase
       .from("agents")
       .select("subscription_plans ( limits )")
       .eq("id", agentId)
       .single();
+    // Con error el límite NO es 0: bloquearía al asesor diciéndole que agotó su cuota.
+    if (error) handleSupabaseError(error, "usage.getChatLimit");
     // deno-lint-ignore no-explicit-any
     const limits = (data as any)?.subscription_plans?.limits;
     return (limits?.chat_messages_monthly as number) ?? 0;

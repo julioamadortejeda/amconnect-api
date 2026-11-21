@@ -29,6 +29,17 @@ const REMINDER_SELECT = `
   policy:policies(id, policy_number)
 `.trim();
 
+// Listado: lo que pinta la lista. Sin `notes` (su `content` completo viajaba en
+// cada fila y la app no lo lee en la lista); el detalle y las skills sí lo traen.
+const REMINDER_LIST_SELECT = `
+  *,
+  type:reminder_types(id, name, code),
+  status:reminder_statuses(id, name, code),
+  comments:reminder_comments(id, reminder_id, agent_id, content, created_at),
+  contact:contacts(id, full_name),
+  policy:policies(id, policy_number)
+`.trim();
+
 export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> {
   constructor(supabase: SupabaseClient) {
     super(supabase, "reminders", REMINDER_SELECT);
@@ -43,7 +54,27 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
     page = 1,
     pageSize = 20,
   ): Promise<PaginatedResult<ReminderResponseDTO>> {
-    return super.paginate(filters, page, pageSize, { column: "due_date", ascending: true, nullsFirst: false });
+    return super.paginate(
+      filters,
+      page,
+      pageSize,
+      { column: "due_date", ascending: true, nullsFirst: false },
+      REMINDER_LIST_SELECT,
+    );
+  }
+
+  /** Detalle: igual que la base pero sin notas dadas de baja (soft delete) en el embed. */
+  override async getById(id: string): Promise<ReminderResponseDTO | null> {
+    const { data, error } = await this.supabase
+      .from("reminders")
+      .select(REMINDER_SELECT)
+      .eq("id", id)
+      .eq("is_active", true)
+      .eq("notes.is_active", true)
+      .single();
+
+    if (error) handleSupabaseError(error, "reminder.getById");
+    return data as unknown as ReminderResponseDTO;
   }
 
   /**
@@ -69,7 +100,7 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
     queryText: string,
     statusCode?: string,
     contactId?: string,
-  ): Promise<ReminderResponseDTO[] | null> {
+  ): Promise<ReminderResponseDTO[]> {
     let q = this.supabase
       .from("reminders")
       .select(REMINDER_SELECT)
@@ -77,13 +108,16 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
       .eq("is_active", true);
 
     if (contactId) q = q.eq("contact_id", contactId);
+    // Notas dadas de baja no deben aparecer en el embed.
+    q = q.eq("notes.is_active", true);
 
     if (statusCode) {
-      const { data: statusData } = await this.supabase
+      const { data: statusData, error: statusError } = await this.supabase
         .from("reminder_statuses")
         .select("id")
         .eq("code", statusCode.toUpperCase())
-        .single();
+        .maybeSingle();
+      if (statusError) handleSupabaseError(statusError, "reminder.searchReminders.status");
       if (statusData) {
         q = q.eq("status_id", statusData.id);
       } else {
@@ -100,10 +134,7 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
       const { data: ids, error: idsError } = await this.supabase
         .rpc("search_reminder_ids", { p_agent_id: agentId, p_query: queryText });
 
-      if (idsError) {
-        console.error("[ReminderRepository.searchReminders] rpc:", idsError);
-        return null;
-      }
+      if (idsError) handleSupabaseError(idsError, "reminder.searchReminders.rpc");
 
       const idList = (ids ?? []) as unknown as string[];
       // Sin coincidencias es una idList vacia, no "sin filtro": omitir el filtro
@@ -113,11 +144,8 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
     }
 
     const { data, error } = await q.order("due_date", { ascending: true });
-    if (error) {
-      console.error("[ReminderRepository.searchReminders]:", error);
-      return null;
-    }
-    return data as unknown as ReminderResponseDTO[];
+    if (error) handleSupabaseError(error, "reminder.searchReminders");
+    return (data ?? []) as unknown as ReminderResponseDTO[];
   }
 
   async findDueUnnotified(): Promise<DueReminderRow[]> {
@@ -173,13 +201,14 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
     toDate: string | null,
     excludedStatusIds: string[],
     contactId?: string,
-  ): Promise<ReminderResponseDTO[] | null> {
+  ): Promise<ReminderResponseDTO[]> {
     let query = this.supabase
       .from("reminders")
       .select(REMINDER_SELECT)
       .eq("agent_id", agentId)
       .eq("is_active", true);
 
+    query = query.eq("notes.is_active", true);
     if (fromDate) query = query.gte("due_date", fromDate);
     if (toDate) query = query.lte("due_date", toDate);
     if (contactId) query = query.eq("contact_id", contactId);
@@ -189,11 +218,9 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
     }
 
     const { data, error } = await query.order("due_date", { ascending: true });
-    if (error) {
-      console.error("[ReminderRepository.getUpcomingReminders]:", error);
-      return null;
-    }
-    return data as unknown as ReminderResponseDTO[];
+    // Lanzar, no devolver null: el asistente leería "sin recordatorios".
+    if (error) handleSupabaseError(error, "reminder.getUpcomingReminders");
+    return (data ?? []) as unknown as ReminderResponseDTO[];
   }
 
   /**
@@ -236,10 +263,8 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
     if (contactId) query = query.eq("contact_id", contactId);
 
     const { count, error } = await query;
-    if (error) {
-      console.error("[ReminderRepository.countPendingBefore]:", error);
-      return 0;
-    }
+    // Un conteo fallido NO es 0: el aviso de "quedan N pendientes" se callaría.
+    if (error) handleSupabaseError(error, "reminder.countPendingBefore");
     return count ?? 0;
   }
 
@@ -266,10 +291,8 @@ export class ReminderRepository extends SupabaseRepository<ReminderResponseDTO> 
     }
 
     const { count, error } = await query;
-    if (error) {
-      console.error("[ReminderRepository.countPendingAfter]:", error);
-      return 0;
-    }
+    // Un conteo fallido NO es 0: el aviso de "quedan N pendientes" se callaría.
+    if (error) handleSupabaseError(error, "reminder.countPendingAfter");
     return count ?? 0;
   }
 }
