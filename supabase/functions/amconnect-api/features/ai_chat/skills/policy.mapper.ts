@@ -66,7 +66,7 @@ export function policyDetailResult(
       type: "policy_info",
       policyId: policy.id,
       policyNumber: policy.policyNumber,
-      carrierName: policyAny.product?.branch?.carrier?.name ?? "",
+      carrierName: policyAny.product?.carrier?.name ?? "",
       branchName: policyAny.product?.branch?.name ?? "",
       productName: policyAny.product?.name ?? "",
       holderName: policy.contact?.fullName ?? "",

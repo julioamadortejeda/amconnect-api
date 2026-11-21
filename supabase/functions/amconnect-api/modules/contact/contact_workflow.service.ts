@@ -1,3 +1,4 @@
+import { AiInvokedError } from "../../shared/errors.ts";
 import type { ContactRequestDTO, ContactResponseDTO } from "./contact.dto.ts";
 import type { ContactService } from "./contact.service.ts";
 import type { UsageService } from "../subscription/usage.service.ts";
@@ -21,7 +22,7 @@ export type AddNoteByNameResult =
   | { outcome: "added"; contact: ContactResponseDTO };
 
 type ContactDeps = Pick<ContactService, "findSimilarContact" | "create">;
-type UsageDeps = Pick<UsageService, "checkAndIncrementIngestion">;
+type UsageDeps = Pick<UsageService, "checkAndIncrementIngestion" | "refundCharge">;
 type IngestionDeps = Pick<KnowledgeIngestionService, "ingestText">;
 
 /**
@@ -68,14 +69,22 @@ export class ContactWorkflowService {
    * de embedding), pero no consume créditos del plan.
    */
   async addNote(agentId: string, sessionId: string, contactId: string, content: string): Promise<void> {
-    if (content.length > QUICK_NOTE_MAX_LENGTH) {
-      await this.usageService.checkAndIncrementIngestion(agentId);
+    const chargeId = content.length > QUICK_NOTE_MAX_LENGTH
+      ? await this.usageService.checkAndIncrementIngestion(agentId)
+      : null;
+    try {
+      await this.knowledgeIngestionService.ingestText(agentId, sessionId, {
+        content,
+        sourceType: "text",
+        contactId,
+      });
+    } catch (err) {
+      // La nota no se guardó: devolver la cuota cobrada (solo ese cobro). Misma
+      // regla que shared/ingestion_compensation.ts: si la IA ya consumió
+      // tokens (AiInvokedError) el cobro se queda.
+      if (!(err instanceof AiInvokedError)) await this.usageService.refundCharge(chargeId);
+      throw err;
     }
-    await this.knowledgeIngestionService.ingestText(agentId, sessionId, {
-      content,
-      sourceType: "text",
-      contactId,
-    });
   }
 
   /** Resuelve al cliente por nombre y, solo si es uno, le guarda la nota. */

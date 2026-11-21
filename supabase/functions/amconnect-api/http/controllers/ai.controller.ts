@@ -10,7 +10,7 @@ import { PolicyIngestionOrchestrator } from "../../features/document_processing/
 import { compensateIngestionFailure } from "../../shared/ingestion_compensation.ts";
 import { UsageService } from "../../modules/subscription/usage.service.ts";
 import { StorageService } from "../../modules/storage/storage.service.ts";
-import { resolveTimezone } from "../../shared/datetime.ts";
+import { calcTimezoneOffset, resolveTimezone } from "../../shared/datetime.ts";
 import { AI_BACKEND_NAME, AI_MODEL } from "../../shared/config.ts";
 import {
   AiChatSchema,
@@ -210,7 +210,10 @@ export class AiController {
 
     const parsed = ConfirmPolicySchema.parse(body);
 
-    const result = await c.get("services").confirmPolicyService.confirm(agentId, parsed);
+    const timezoneOffset = calcTimezoneOffset(
+      resolveTimezone(c.req.header("x-timezone"), c.req.header("x-timezone-offset")),
+    );
+    const result = await c.get("services").confirmPolicyService.confirm(agentId, parsed, timezoneOffset);
     return sendSuccess(c, result);
   }
 

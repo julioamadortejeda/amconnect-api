@@ -328,9 +328,15 @@ export class PolicyConfirmationService {
     const branchId = await this.findOrCreateCatalogItem(cat.branchService, branchName, {
       code: branchName.toUpperCase().replace(/\s+/g, "_").slice(0, 20),
     });
+    // El producto es del asesor y de UNA aseguradora/ramo: buscarlo solo por
+    // nombre reutilizaba el de otra aseguradora con el mismo nombre.
+    const resolvedProductName = productName ?? `${carrierName} ${branchName}`;
     const productId = await this.findOrCreateCatalogItem(
-      cat.productService,
-      productName ?? `${carrierName} ${branchName}`,
+      {
+        search: (name) => cat.productService.findByNameInCarrier(name, carrierId, branchId),
+        create: (data) => cat.productService.create(data),
+      },
+      resolvedProductName,
       { carrierId, branchId },
     );
     return { carrierId, branchId, productId };
