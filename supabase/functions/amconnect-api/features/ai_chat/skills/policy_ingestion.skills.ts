@@ -1,8 +1,7 @@
 import { z } from "zod";
-import { SkillDefinition, SkillContext } from "./skill.core.ts";
-import { assertNoDuplicatePolicyNumber, resolveCatalogId } from "../../../shared/utils.ts";
-import { buildChangelogContent, diffPolicy, PolicyChange } from "../../document_processing/policy_diff.ts";
-import type { PolicyExtraction } from "../../document_processing/policy_extraction.schema.ts";
+import { SkillDefinition } from "./skill.core.ts";
+import type { PolicyConfirmationInput } from "../../document_processing/policy_confirmation.service.ts";
+import { policyConfirmedResult, policyUpdatedResult } from "./policy_ingestion.mapper.ts";
 
 const BeneficiarySchema = z.object({
   full_name: z.string(),
@@ -22,19 +21,11 @@ export const policyIngestionSkills: SkillDefinition[] = [
     },
     async execute(args, ctx) {
       if (!args.confirmed) {
-        const { agentId, sessionId, aiSessionService, embeddingsService } = ctx;
-        const meta = await aiSessionService.getSessionMetadata(sessionId);
-        const newNoteId = meta?.newNoteId as string | null ?? null;
-        if (newNoteId) {
-          await embeddingsService.softDeleteNoteById(agentId, newNoteId, 'user_rejected');
-        }
-        // Decisión resuelta — el /cancel posterior no debe volver a procesar
-        // esta nota (le pisaría el discard_reason con 'session_cancelled').
-        await aiSessionService.updateMetadata(sessionId, { ...meta, status: 'update_discarded' });
+        await ctx.policyConfirmation.discardUpdate(ctx.agentId, ctx.sessionId);
         return { cancelled: true, message: "Update discarded by advisor. Existing policy remains unchanged." };
       }
       try {
-        return await resolveAndUpdatePolicy(ctx);
+        return policyUpdatedResult(await ctx.policyConfirmation.applyUpdate(ctx.agentId, ctx.sessionId));
       } catch (e) {
         return { error: e instanceof Error ? e.message : String(e) };
       }
@@ -73,7 +64,13 @@ export const policyIngestionSkills: SkillDefinition[] = [
     },
     async execute(args, ctx) {
       try {
-        return await resolveAndCreatePolicy(args as PolicyIngestionArgs, ctx);
+        const result = await ctx.policyConfirmation.confirm(
+          ctx.agentId,
+          ctx.sessionId,
+          ctx.timezoneOffset,
+          toConfirmationInput(args as PolicyIngestionArgs),
+        );
+        return policyConfirmedResult(result);
       } catch (e) {
         return { error: e instanceof Error ? e.message : String(e) };
       }
@@ -88,320 +85,34 @@ function field(args: PolicyIngestionArgs, snake: string, camel: string): string 
   return args[snake] ?? args[camel];
 }
 
-async function resolveAndCreatePolicy(args: PolicyIngestionArgs, ctx: SkillContext) {
-  const {
-    agentId, sessionId,
-    policyService, embeddingsService, aiSessionService,
-    reminderGenerationService, catalogServices,
-  } = ctx;
-
-  const carrierName     = field(args, "carrier_name", "carrierName");
-  const branchName      = field(args, "branch_name", "branchName");
-  const productName     = field(args, "product_name", "productName");
-  const holderName      = field(args, "holder_name", "holderName");
-  const holderRfc       = field(args, "holder_rfc", "holderRfc");
-  const policyNumber    = field(args, "policy_number", "policyNumber");
-  const currency        = args.currency ?? "MXN";
-  const startDate       = field(args, "start_date", "startDate");
-  const endDate         = field(args, "end_date", "endDate");
-  const renewalDate     = field(args, "renewal_date", "renewalDate");
-  const nextPaymentDate = field(args, "next_payment_date", "nextPaymentDate");
-  const paymentFreq     = field(args, "payment_frequency", "paymentFrequency");
-  const paymentMeth     = field(args, "payment_method", "paymentMethod");
-  const beneficiaries   = args.beneficiaries ?? [];
-
-  if (!carrierName || !branchName || !holderName) {
-    return { error: "Missing required data: carrier_name, branch_name, and holder_name are required." };
-  }
-
-  // Re-validar duplicados con el policy_number FINAL (puede diferir del extraído
-  // originalmente si el asesor lo corrigió en el chat antes de confirmar).
-  await assertNoDuplicatePolicyNumber(policyService, agentId, policyNumber);
-
-  // ─── Leer metadata de la sesión ───────────────────────────────────────────
-  const sessionMetadata = await aiSessionService.getSessionMetadata(sessionId);
-  const documentMetadataId = sessionMetadata?.documentMetadataId as string | null ?? null;
-  const finalContactId = sessionMetadata?.finalContactId as string | null ?? null;
-  const contactMismatchAssignedToScreen = sessionMetadata?.contactMismatchAssignedToScreen === true;
-  const mismatchDetectedContactName = sessionMetadata?.detectedContactName as string | null ?? null;
-
-  // ─── Resolver carrier ─────────────────────────────────────────────────────
-  const carrierId = await findOrCreateCatalogItem(
-    catalogServices.carrierService, carrierName,
-  );
-
-  // ─── Resolver branch ──────────────────────────────────────────────────────
-  const branchId = await findOrCreateCatalogItem(
-    catalogServices.branchService, branchName,
-    { code: branchName.toUpperCase().replace(/\s+/g, "_").slice(0, 20) },
-  );
-
-  // ─── Resolver product ─────────────────────────────────────────────────────
-  const productId = await findOrCreateCatalogItem(
-    catalogServices.productService,
-    productName ?? `${carrierName} ${branchName}`,
-    { carrierId, branchId },
-  );
-
-  // ─── Resolver contacto ───────────────────────────────────────────────────
-  // `finalContactId` viene de la pantalla de origen (ver policy_ingestion.service.ts
-  // extract()/resolveContactMismatch()) — si está presente, ya fue decidido
-  // (con o sin conflicto detectado) y no se vuelve a resolver por nombre/RFC.
-  const contactId = finalContactId ?? await findOrCreateContact(ctx, holderName, holderRfc ?? null);
-
-  // ─── Resolver catálogos globales ──────────────────────────────────────────
-  const [statusRow, currencyRow, paymentFrequencyId, paymentMethodId] = await Promise.all([
-    catalogServices.policyStatusService.getByCode("ACTIVE"),
-    catalogServices.currencyService.getByCode(currency === "USD" ? "USD" : "MXN"),
-    paymentFreq ? resolveCatalogId(catalogServices.paymentFrequencyService, paymentFreq, { key: "name", value: "Anual" }) : Promise.resolve(null),
-    paymentMeth ? resolveCatalogId(catalogServices.paymentMethodService, paymentMeth, { key: "code", value: "CREDIT_CARD" }) : Promise.resolve(null),
-  ]) as [{ id: string } | null, { id: string } | null, string | null, string | null];
-
-  if (!statusRow?.id) throw new Error("Status ACTIVE not found in catalog.");
-  if (!currencyRow?.id) throw new Error(`Currency ${currency} not found in catalog.`);
-
-  // ─── Crear póliza ─────────────────────────────────────────────────────────
-  const policy = await policyService.create({
-    agentId,
-    contactId,
-    carrierId,
-    branchId,
-    productId,
-    statusId: statusRow.id,
-    currencyId: currencyRow.id,
-    paymentFrequencyId: paymentFrequencyId || null,
-    paymentMethodId: paymentMethodId || null,
-    policyNumber: policyNumber ?? null,
-    premium: args.premium ?? null,
-    sumInsured: args.sum_insured ?? args.sumInsured ?? null,
-    startDate: startDate ?? null,
-    endDate: endDate ?? null,
-    renewalDate: renewalDate ?? null,
-    nextPaymentDate: nextPaymentDate ?? null,
-    notes: args.notes ?? null,
-    deductible: args.deductible ?? args.global_deductible ?? args.globalDeductible ?? null,
-    coinsurance: args.coinsurance ?? args.global_coinsurance ?? args.globalCoinsurance ?? null,
-    seniorityDate: field(args, "seniority_date", "seniorityDate") ?? null,
-    insuredItem: field(args, "insured_item", "insuredItem") ?? null,
-    policyVersion: field(args, "policy_version", "policyVersion") ?? null,
-  });
-
-  if (!policy) throw new Error("Could not create policy.");
-
-  // ─── Nota de trazabilidad si el asesor forzó la asignación a otro contacto ─
-  if (contactMismatchAssignedToScreen && mismatchDetectedContactName) {
-    const mismatchNoteContent =
-      `This policy (${carrierName}${policyNumber ? ` #${policyNumber}` : ""}) was extracted from a document ` +
-      `that identified "${mismatchDetectedContactName}" as the policyholder. The advisor chose to assign it to ` +
-      `this client anyway on ${new Date().toISOString().slice(0, 10)}.`;
-    const { embeddingTotalTokens: mismatchNoteEmbTokens, embeddingCount: mismatchNoteEmbCount } =
-      await embeddingsService.saveDocument(agentId, {
-        content: mismatchNoteContent,
-        sourceType: 'text',
-        contactId,
-        policyId: policy.id,
-        noteOrigin: 'policy',
-      });
-    await aiSessionService.trackEmbeddingUsageOnly(
-      agentId, sessionId, null,
-      embeddingsService.embeddingModelName,
-      mismatchNoteEmbTokens,
-      mismatchNoteEmbCount,
-    );
-  }
-
-  // ─── Agregar beneficiarios ────────────────────────────────────────────────
-  if (beneficiaries.length > 0) {
-    await Promise.all(
-      beneficiaries.map((b: { full_name: string; relationship?: string | null; percentage?: number | null }) =>
-        policyService.addBeneficiary({
-          policyId: policy.id,
-          fullName: b.full_name,
-          relationship: b.relationship ?? null,
-          percentage: b.percentage ?? null,
-        })
-      ),
-    );
-  }
-
-  // ─── Vincular notas al contacto y póliza confirmados ─────────────────────
-  if (documentMetadataId) {
-    await embeddingsService.updateNoteLinks(agentId, documentMetadataId, contactId, policy.id);
-  }
-
-  // ─── Generar recordatorios automáticos ───────────────────────────────────
-  const reminders = await reminderGenerationService.generateForPolicy(policy, agentId, ctx.timezoneOffset);
-
-  const fieldCount = [
-    carrierName, branchName, holderName, productName,
-    policyNumber, startDate, endDate, renewalDate, nextPaymentDate,
-    args.premium, args.sum_insured ?? args.sumInsured, paymentFreq, args.notes,
-  ].filter((v) => v !== null && v !== undefined && v !== "").length;
-
+/**
+ * Junta las variantes de nombre de campo que manda el modelo (snake_case
+ * preferido, camelCase de respaldo, `global_*` de la extracción) en un solo
+ * input para el service.
+ */
+function toConfirmationInput(args: PolicyIngestionArgs): PolicyConfirmationInput {
   return {
-    success: true,
-    policyId: policy.id,
-    policyNumber: policy.policyNumber,
-    message: "Policy created successfully.",
-    __skillMetadata: {
-      type: "policy_confirmed",
-      policyId: policy.id,
-      policyNumber: policy.policyNumber,
-      carrierName,
-      branchName,
-      holderName,
-      fieldCount,
-      reminders,
-    },
-  };
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-// deno-lint-ignore no-explicit-any
-async function findOrCreateCatalogItem(service: any, name: string, extra: Record<string, unknown> = {}): Promise<string> {
-  const results = await service.search(name);
-  if (results?.[0]?.id) return results[0].id as string;
-  const created = await service.create({ name, ...extra });
-  if (!created?.id) throw new Error(`Could not create catalog item: ${name}`);
-  return created.id as string;
-}
-
-async function findOrCreateContact(ctx: SkillContext, fullName: string, rfc: string | null): Promise<string> {
-  const { agentId, contactService } = ctx;
-
-  const match = await contactService.findMatchingContact(agentId, fullName, rfc);
-  if (match) return match.id;
-
-  const created = await contactService.create({ agentId, fullName, rfc });
-  if (!created?.id) throw new Error(`Could not create contact: ${fullName}`);
-  return created.id;
-}
-
-async function resolveAndUpdatePolicy(ctx: SkillContext) {
-  const { agentId, sessionId, policyService, embeddingsService, aiSessionService, catalogServices } = ctx;
-
-  const meta = await aiSessionService.getSessionMetadata(sessionId);
-  if (!meta?.existingPolicyId || !meta?.extraction) {
-    return { error: "No update data found in session. Please start a new ingestion." };
-  }
-
-  const existingPolicyId = meta.existingPolicyId as string;
-  const newDocumentMetadataId = meta.newDocumentMetadataId as string | null ?? null;
-  const diff = (meta.diff ?? []) as PolicyChange[];
-  const extraction = meta.extraction as PolicyExtraction;
-
-  const carrierName = extraction.carrierName;
-  const branchName = extraction.branchName;
-  const productName = extraction.productName;
-  const holderName = extraction.holderName;
-  const currency = extraction.currency ?? "MXN";
-  const paymentFreq = extraction.paymentFrequency;
-  const paymentMeth = extraction.paymentMethod;
-
-  if (!carrierName || !branchName) {
-    return { error: "Missing carrier or branch in extraction data." };
-  }
-
-  const carrierId = await findOrCreateCatalogItem(catalogServices.carrierService, carrierName);
-  const branchId = await findOrCreateCatalogItem(catalogServices.branchService, branchName, {
-    code: branchName.toUpperCase().replace(/\s+/g, "_").slice(0, 20),
-  });
-  const productId = await findOrCreateCatalogItem(
-    catalogServices.productService,
-    productName ?? `${carrierName} ${branchName}`,
-    { carrierId, branchId },
-  );
-
-  const [statusRow, currencyRow, paymentFrequencyId, paymentMethodId] = await Promise.all([
-    catalogServices.policyStatusService.getByCode("ACTIVE"),
-    catalogServices.currencyService.getByCode(currency === "USD" ? "USD" : "MXN"),
-    paymentFreq ? resolveCatalogId(catalogServices.paymentFrequencyService, paymentFreq, { key: "name", value: "Anual" }) : Promise.resolve(null),
-    paymentMeth ? resolveCatalogId(catalogServices.paymentMethodService, paymentMeth, { key: "code", value: "CREDIT_CARD" }) : Promise.resolve(null),
-  ]) as [{ id: string } | null, { id: string } | null, string | null, string | null];
-
-  if (!statusRow?.id) throw new Error("Status ACTIVE not found in catalog.");
-  if (!currencyRow?.id) throw new Error(`Currency ${currency} not found in catalog.`);
-
-  const updated = await policyService.update(existingPolicyId, {
-    productId,
-    statusId: statusRow.id,
-    currencyId: currencyRow.id,
-    paymentFrequencyId: paymentFrequencyId ?? null,
-    paymentMethodId: paymentMethodId ?? null,
-    policyNumber: extraction.policyNumber ?? undefined,
-    premium: extraction.premium ?? undefined,
-    sumInsured: extraction.sumInsured ?? undefined,
-    startDate: extraction.startDate ?? undefined,
-    endDate: extraction.endDate ?? undefined,
-    renewalDate: extraction.renewalDate ?? undefined,
-    nextPaymentDate: extraction.nextPaymentDate ?? undefined,
-    notes: extraction.notes ?? undefined,
-    deductible: extraction.globalDeductible ?? undefined,
-    coinsurance: extraction.globalCoinsurance ?? undefined,
-    seniorityDate: extraction.seniorityDate ?? undefined,
-    insuredItem: extraction.insuredItem ?? undefined,
-    policyVersion: extraction.policyVersion ?? undefined,
-  });
-
-  if (!updated) throw new Error("Could not update policy.");
-
-  // Soft-delete old policy note, then link the new one (already created during extract)
-  await embeddingsService.softDeleteNotesByPolicy(agentId, existingPolicyId, 'policy');
-  if (newDocumentMetadataId) {
-    await embeddingsService.updateNoteLinks(agentId, newDocumentMetadataId, updated.contactId, existingPolicyId);
-  }
-
-  // La decisión pendiente quedó resuelta: si el cliente llama /cancel después
-  // (limpieza normal al cerrar el sheet o resetear el chat), el endpoint no
-  // debe tratar la sesión como abandonada ni soft-borrar la nota recién
-  // confirmada (updateMetadata REEMPLAZA la metadata — preservar el resto).
-  await aiSessionService.updateMetadata(sessionId, { ...meta, status: 'update_applied' });
-
-  // Create changelog note
-  const changelogContent = buildChangelogContent(
-    extraction.policyNumber ?? 'N/A',
-    diff,
-    extraction.summary ?? '',
-  );
-
-  const { embeddingTotalTokens: changelogEmbTokens, embeddingCount: changelogEmbCount } =
-    await embeddingsService.saveDocument(agentId, {
-      content: changelogContent,
-      sourceType: 'text',
-      contactId: updated.contactId ?? null,
-      policyId: existingPolicyId,
-      noteOrigin: 'policy_changelog',
-      summary: `Policy ${extraction.policyNumber ?? 'N/A'} updated — ${diff.length} field(s) changed.`,
-    });
-
-  await aiSessionService.trackEmbeddingUsageOnly(
-    agentId, sessionId, null,
-    embeddingsService.embeddingModelName,
-    changelogEmbTokens,
-    changelogEmbCount,
-  );
-
-  // Re-run diff against the now-updated policy to confirm changes saved
-  const existingForDiff = await policyService.getById(existingPolicyId);
-  const finalDiff = existingForDiff ? diffPolicy(existingForDiff, extraction) : diff;
-
-  return {
-    success: true,
-    policyId: existingPolicyId,
-    policyNumber: updated.policyNumber,
-    message: "Policy updated successfully.",
-    changesApplied: diff.length,
-    __skillMetadata: {
-      type: "policy_updated",
-      policyId: existingPolicyId,
-      policyNumber: updated.policyNumber,
-      carrierName,
-      branchName,
-      holderName,
-      fieldCount: diff.length,
-      changesApplied: diff.length,
-      remainingDifferences: finalDiff.length,
-    },
+    carrierName: field(args, "carrier_name", "carrierName"),
+    branchName: field(args, "branch_name", "branchName"),
+    productName: field(args, "product_name", "productName"),
+    holderName: field(args, "holder_name", "holderName"),
+    holderRfc: field(args, "holder_rfc", "holderRfc"),
+    policyNumber: field(args, "policy_number", "policyNumber"),
+    currency: args.currency,
+    premium: args.premium,
+    sumInsured: args.sum_insured ?? args.sumInsured,
+    startDate: field(args, "start_date", "startDate"),
+    endDate: field(args, "end_date", "endDate"),
+    renewalDate: field(args, "renewal_date", "renewalDate"),
+    nextPaymentDate: field(args, "next_payment_date", "nextPaymentDate"),
+    paymentFrequency: field(args, "payment_frequency", "paymentFrequency"),
+    paymentMethod: field(args, "payment_method", "paymentMethod"),
+    notes: args.notes,
+    deductible: args.deductible ?? args.global_deductible ?? args.globalDeductible,
+    coinsurance: args.coinsurance ?? args.global_coinsurance ?? args.globalCoinsurance,
+    seniorityDate: field(args, "seniority_date", "seniorityDate"),
+    insuredItem: field(args, "insured_item", "insuredItem"),
+    policyVersion: field(args, "policy_version", "policyVersion"),
+    beneficiaries: args.beneficiaries ?? [],
   };
 }

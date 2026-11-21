@@ -1,34 +1,8 @@
 import { z } from "zod";
-import { assertHasChanges, SkillContext, SkillDefinition } from "./skill.core.ts";
-import { ReminderResponseDTO } from "../../../modules/reminder/reminder.dto.ts";
-import { utcToLocalIso } from "../../../shared/datetime.ts";
-import { daysFromNowRange, isUuid } from "../../../shared/utils.ts";
+import { nothingToUpdate, SkillDefinition } from "./skill.core.ts";
 import { entityThreshold } from "../../rag/rag.service.ts";
-
-// Postgres devuelve timestamptz en UTC; al modelo se le entregan ya convertidos
-// al timezone del asesor para que no tenga que hacer aritmética de husos horarios.
-const slimReminder = (r: ReminderResponseDTO, ctx: SkillContext) => ({
-  id: r.id,
-  title: r.title,
-  description: r.description,
-  dueDate: utcToLocalIso(r.dueDate, ctx.timezone),
-  statusId: r.statusId,
-  status: r.status,
-  comments: r.comments?.map((c) => ({ ...c, createdAt: utcToLocalIso(c.createdAt, ctx.timezone) })),
-  notes: r.notes?.map((n) => ({
-    id: n.id,
-    sourceType: n.sourceType,
-    summary: n.summary,
-    content: n.content,
-    fileName: n.documentMetadata?.fileName,
-    createdAt: utcToLocalIso(n.createdAt, ctx.timezone),
-  })),
-  contactId: r.contactId,
-  policyId: r.policyId,
-  type: r.type,
-  contact: r.contact,
-  policy: r.policy,
-});
+import { agendaResult, reminderCreatedResult, slimReminder } from "./reminder.mapper.ts";
+import { clientNotResolved } from "./contact.mapper.ts";
 
 const STATUS_UPDATE_DESC = "New status for the reminder — its code or its UUID, both are accepted. Call get_reminder_statuses first to get the catalog.";
 const STATUS_FILTER_DESC = "Filter by status — its code or its UUID, both are accepted. Call get_reminder_statuses first to get the catalog.";
@@ -77,30 +51,11 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
+      // deno-lint-ignore no-explicit-any
       const params = args as any;
-      let typeId = params.type_id || params.reminder_type_id;
-
-      if (!typeId) {
-        const types = await ctx.catalogServices.reminderTypeService.getAll();
-        if (types) {
-          const typeQuery = (params.reminder_type_name_or_code || "OTHER").toUpperCase().trim();
-          const byCode = types.find(t => String(t.code).toUpperCase() === typeQuery);
-          if (byCode) {
-            typeId = byCode.id as string;
-          } else {
-            const byName = types.find(t => String(t.name).toUpperCase().includes(typeQuery));
-            typeId = byName ? (byName.id as string) : (types.find(t => t.code === "OTHER")?.id as string ?? types[0]?.id as string);
-          }
-        }
-      }
-
-      if (!typeId) {
-        return { error: "Could not resolve reminder type. Make sure to pass 'type_id' or 'reminder_type_name_or_code'." };
-      }
-
-      const result = await ctx.reminderService.create({
-        agentId: ctx.agentId,
-        typeId: typeId as string,
+      const result = await ctx.reminderWorkflow.create(ctx.agentId, {
+        typeId: params.type_id || params.reminder_type_id,
+        typeQuery: params.reminder_type_name_or_code,
         title: args.title as string,
         description: args.description as string ?? null,
         dueDate: args.due_date as string,
@@ -108,19 +63,12 @@ export const reminderSkills: SkillDefinition[] = [
         policyId: args.policy_id as string ?? null,
         comment: args.comment as string ?? null,
       });
-      if (!result) return null;
-      const slim = slimReminder(result, ctx);
-      return {
-        ...slim,
-        __skillMetadata: {
-          type: "reminder_created",
-          reminderId: result.id,
-          title: result.title,
-          description: result.description,
-          dueDate: slim.dueDate,
-          clientName: result.contact?.fullName ?? null,
-        },
-      };
+      if (result.outcome === "type_unresolved") {
+        return { error: "Could not resolve reminder type. Make sure to pass 'type_id' or 'reminder_type_name_or_code'." };
+      }
+      const reminder = result.reminder;
+      if (!reminder) return null;
+      return reminderCreatedResult(reminder, ctx.timezone, reminder.contact?.fullName ?? null);
     },
   },
   {
@@ -135,100 +83,15 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute({ from, to, contact_id }, ctx) {
-      const contactId = contact_id as string | undefined;
-
-      // Rango efectivo explícito: si el modelo no manda bounds se aplica el
-      // mismo default del service (próximos 7 días), pero informándolo en la
-      // respuesta para que el modelo sepa qué ventana está viendo y no
-      // presente tareas de mañana como pendientes de "hoy".
-      //
-      // Con `contact_id` la ventana por defecto NO aplica. Reportado por el
-      // asesor de pruebas: preguntar por los pendientes de un cliente traía
-      // los suyos y además la agenda próxima de todos los demás. Acotado a una
-      // persona, "pendiente" no significa "esta semana" — significa todo lo que
-      // le queda abierto, así esté a tres meses.
-      const scoped = !!contactId;
-      const usedDefault = !from && !to && !scoped;
-      const defaults = daysFromNowRange(7);
-      const fromEff = (from as string | undefined) ?? (scoped ? null : defaults.from);
-      const toEff = (to as string | undefined) ?? (scoped ? null : defaults.to);
-
-      const reminders = await ctx.reminderService.getUpcoming(ctx.agentId, fromEff, toEff, contactId);
-      const slim = (reminders ?? []).map((r) => slimReminder(r, ctx));
-
-      // Cuántos pendientes quedan DESPUÉS de la ventana consultada.
-      //
-      // Se cuenta SIEMPRE, no solo cuando `usedDefault`. Medido el 2026-09-03:
-      // ante "¿qué tengo pendiente?" —sin ninguna referencia de tiempo— el
-      // modelo NO dejó los campos vacíos como pide la descripción de la skill;
-      // calculó él mismo una ventana de 7 días y la mandó en `from`/`to`. Con
-      // eso `usedDefault` era false y el aviso no salía nunca, que es
-      // exactamente el caso que venía a cubrir: un horizonte que el asesor
-      // jamás pidió, ocultando un recordatorio a 12 días.
-      //
-      // El conteo es `head: true`, así que cuesta una consulta sin filas.
-      // Sin tope superior no hay nada "más allá de la ventana" que contar, y la
-      // consulta se ahorra.
-      const afterCount = toEff
-        ? await ctx.reminderService.countPendingAfter(ctx.agentId, toEff, contactId)
-        : 0;
-
-      // Y hacia atrás, que era el lado ciego. Medido el 2026-09-04: "qué tengo
-      // pendiente de Zarah el próximo mes" contestó que en octubre no había
-      // nada y se calló el del domingo siguiente, porque caía ANTES de la
-      // ventana y nadie lo miraba. En la pregunta general el mismo hueco
-      // esconde lo vencido — lo más urgente de la agenda.
-      const beforeCount = fromEff
-        ? await ctx.reminderService.countPendingBefore(ctx.agentId, fromEff, contactId)
-        : 0;
-
-      // Cuando la ventana arranca en el futuro ("el próximo mes"), lo que queda
-      // antes mezcla lo vencido con lo que todavía está por venir. Se separan
-      // para poder nombrar los overdueCount por su nombre en vez de decir "algunos".
-      // Con la ventana por defecto, que arranca ahora, ya son lo mismo y la
-      // segunda consulta no se hace.
-      const now = new Date();
-      const windowStartsInPast = !!fromEff && new Date(fromEff).getTime() <= now.getTime();
-      const overdueCount = beforeCount === 0
-        ? 0
-        : windowStartsInPast
-        ? beforeCount
-        : await ctx.reminderService.countPendingBefore(ctx.agentId, now.toISOString(), contactId);
-
-      return {
-        // Solo la ventana y quien la fijo. Que hacer cuando es la default
-        // —filtrar por dueDate si el asesor pidio algo mas angosto— es politica
-        // constante y vive en READING TOOL RESULTS del prompt.
-        queriedRange: {
-          from: fromEff ? utcToLocalIso(fromEff, ctx.timezone) : null,
-          to: toEff ? utcToLocalIso(toEff, ctx.timezone) : null,
-          ...(usedDefault ? { isDefault: true } : {}),
-        },
-        // Para que el modelo no presente una lista de un solo cliente como si
-        // fuera la agenda completa del asesor.
-        ...(scoped ? { scope: "contact" as const } : {}),
-        // Aparece siempre que de verdad quede algo fuera, sin importar quién
-        // fijó la ventana: así el modelo no puede presentar una lista recortada
-        // como si fuera toda la agenda.
-        ...(afterCount > 0 ? { beyondRange: { count: afterCount } } : {}),
-        // El hermano de beyondRange. Un pendiente vencido no es algo que el
-        // asesor haya elegido excluir al nombrar un periodo: preguntó por unas
-        // fechas, no pidió esconder lo que ya se le pasó.
-        ...(beforeCount > 0
-          ? { beforeRange: { count: beforeCount, overdue: overdueCount } }
-          : {}),
-        reminders: slim,
-        __skillMetadata: {
-          type: "reminder_list",
-          reminders: slim.map(r => ({
-            id: r.id,
-            title: r.title,
-            description: r.description,
-            dueDate: r.dueDate,
-            clientName: r.contact?.fullName ?? null,
-          })),
-        },
-      };
+      // La ventana efectiva y los conteos fuera de ella los decide el service
+      // (ver ReminderWorkflowService.getAgenda); aquí solo se convierten las
+      // fechas al huso del asesor y se arma lo que lee el modelo.
+      const agenda = await ctx.reminderWorkflow.getAgenda(ctx.agentId, {
+        from: from as string | undefined,
+        to: to as string | undefined,
+        contactId: contact_id as string | undefined,
+      });
+      return agendaResult(agenda, ctx.timezone);
     },
   },
   {
@@ -248,30 +111,21 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
+      // deno-lint-ignore no-explicit-any
       const params = args as any;
-      if (params.status === "CANCELLED" && (!params.comment || !params.comment.trim())) {
-        return { error: "A comment is mandatory to cancel a reminder." };
-      }
-      // El modelo manda indistintamente el `code` o el `id` del estado, y no es
-      // capricho: get_reminder_statuses devuelve los dos, y esta misma skill
-      // pide el tipo como `type_id` en UUID. Se acepta cualquiera en vez de
-      // pelearse con él desde la descripción — el service ya sabe resolver
-      // ambos (`status` por code, `statusId` por id).
-      const rawStatus = (params.status as string | undefined)?.trim() || undefined;
-      const statusIsId = rawStatus !== undefined && isUuid(rawStatus);
-
-      const changes = {
+      const result = await ctx.reminderWorkflow.update(params.reminder_id as string, {
         title: params.title as string | undefined,
         description: params.description as string | undefined,
         dueDate: params.due_date as string | undefined,
         typeId: params.type_id as string | undefined,
-        status: statusIsId ? undefined : rawStatus,
-        statusId: statusIsId ? rawStatus : undefined,
+        status: params.status as string | undefined,
         comment: params.comment as string | undefined,
-      };
-      assertHasChanges(changes);
-      const result = await ctx.reminderService.update(params.reminder_id as string, changes);
-      return result ? slimReminder(result, ctx) : null;
+      });
+      if (result.outcome === "comment_required") {
+        return { error: "A comment is mandatory to cancel a reminder." };
+      }
+      if (result.outcome === "no_changes") throw nothingToUpdate();
+      return result.reminder ? slimReminder(result.reminder, ctx.timezone) : null;
     },
   },
   {
@@ -286,11 +140,8 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute({ reminder_id, comment }, ctx) {
-      const result = await ctx.reminderService.update(reminder_id as string, {
-        status: "DONE",
-        comment: comment as string | undefined,
-      });
-      return result ? slimReminder(result, ctx) : null;
+      const result = await ctx.reminderWorkflow.markDone(reminder_id as string, comment as string | undefined);
+      return result ? slimReminder(result, ctx.timezone) : null;
     },
   },
   {
@@ -320,21 +171,13 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute({ query, status, contact_id }, ctx) {
-      // Mismo motivo que en update_reminder: si llega el UUID del estado se
-      // traduce a su code, que es lo que filtra el repositorio. Sin esto la
-      // búsqueda no truena — devuelve vacío, que es peor.
-      let statusCode = (status as string | undefined)?.trim() || undefined;
-      if (statusCode && isUuid(statusCode)) {
-        const all = await ctx.catalogServices.reminderStatusService.getAll();
-        statusCode = all?.find((s) => s.id === statusCode)?.code as string | undefined;
-      }
-      const items = await ctx.reminderService.searchReminders(
+      const items = await ctx.reminderWorkflow.search(
         ctx.agentId,
         query as string,
-        statusCode,
+        status as string | undefined,
         contact_id as string | undefined,
       );
-      return (items ?? []).map((r) => slimReminder(r, ctx));
+      return items.map((r) => slimReminder(r, ctx.timezone));
     },
   },
   {
@@ -354,54 +197,18 @@ export const reminderSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
+      // deno-lint-ignore no-explicit-any
       const params = args as any;
-      const contacts = await ctx.contactService.findSimilarContact(ctx.agentId, params.client_name);
-      if (!contacts || contacts.length === 0) {
-        return { error: `No client found matching '${params.client_name}'.` };
-      }
-      if (contacts.length > 1) {
-        return {
-          error: `Multiple clients found matching '${params.client_name}'. Please be more specific.`,
-          matches: contacts.map(c => ({ id: c.id, fullName: c.fullName }))
-        };
-      }
-
-      const types = await ctx.catalogServices.reminderTypeService.getAll();
-      let typeId = "";
-      if (types) {
-        const typeQuery = (params.reminder_type_name_or_code || "OTHER").toUpperCase().trim();
-        const byCode = types.find(t => String(t.code).toUpperCase() === typeQuery);
-        if (byCode) {
-          typeId = byCode.id as string;
-        } else {
-          const byName = types.find(t => String(t.name).toUpperCase().includes(typeQuery));
-          typeId = byName ? (byName.id as string) : (types.find(t => t.code === "OTHER")?.id as string ?? types[0]?.id as string);
-        }
-      }
-
-      const reminder = await ctx.reminderService.create({
-        agentId: ctx.agentId,
-        typeId,
+      const result = await ctx.reminderWorkflow.createForClientName(ctx.agentId, params.client_name, {
+        typeQuery: params.reminder_type_name_or_code,
         title: params.title as string,
         description: params.description || null,
         dueDate: params.due_date,
-        contactId: contacts[0].id,
         comment: params.comment ?? null,
       });
-
-      if (!reminder) return null;
-      const slim = slimReminder(reminder, ctx);
-      return {
-        ...slim,
-        __skillMetadata: {
-          type: "reminder_created",
-          reminderId: reminder.id,
-          title: reminder.title,
-          description: reminder.description,
-          dueDate: slim.dueDate,
-          clientName: contacts[0].fullName,
-        },
-      };
+      if (result.outcome !== "created") return clientNotResolved(params.client_name, result);
+      if (!result.reminder) return null;
+      return reminderCreatedResult(result.reminder, ctx.timezone, result.contact.fullName);
     },
   },
   {

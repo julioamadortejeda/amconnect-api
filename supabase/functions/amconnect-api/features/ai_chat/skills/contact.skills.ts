@@ -1,20 +1,7 @@
 import { z } from "zod";
 import { assertHasChanges, SkillDefinition } from "./skill.core.ts";
-import { ContactResponseDTO } from "../../../modules/contact/contact.dto.ts";
-import { QUICK_NOTE_MAX_LENGTH } from "../../document_processing/knowledge_ingestion.service.ts";
 import { entityThreshold } from "../../rag/rag.service.ts";
-
-const slimContact = (c: ContactResponseDTO) => ({
-  id: c.id,
-  fullName: c.fullName,
-  phone: c.phone,
-  email: c.email,
-  birthdate: c.birthdate,
-  occupation: c.occupation,
-  address: c.address,
-  rfc: c.rfc,
-  curp: c.curp,
-});
+import { clientNotResolved, contactCardResult, contactListResult } from "./contact.mapper.ts";
 
 export const contactSkills: SkillDefinition[] = [
   {
@@ -29,27 +16,7 @@ export const contactSkills: SkillDefinition[] = [
     },
     async execute({ query }, ctx) {
       const results = await ctx.contactService.findSimilarContact(ctx.agentId, query as string);
-      const slim = (results ?? []).map(slimContact);
-      return {
-        contacts: slim,
-        // NO agregar aquí una instrucción para el modelo. Se intentó el
-        // 2026-08-13 (para que no llamara get_contact sobre gente que esta
-        // respuesta ya trae completa) y no cambió nada, pero sí se quedaba en
-        // el historial de la sesión: en voz Live el contexto se recobra en
-        // cada turno, así que el texto muerto se paga una y otra vez.
-        //
-        // Sin resultados no hay tarjeta: cero contactos pintaba un "Matching
-        // Contacts" con encabezado y nada debajo. Que no haya coincidencias ya
-        // lo dice el modelo con palabras.
-        ...(slim.length > 0
-          ? {
-            __skillMetadata: {
-              type: "contact_list",
-              contacts: slim,
-            },
-          }
-          : {}),
-      };
+      return contactListResult(results);
     },
   },
   {
@@ -69,17 +36,7 @@ export const contactSkills: SkillDefinition[] = [
     async execute({ contact_id }, ctx) {
       const contact = await ctx.contactService.getById(contact_id as string);
       if (!contact) return null;
-      return {
-        ...contact,
-        __skillMetadata: {
-          type: "contact_info",
-          contactId: contact.id,
-          fullName: contact.fullName,
-          email: contact.email,
-          phone: contact.phone,
-          isProspect: contact.isProspect,
-        },
-      };
+      return contactCardResult(contact, "contact_info");
     },
   },
   {
@@ -102,43 +59,25 @@ export const contactSkills: SkillDefinition[] = [
       }),
     },
     async execute(args, ctx) {
-      const contact = await ctx.contactService.create({
-        agentId: ctx.agentId,
-        fullName: (args.full_name ?? args.name) as string,
-        email: args.email as string ?? null,
-        phone: args.phone as string ?? null,
-        birthdate: (args.birthdate ?? args.birth_date) as string ?? null,
-        rfc: args.rfc as string ?? null,
-        curp: args.curp as string ?? null,
-        address: args.address as string ?? null,
-        occupation: args.occupation as string ?? null,
-        isProspect: args.is_prospect as boolean ?? false,
-      });
-      if (!contact) return null;
-      if (args.notes) {
-        // Cuota de ingesta solo se descuenta si el texto necesita el resumen
-        // de IA (ver QUICK_NOTE_MAX_LENGTH) — una nota corta siempre se
-        // trackea (tokens de embedding), pero no consume créditos del plan.
-        if ((args.notes as string).length > QUICK_NOTE_MAX_LENGTH) {
-          await ctx.usageService.checkAndIncrementIngestion(ctx.agentId);
-        }
-        await ctx.knowledgeIngestionService.ingestText(ctx.agentId, ctx.sessionId, {
-          content: args.notes as string,
-          sourceType: "text",
-          contactId: contact.id,
-        });
-      }
-      return {
-        ...contact,
-        __skillMetadata: {
-          type: "contact_created",
-          contactId: contact.id,
-          fullName: contact.fullName,
-          email: contact.email,
-          phone: contact.phone,
-          isProspect: contact.isProspect,
+      const contact = await ctx.contactWorkflow.createWithNotes(
+        ctx.agentId,
+        ctx.sessionId,
+        {
+          agentId: ctx.agentId,
+          fullName: (args.full_name ?? args.name) as string,
+          email: args.email as string ?? null,
+          phone: args.phone as string ?? null,
+          birthdate: (args.birthdate ?? args.birth_date) as string ?? null,
+          rfc: args.rfc as string ?? null,
+          curp: args.curp as string ?? null,
+          address: args.address as string ?? null,
+          occupation: args.occupation as string ?? null,
+          isProspect: args.is_prospect as boolean ?? false,
         },
-      };
+        args.notes as string | undefined,
+      );
+      if (!contact) return null;
+      return contactCardResult(contact, "contact_created");
     },
   },
   {
@@ -150,19 +89,8 @@ export const contactSkills: SkillDefinition[] = [
     },
     async execute(_args, ctx) {
       const contacts = await ctx.contactService.getByField("agent_id", ctx.agentId);
-      const slim = (contacts ?? []).map(slimContact);
-      return {
-        contacts: slim,
-        // Mismo criterio que search_contact: sin filas no hay tarjeta.
-        ...(slim.length > 0
-          ? {
-            __skillMetadata: {
-              type: "contact_list",
-              contacts: slim,
-            },
-          }
-          : {}),
-      };
+      // Mismo criterio que search_contact: sin filas no hay tarjeta.
+      return contactListResult(contacts);
     },
   },
   {
@@ -208,19 +136,8 @@ export const contactSkills: SkillDefinition[] = [
       };
       assertHasChanges(changes);
       const updated = await ctx.contactService.update(args.contact_id as string, changes);
-
       if (!updated) return null;
-      return {
-        ...updated,
-        __skillMetadata: {
-          type: "contact_info",
-          contactId: updated.id,
-          fullName: updated.fullName,
-          email: updated.email,
-          phone: updated.phone,
-          isProspect: updated.isProspect,
-        },
-      };
+      return contactCardResult(updated, "contact_info");
     },
   },
   {
@@ -267,27 +184,14 @@ export const contactSkills: SkillDefinition[] = [
       }),
     },
     async execute({ client_name, note_content }, ctx) {
-      const contacts = await ctx.contactService.findSimilarContact(ctx.agentId, client_name as string);
-      if (!contacts || contacts.length === 0) {
-        return { error: `No client found matching '${client_name}'.` };
-      }
-      if (contacts.length > 1) {
-        return {
-          error: `Multiple clients found matching '${client_name}'. Please be more specific.`,
-          matches: contacts.map(c => ({ id: c.id, fullName: c.fullName }))
-        };
-      }
-
-      const contact = contacts[0];
-      if ((note_content as string).length > QUICK_NOTE_MAX_LENGTH) {
-        await ctx.usageService.checkAndIncrementIngestion(ctx.agentId);
-      }
-      await ctx.knowledgeIngestionService.ingestText(ctx.agentId, ctx.sessionId, {
-        content: note_content as string,
-        sourceType: "text",
-        contactId: contact.id,
-      });
-      return { success: true, message: `Note added successfully to ${contact.fullName}.` };
+      const result = await ctx.contactWorkflow.addNoteByName(
+        ctx.agentId,
+        ctx.sessionId,
+        client_name as string,
+        note_content as string,
+      );
+      if (result.outcome !== "added") return clientNotResolved(client_name as string, result);
+      return { success: true, message: `Note added successfully to ${result.contact.fullName}.` };
     },
   },
 ];

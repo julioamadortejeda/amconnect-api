@@ -77,3 +77,15 @@ export function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     .test(value.trim());
 }
+
+/**
+ * ¿Trae al menos un campo que cambiar? `undefined` y los textos en blanco no
+ * cuentan. Es la regla de "actualización vacía" que comparten los services de
+ * escritura (ver `assertHasChanges` en skills/skill.core.ts, que la usa para
+ * contestarle al modelo).
+ */
+export function hasAnyChange(fields: Record<string, unknown>): boolean {
+  return Object.values(fields).some((v) =>
+    v !== undefined && !(typeof v === "string" && v.trim() === "")
+  );
+}

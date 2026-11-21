@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SkillDefinition } from "./skill.core.ts";
+import { RAG_THRESHOLD_BROAD } from "../../rag/rag.service.ts";
 
 export const knowledgeSkills: SkillDefinition[] = [
   {
@@ -13,7 +14,7 @@ export const knowledgeSkills: SkillDefinition[] = [
       }),
     },
     async execute({ query }, ctx) {
-      return await ctx.ragService.searchNotes(ctx.agentId, query as string, { threshold: 0.5 });
+      return await ctx.ragService.searchNotes(ctx.agentId, query as string, { threshold: RAG_THRESHOLD_BROAD });
     },
   },
 ];
