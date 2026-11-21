@@ -48,7 +48,7 @@ import { NoteRepository } from "../../../modules/note/note.repository.ts";
 import { NoteService } from "../../../modules/note/note.service.ts";
 import { CommitmentService } from "../../../features/commitments/commitment.service.ts";
 import { CommitmentRepository } from "../../../features/commitments/commitment.repository.ts";
-import { localeFromHeader } from "../../../shared/locale.ts";
+import { localeFromHeader, localeToBackfill } from "../../../shared/locale.ts";
 
 // Switch único gratis ↔ pago: AI_BACKEND=studio (default, Gemini API con
 // GEMINI_API_KEY) | vertex (Vertex AI con VERTEX_API_KEY). Aplica a chat,
@@ -169,15 +169,16 @@ export const injectServices = async (c: Context, next: Next) => {
     });
   }
 
-  // El idioma viaja igual y se guarda por la misma razón: el cron escribe
-  // títulos que el asesor lee ("Pago de Prima · ...") y no tiene request. Misma
-  // cautela que arriba — solo si el cliente mandó el header de verdad, para que
-  // un webhook o un curl sin Accept-Language no le pise el idioma.
-  const localeHeader = c.req.header("Accept-Language");
-  const clientLocale = localeHeader ? localeFromHeader(localeHeader) : null;
+  // El idioma del asesor lo elige él (Preferencias → PATCH /agents/me, D-024);
+  // el cron de recordatorios lo lee porque no tiene request. El header
+  // Accept-Language SOLO llena el vacío (null) o normaliza un valor legado
+  // ('en_US', 'es-MX'): nunca pisa un 'es'/'en' ya guardado, porque el idioma
+  // del teléfono no es el que el asesor eligió en la app. Mismo cuidado de
+  // siempre: sin header no se escribe nada.
+  const localeToStore = localeToBackfill(c.req.header("Accept-Language"), agentStatus.locale);
 
-  if (clientLocale && clientLocale !== agentStatus.locale) {
-    agentService.syncLocale(agentId, clientLocale).catch((error) => {
+  if (localeToStore) {
+    agentService.syncLocale(agentId, localeToStore).catch((error) => {
       console.error("[DI] no se pudo guardar el idioma del asesor:", error?.message ?? error);
     });
   }

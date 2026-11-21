@@ -22,3 +22,27 @@ export function languageName(locale?: string | null): string {
 export function localeFromHeader(header?: string | null): string {
   return header?.split(",")[0]?.split(";")[0]?.trim() || "es";
 }
+
+/**
+ * Cualquier etiqueta de idioma ('en_US', 'es-MX', 'EN', ' es ') al par que SI
+ * se guarda en `agents.locale`: 'es' | 'en'. Lo que no es ninguno de los dos
+ * (vacio, 'fr', basura) es null: no se adivina un idioma que la app no tiene.
+ */
+export function normalizeAppLocale(value?: string | null): "es" | "en" | null {
+  const lang = (value ?? "").split(",")[0].split(";")[0].trim().split(/[-_]/)[0].toLowerCase();
+  return lang === "es" || lang === "en" ? lang : null;
+}
+
+/**
+ * Decision de D-024: cuando se escribe `agents.locale` desde el header.
+ * Devuelve el valor a guardar, o null si no hay que escribir nada.
+ *
+ * El idioma del asesor lo elige el asesor (Preferencias → PATCH /agents/me).
+ * El header solo LLENA el vacio: si lo guardado ya es exactamente 'es' o 'en'
+ * no se toca, aunque el telefono mande otro idioma. Si esta vacio o es un valor
+ * legado ('en_US', 'es-MX') se guarda el header normalizado.
+ */
+export function localeToBackfill(header?: string | null, stored?: string | null): "es" | "en" | null {
+  if (stored === "es" || stored === "en") return null;
+  return normalizeAppLocale(header);
+}

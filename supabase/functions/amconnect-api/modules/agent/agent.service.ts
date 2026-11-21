@@ -3,6 +3,7 @@ import type { RequestEvidence } from "../../shared/request_evidence.ts";
 import type { AgentUpdateDTO, PrivacyConsentDTO, PrivacyStatusDTO } from "./agent.dto.ts";
 import { NotFoundError, ValidationError } from "../../shared/errors.ts";
 import { objectToCamelCase } from "../../shared/case_converter.ts";
+import { normalizeAppLocale } from "../../shared/locale.ts";
 import { PRIVACY_POLICY_URL, PRIVACY_POLICY_VERSION } from "../../shared/legal.ts";
 
 export function buildPrivacyStatus(acceptedVersion: unknown, acceptedAt: unknown): PrivacyStatusDTO {
@@ -66,6 +67,8 @@ export class AgentService {
    * y no tiene request del cual leer `Accept-Language`.
    */
   async syncLocale(agentId: string, locale: string): Promise<void> {
-    await this.repository.updateLocale(agentId, locale);
+    const normalized = normalizeAppLocale(locale);
+    if (!normalized) return;
+    await this.repository.updateLocale(agentId, normalized);
   }
 }
