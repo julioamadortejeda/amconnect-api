@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PolicyService } from "../../modules/policy/policy.service.ts";
+import type { ReminderGenerationService } from "../../modules/reminder/reminder_generation.service.ts";
 import { EmbeddingsService } from "../rag/embeddings.service.ts";
 import { assertNoDuplicatePolicyNumber } from "../../shared/utils.ts";
 
@@ -43,13 +44,23 @@ export const ConfirmPolicySchema = z.object({
 
 export type ConfirmPolicyDTO = z.infer<typeof ConfirmPolicySchema>;
 
+type ReminderGenerationDeps = Pick<ReminderGenerationService, "generateForPolicy">;
+
+/**
+ * Confirmación por REST (IDs ya resueltos). Hace lo mismo que
+ * `PolicyConfirmationService.confirm` (chat) al final: genera los
+ * recordatorios automáticos de la póliza. `generateForPolicy` devuelve el
+ * error en vez de lanzarlo, así que un fallo ahí no tumba la confirmación (un
+ * reintento duplicaría la póliza) y la respuesta conserva su forma.
+ */
 export class ConfirmPolicyService {
   constructor(
     private policyService: PolicyService,
     private embeddingsService: EmbeddingsService,
+    private reminderGenerationService: ReminderGenerationDeps,
   ) {}
 
-  async confirm(agentId: string, data: ConfirmPolicyDTO) {
+  async confirm(agentId: string, data: ConfirmPolicyDTO, timezoneOffset = "-06:00") {
     await assertNoDuplicatePolicyNumber(this.policyService, agentId, data.policyNumber);
 
     // Crear la póliza
@@ -114,6 +125,12 @@ export class ConfirmPolicyService {
         policy.id,
       );
     }
+
+    await this.reminderGenerationService.generateForPolicy(
+      policy as unknown as Parameters<ReminderGenerationDeps["generateForPolicy"]>[0],
+      agentId,
+      timezoneOffset,
+    );
 
     return { policy, beneficiaries, participants };
   }

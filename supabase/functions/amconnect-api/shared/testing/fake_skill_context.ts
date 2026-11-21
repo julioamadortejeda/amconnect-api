@@ -168,7 +168,13 @@ export function fakeSkillContext(overrides: Partial<FakeData> = {}): FakeSkillCo
       paymentMethodService: globalCatalog("paymentMethod", () => data.paymentMethods),
       carrierService: agentCatalog("carrier"),
       branchService: agentCatalog("branch"),
-      productService: agentCatalog("product"),
+      productService: {
+        ...agentCatalog("product"),
+        findByNameInCarrier: rec(
+          "catalog.product.findByNameInCarrier",
+          () => data.catalogSearch["product"] ?? [],
+        ),
+      },
     },
     commitmentService: {
       list: rec("commitmentService.list", () => data.commitments),
@@ -194,6 +200,7 @@ export function fakeSkillContext(overrides: Partial<FakeData> = {}): FakeSkillCo
     },
     usageService: {
       checkAndIncrementIngestion: rec("usageService.checkAndIncrementIngestion", () => "charge-1"),
+      refundCharge: rec("usageService.refundCharge", () => undefined),
     },
     knowledgeIngestionService: {
       ingestText: rec("knowledgeIngestionService.ingestText", () => ({ noteId: "note-1" })),

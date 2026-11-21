@@ -65,6 +65,29 @@ export function createCatalogServices(supabase: SupabaseClient, agentId: string)
   const productService = Object.assign(
     makeAgentCatalogService(supabase, "products", agentId),
     {
+      /**
+       * Productos con ese nombre DE esa aseguradora (y de ese ramo, si se
+       * conoce). El producto es por asesor y cuelga de carrier+branch: buscar
+       * solo por nombre reutilizaba el producto de otra aseguradora.
+       */
+      async findByNameInCarrier(
+        name: string,
+        carrierId: string,
+        branchId?: string | null,
+      ): Promise<Record<string, unknown>[]> {
+        let query = supabase
+          .from("products")
+          .select("id, name, carrier_id, branch_id")
+          .eq("agent_id", agentId)
+          .eq("is_active", true)
+          .eq("carrier_id", carrierId)
+          .ilike("name", `%${name}%`);
+        if (branchId) query = query.eq("branch_id", branchId);
+        const { data, error } = await query.order("name").limit(10);
+        if (error) handleSupabaseError(error, "catalog.findProductByNameInCarrier");
+        return (data ?? []).map((r) => objectToCamelCaseDeep(r) as Record<string, unknown>);
+      },
+
       async getWithRelations() {
         const { data, error } = await supabase
           .from("products")

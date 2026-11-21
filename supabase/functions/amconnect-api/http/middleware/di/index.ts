@@ -359,7 +359,7 @@ export const injectServices = async (c: Context, next: Next) => {
 
   const getConfirmPolicyService = () => {
     if (!confirmPolicyService) {
-      confirmPolicyService = new ConfirmPolicyService(policyService, getEmbeddingsService());
+      confirmPolicyService = new ConfirmPolicyService(policyService, getEmbeddingsService(), reminderGenerationService);
     }
     return confirmPolicyService;
   };
