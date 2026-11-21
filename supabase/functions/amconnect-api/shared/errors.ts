@@ -109,6 +109,9 @@ export function internalError(
   return err;
 }
 
+// Códigos de Postgres que indican datos inválidos enviados por el cliente (422).
+const VALIDATION_PG_CODES = new Set(["22007", "23502", "23514"]);
+
 /**
  * Convierte un error de Supabase en un AppError con mensaje PÚBLICO limpio.
  * El `context` (que suele incluir el nombre de la tabla) y el detalle de
@@ -126,6 +129,9 @@ export function handleSupabaseError(error: PostgrestError, context: string): nev
   else if (error.code === "23503") err = new ValidationError("Referencia inválida: el registro relacionado no existe.");
   // 23505 = unique constraint → duplicado
   else if (error.code === "23505") err = new ConflictError();
+  // 22007 = fecha inválida, 23502 = NOT NULL, 23514 = CHECK → dato del cliente mal formado.
+  // Mensaje genérico: el nombre de columna/constraint va solo en `internal`.
+  else if (VALIDATION_PG_CODES.has(error.code)) err = new ValidationError("Algún dato enviado no es válido.");
   else err = new AppError("Ocurrió un error al procesar la solicitud.", 500);
 
   err.internal = internal;

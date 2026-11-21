@@ -89,6 +89,8 @@ export class SupabaseRepository<T> implements IRepository<T> {
     page = 1,
     pageSize = 20,
     orderBy?: { column: string; ascending?: boolean; nullsFirst?: boolean },
+    // Permite a un listado traer menos columnas que el detalle.
+    selectString: string = this.selectString,
   ): Promise<PaginatedResult<T>> {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
@@ -97,7 +99,7 @@ export class SupabaseRepository<T> implements IRepository<T> {
     const asc = orderBy?.ascending ?? false;
     const nullsFirst = orderBy?.nullsFirst ?? true;
 
-    let dataQuery = this.applyActiveFilter(this.table.select(this.selectString));
+    let dataQuery = this.applyActiveFilter(this.table.select(selectString));
     let countQuery = this.applyActiveFilter(
       this.table.select("*", { count: "exact", head: true }),
     );
@@ -186,11 +188,9 @@ export class SupabaseRepository<T> implements IRepository<T> {
       p_agent_id: agentId ?? null,
     });
 
-    if (error) {
-      console.error(`[SupabaseRepository.search] ${this.tableName}:`, error);
-      return null;
-    }
-    return data as T[];
+    // Lanzar, no devolver null: "no pude buscar" no es "no hay coincidencias".
+    if (error) handleSupabaseError(error, `Error al buscar en ${this.tableName}.`);
+    return (data ?? []) as T[];
   }
 
   async count(filters: Partial<Record<string, unknown>> = {}): Promise<number> {
