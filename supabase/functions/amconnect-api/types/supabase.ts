@@ -138,11 +138,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "agent_note_chunks_note_id_fkey"
-            columns: ["note_id"]
+            foreignKeyName: "agent_note_chunks_note_id_same_agent_fkey"
+            columns: ["agent_id", "note_id"]
             isOneToOne: false
             referencedRelation: "agent_notes"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
         ]
       }
@@ -201,32 +201,32 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "agent_notes_contact_id_fkey"
-            columns: ["contact_id"]
+            foreignKeyName: "agent_notes_contact_id_same_agent_fkey"
+            columns: ["agent_id", "contact_id"]
             isOneToOne: false
             referencedRelation: "contacts"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
           {
-            foreignKeyName: "agent_notes_document_metadata_id_fkey"
-            columns: ["document_metadata_id"]
+            foreignKeyName: "agent_notes_document_metadata_id_same_agent_fkey"
+            columns: ["agent_id", "document_metadata_id"]
             isOneToOne: false
             referencedRelation: "document_metadata"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
           {
-            foreignKeyName: "agent_notes_policy_id_fkey"
-            columns: ["policy_id"]
+            foreignKeyName: "agent_notes_policy_id_same_agent_fkey"
+            columns: ["agent_id", "policy_id"]
             isOneToOne: false
             referencedRelation: "policies"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
           {
-            foreignKeyName: "agent_notes_reminder_id_fkey"
-            columns: ["reminder_id"]
+            foreignKeyName: "agent_notes_reminder_id_same_agent_fkey"
+            columns: ["agent_id", "reminder_id"]
             isOneToOne: false
             referencedRelation: "reminders"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
         ]
       }
@@ -241,6 +241,8 @@ export type Database = {
           phone: string | null
           plan: string
           plan_id: string | null
+          privacy_accepted_at: string | null
+          privacy_accepted_version: string | null
           promo_code_used: string | null
           subscription_expires_at: string | null
           subscription_status: string
@@ -258,6 +260,8 @@ export type Database = {
           phone?: string | null
           plan?: string
           plan_id?: string | null
+          privacy_accepted_at?: string | null
+          privacy_accepted_version?: string | null
           promo_code_used?: string | null
           subscription_expires_at?: string | null
           subscription_status?: string
@@ -275,6 +279,8 @@ export type Database = {
           phone?: string | null
           plan?: string
           plan_id?: string | null
+          privacy_accepted_at?: string | null
+          privacy_accepted_version?: string | null
           promo_code_used?: string | null
           subscription_expires_at?: string | null
           subscription_status?: string
@@ -336,11 +342,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "ai_chat_messages_session_id_fkey"
-            columns: ["session_id"]
+            foreignKeyName: "ai_chat_messages_session_id_same_agent_fkey"
+            columns: ["agent_id", "session_id"]
             isOneToOne: false
             referencedRelation: "ai_sessions"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
         ]
       }
@@ -423,11 +429,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "ai_pending_tasks_session_id_fkey"
-            columns: ["session_id"]
+            foreignKeyName: "ai_pending_tasks_session_id_same_agent_fkey"
+            columns: ["agent_id", "session_id"]
             isOneToOne: false
             referencedRelation: "ai_sessions"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
         ]
       }
@@ -707,11 +713,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "client_commitments_contact_id_fkey"
-            columns: ["contact_id"]
+            foreignKeyName: "client_commitments_contact_id_same_agent_fkey"
+            columns: ["agent_id", "contact_id"]
             isOneToOne: false
             referencedRelation: "contacts"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
         ]
       }
@@ -782,11 +788,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "contacts_referred_by_id_fkey"
-            columns: ["referred_by_id"]
+            foreignKeyName: "contacts_referred_by_id_same_agent_fkey"
+            columns: ["agent_id", "referred_by_id"]
             isOneToOne: false
             referencedRelation: "contacts"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
         ]
       }
@@ -1074,11 +1080,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "policies_contact_id_fkey"
-            columns: ["contact_id"]
+            foreignKeyName: "policies_contact_id_same_agent_fkey"
+            columns: ["agent_id", "contact_id"]
             isOneToOne: false
             referencedRelation: "contacts"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
           {
             foreignKeyName: "policies_currency_id_fkey"
@@ -1102,11 +1108,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "policies_product_id_fkey"
-            columns: ["product_id"]
+            foreignKeyName: "policies_product_id_same_agent_fkey"
+            columns: ["agent_id", "product_id"]
             isOneToOne: false
             referencedRelation: "products"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
           {
             foreignKeyName: "policies_status_id_fkey"
@@ -1196,6 +1202,56 @@ export type Database = {
         }
         Relationships: []
       }
+      privacy_consents: {
+        Row: {
+          accepted_at: string
+          accepted_notice: boolean
+          accepted_sensitive: boolean
+          agent_id: string
+          app_version: string | null
+          id: string
+          ip: unknown
+          locale: string | null
+          platform: string | null
+          user_agent: string | null
+          version: string
+        }
+        Insert: {
+          accepted_at?: string
+          accepted_notice: boolean
+          accepted_sensitive: boolean
+          agent_id: string
+          app_version?: string | null
+          id?: string
+          ip?: unknown
+          locale?: string | null
+          platform?: string | null
+          user_agent?: string | null
+          version: string
+        }
+        Update: {
+          accepted_at?: string
+          accepted_notice?: boolean
+          accepted_sensitive?: boolean
+          agent_id?: string
+          app_version?: string | null
+          id?: string
+          ip?: unknown
+          locale?: string | null
+          platform?: string | null
+          user_agent?: string | null
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "privacy_consents_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       products: {
         Row: {
           agent_id: string
@@ -1239,18 +1295,18 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "products_branch_id_fkey"
-            columns: ["branch_id"]
+            foreignKeyName: "products_branch_id_same_agent_fkey"
+            columns: ["agent_id", "branch_id"]
             isOneToOne: false
             referencedRelation: "branches"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
           {
-            foreignKeyName: "products_carrier_id_fkey"
-            columns: ["carrier_id"]
+            foreignKeyName: "products_carrier_id_same_agent_fkey"
+            columns: ["agent_id", "carrier_id"]
             isOneToOne: false
             referencedRelation: "carriers"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
         ]
       }
@@ -1321,11 +1377,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "reminder_comments_reminder_id_fkey"
-            columns: ["reminder_id"]
+            foreignKeyName: "reminder_comments_reminder_id_same_agent_fkey"
+            columns: ["agent_id", "reminder_id"]
             isOneToOne: false
             referencedRelation: "reminders"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
         ]
       }
@@ -1353,9 +1409,50 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "reminder_notifications_reminder_id_fkey"
-            columns: ["reminder_id"]
+            foreignKeyName: "reminder_notifications_reminder_id_same_agent_fkey"
+            columns: ["agent_id", "reminder_id"]
             isOneToOne: false
+            referencedRelation: "reminders"
+            referencedColumns: ["agent_id", "id"]
+          },
+        ]
+      }
+      reminder_push_deliveries: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          due_date: string
+          gave_up_at: string | null
+          last_error: string | null
+          reminder_id: string
+          sent_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          due_date: string
+          gave_up_at?: string | null
+          last_error?: string | null
+          reminder_id: string
+          sent_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          due_date?: string
+          gave_up_at?: string | null
+          last_error?: string | null
+          reminder_id?: string
+          sent_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reminder_push_deliveries_reminder_id_fkey"
+            columns: ["reminder_id"]
+            isOneToOne: true
             referencedRelation: "reminders"
             referencedColumns: ["id"]
           },
@@ -1398,11 +1495,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "reminder_settings_branch_id_fkey"
-            columns: ["branch_id"]
+            foreignKeyName: "reminder_settings_branch_id_same_agent_fkey"
+            columns: ["agent_id", "branch_id"]
             isOneToOne: false
             referencedRelation: "branches"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
           {
             foreignKeyName: "reminder_settings_reminder_type_id_fkey"
@@ -1522,18 +1619,18 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "reminders_contact_id_fkey"
-            columns: ["contact_id"]
+            foreignKeyName: "reminders_contact_id_same_agent_fkey"
+            columns: ["agent_id", "contact_id"]
             isOneToOne: false
             referencedRelation: "contacts"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
           {
-            foreignKeyName: "reminders_policy_id_fkey"
-            columns: ["policy_id"]
+            foreignKeyName: "reminders_policy_id_same_agent_fkey"
+            columns: ["agent_id", "policy_id"]
             isOneToOne: false
             referencedRelation: "policies"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
           {
             foreignKeyName: "reminders_status_id_fkey"
@@ -1550,6 +1647,54 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      search_stopwords: {
+        Row: {
+          created_at: string
+          language: string
+          word: string
+        }
+        Insert: {
+          created_at?: string
+          language: string
+          word: string
+        }
+        Update: {
+          created_at?: string
+          language?: string
+          word?: string
+        }
+        Relationships: []
+      }
+      search_synonyms: {
+        Row: {
+          country: string | null
+          created_at: string
+          domain: string
+          expands_to: string
+          id: string
+          language: string
+          term: string
+        }
+        Insert: {
+          country?: string | null
+          created_at?: string
+          domain: string
+          expands_to: string
+          id?: string
+          language: string
+          term: string
+        }
+        Update: {
+          country?: string | null
+          created_at?: string
+          domain?: string
+          expands_to?: string
+          id?: string
+          language?: string
+          term?: string
+        }
+        Relationships: []
       }
       subscription_plans: {
         Row: {
@@ -1681,11 +1826,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "tokens_usage_document_metadata_id_fkey"
-            columns: ["document_metadata_id"]
+            foreignKeyName: "tokens_usage_document_metadata_id_same_agent_fkey"
+            columns: ["agent_id", "document_metadata_id"]
             isOneToOne: false
             referencedRelation: "document_metadata"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
           {
             foreignKeyName: "tokens_usage_model_name_fkey"
@@ -1695,17 +1840,52 @@ export type Database = {
             referencedColumns: ["model_name"]
           },
           {
-            foreignKeyName: "tokens_usage_note_id_fkey"
-            columns: ["note_id"]
+            foreignKeyName: "tokens_usage_note_id_same_agent_fkey"
+            columns: ["agent_id", "note_id"]
             isOneToOne: false
             referencedRelation: "agent_notes"
-            referencedColumns: ["id"]
+            referencedColumns: ["agent_id", "id"]
           },
           {
-            foreignKeyName: "tokens_usage_session_id_fkey"
-            columns: ["session_id"]
+            foreignKeyName: "tokens_usage_session_id_same_agent_fkey"
+            columns: ["agent_id", "session_id"]
             isOneToOne: false
             referencedRelation: "ai_sessions"
+            referencedColumns: ["agent_id", "id"]
+          },
+        ]
+      }
+      usage_charges: {
+        Row: {
+          agent_id: string
+          created_at: string
+          field: string
+          id: string
+          refunded_at: string | null
+          year_month: string
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          field: string
+          id?: string
+          refunded_at?: string | null
+          year_month: string
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          field?: string
+          id?: string
+          refunded_at?: string | null
+          year_month?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "usage_charges_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
             referencedColumns: ["id"]
           },
         ]
@@ -1719,13 +1899,42 @@ export type Database = {
         Args: { p_agent_id: string; p_code: string }
         Returns: Json
       }
+      assert_usage_caller: { Args: { p_agent_id: string }; Returns: undefined }
+      claim_device_token: {
+        Args: { p_platform: string; p_token: string }
+        Returns: {
+          agent_id: string
+          created_at: string
+          id: string
+          platform: string
+          token: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "agent_device_tokens"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      claim_due_reminders: {
+        Args: {
+          p_lease_seconds?: number
+          p_limit?: number
+          p_max_attempts?: number
+        }
+        Returns: {
+          agent_id: string
+          attempts: number
+          description: string
+          due_date: string
+          id: string
+          title: string
+        }[]
+      }
       cron_check_due_reminders: { Args: never; Returns: undefined }
       cron_generate_due_reminders: { Args: never; Returns: undefined }
       daitch_mokotoff: { Args: { "": string }; Returns: string[] }
-      decrement_monthly_usage: {
-        Args: { p_agent_id: string; p_field: string }
-        Returns: undefined
-      }
       dmetaphone: { Args: { "": string }; Returns: string }
       dmetaphone_alt: { Args: { "": string }; Returns: string }
       get_notification_secret: { Args: never; Returns: string }
@@ -1735,12 +1944,57 @@ export type Database = {
         Args: { p_agent_id: string; p_field: string }
         Returns: Json
       }
+      insert_agent_note_with_chunks: {
+        Args: {
+          p_agent_id: string
+          p_chunks: Json
+          p_contact_id: string
+          p_content: string
+          p_document_metadata_id: string
+          p_note_origin: string
+          p_policy_id: string
+          p_reminder_id: string
+          p_source_type: string
+          p_summary: string
+        }
+        Returns: string
+      }
+      insert_generated_reminders: {
+        Args: { p_rows: Json }
+        Returns: {
+          due_date: string
+          id: string
+          is_active: boolean
+          is_new: boolean
+          occurrence_date: string
+          title: string
+          type_id: string
+        }[]
+      }
+      normalize_search_text: { Args: { p_text: string }; Returns: string }
+      record_privacy_consent: {
+        Args: {
+          p_accepted_notice: boolean
+          p_accepted_sensitive: boolean
+          p_app_version: string
+          p_ip: string
+          p_locale: string
+          p_platform: string
+          p_user_agent: string
+          p_version: string
+        }
+        Returns: undefined
+      }
+      refund_usage_charge: { Args: { p_charge_id: string }; Returns: boolean }
       search_agent_note_chunks: {
         Args: {
           p_agent_id: string
+          p_contact_id?: string
           p_match_count?: number
           p_match_threshold?: number
+          p_policy_id?: string
           p_query_embedding: string
+          p_reminder_id?: string
         }
         Returns: {
           chunk_id: string
@@ -1749,6 +2003,7 @@ export type Database = {
           created_at: string
           note_id: string
           policy_id: string
+          reminder_id: string
           similarity: number
           source_type: string
         }[]
@@ -1823,6 +2078,15 @@ export type Database = {
           storage_path: string
           summary: string
         }[]
+      }
+      search_policy_ids: {
+        Args: {
+          p_agent_id: string
+          p_contact_id?: string
+          p_query: string
+          p_threshold?: number
+        }
+        Returns: string[]
       }
       search_reminder_ids: {
         Args: { p_agent_id: string; p_query: string; p_threshold?: number }

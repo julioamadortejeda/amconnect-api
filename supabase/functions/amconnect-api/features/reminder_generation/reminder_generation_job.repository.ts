@@ -52,9 +52,9 @@ export class ReminderGenerationJobRepository implements IReminderGenerationJobRe
       .from("policies")
       .select(
         "id, agent_id, policy_number, start_date, end_date, renewal_date, next_payment_date, " +
-          "product:products!product_id(branch_id), frequency:payment_frequencies!payment_frequency_id(months), " +
+          "product:products(branch_id), frequency:payment_frequencies!payment_frequency_id(months), " +
           "status:policy_statuses!status_id(code), " +
-          "agent:agents!agent_id!inner(timezone, locale), contact:contacts!contact_id!inner(id)",
+          "agent:agents!agent_id!inner(timezone, locale), contact:contacts!inner(id)",
       )
       .eq("is_active", true)
       .eq("agent.is_active", true)

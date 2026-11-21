@@ -68,7 +68,7 @@ export function createCatalogServices(supabase: SupabaseClient, agentId: string)
       async getWithRelations() {
         const { data, error } = await supabase
           .from("products")
-          .select("id, name, carrier:carriers!carrier_id(id, name), branch:branches!branch_id(id, name)")
+          .select("id, name, carrier:carriers(id, name), branch:branches(id, name)")
           .eq("agent_id", agentId)
           .eq("is_active", true)
           .order("name");
