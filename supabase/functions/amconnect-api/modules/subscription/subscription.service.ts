@@ -1,7 +1,27 @@
 import type { AgentStatusInfo, ISubscriptionRepository } from "./subscription.repository.ts";
 import type { SubscriptionInfo, SubscriptionPlan, UsageThisMonth } from "./subscription.dto.ts";
-import { AppError, NotFoundError, PaymentRequiredError, internalError } from "../../shared/errors.ts";
+import {
+  AppError,
+  NotFoundError,
+  PaymentRequiredError,
+  PromoCodeError,
+  type PromoErrorCode,
+  internalError,
+} from "../../shared/errors.ts";
 import { UsageService } from "./usage.service.ts";
+
+// Motivos con los que `apply_promo_code` rechaza un código (RAISE EXCEPTION).
+// La llave es el texto exacto que lanza la función SQL.
+const PROMO_ERRORS: Record<string, { code: PromoErrorCode; message: string }> = {
+  promo_not_found: { code: "PROMO_INVALID", message: "Código promocional inválido o inactivo." },
+  promo_expired: { code: "PROMO_EXPIRED", message: "El código promocional ha expirado." },
+  promo_max_uses_reached: { code: "PROMO_EXHAUSTED", message: "El código promocional ya alcanzó su límite de usos." },
+  promo_already_used: { code: "PROMO_ALREADY_USED", message: "Ya aplicaste un código promocional en tu cuenta." },
+  promo_not_applicable: {
+    code: "PROMO_NOT_APPLICABLE",
+    message: "Tu suscripción ya está activa; el código promocional no aplica.",
+  },
+};
 
 /**
  * Un trial cuya fecha ya pasó está vencido aunque la columna siga en 'trial'.
@@ -77,11 +97,8 @@ export class SubscriptionService {
   async applyPromoCode(agentId: string, code: string): Promise<{ trialEndsAt: string }> {
     const { data, error } = await this.repository.applyPromoCode(agentId, code);
     if (error) {
-      if (error.message === "promo_not_found") throw new AppError("Código promocional inválido o inactivo.", 400);
-      if (error.message === "promo_expired") throw new AppError("El código promocional ha expirado.", 400);
-      if (error.message === "promo_max_uses_reached") throw new AppError("El código promocional ya alcanzó su límite de usos.", 400);
-      if (error.message === "promo_already_used") throw new AppError("Ya aplicaste un código promocional en tu cuenta.", 400);
-      if (error.message === "promo_not_applicable") throw new AppError("Tu suscripción ya está activa; el código promocional no aplica.", 400);
+      const known = Object.hasOwn(PROMO_ERRORS, error.message) ? PROMO_ERRORS[error.message] : undefined;
+      if (known) throw new PromoCodeError(known.message, known.code);
       throw internalError("No se pudo aplicar el código promocional.", `applyPromoCode failed: ${error.message}`);
     }
     return { trialEndsAt: data!.trial_ends_at };

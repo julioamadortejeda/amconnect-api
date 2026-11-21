@@ -110,20 +110,21 @@ Deno.test("Subscription info: activo no tiene días de trial y trae el uso del m
 
 // ─── Código promocional ─────────────────────────────────────────────────────
 
-const PROMO_ERRORS: Array<[string, RegExp]> = [
-  ["promo_not_found", /inválido o inactivo/],
-  ["promo_expired", /expirado/],
-  ["promo_max_uses_reached", /límite de usos/],
-  ["promo_already_used", /Ya aplicaste/],
-  ["promo_not_applicable", /ya está activa/],
+const PROMO_ERRORS: Array<[string, RegExp, string]> = [
+  ["promo_not_found", /inválido o inactivo/, "PROMO_INVALID"],
+  ["promo_expired", /expirado/, "PROMO_EXPIRED"],
+  ["promo_max_uses_reached", /límite de usos/, "PROMO_EXHAUSTED"],
+  ["promo_already_used", /Ya aplicaste/, "PROMO_ALREADY_USED"],
+  ["promo_not_applicable", /ya está activa/, "PROMO_NOT_APPLICABLE"],
 ];
 
-for (const [sqlError, message] of PROMO_ERRORS) {
-  Deno.test(`Promo: '${sqlError}' de la BD → 400 con mensaje para el asesor`, async () => {
+for (const [sqlError, message, errorCode] of PROMO_ERRORS) {
+  Deno.test(`Promo: '${sqlError}' de la BD → 400 ${errorCode} con mensaje para el asesor`, async () => {
     const { repo, service } = setup();
     repo.promoResult = { data: null, error: { message: sqlError } };
     const err = await captureError<AppError>(() => service.applyPromoCode(AGENT, "X"));
     assert.equal(err.statusCode, 400);
+    assert.equal(err.errorCode, errorCode);
     assert.match(err.message, message);
     assert.equal(err.message.includes(sqlError), false, "no filtra el código interno");
   });
@@ -146,18 +147,19 @@ Deno.test("Promo: éxito devuelve la nueva fecha de fin del trial", async () => 
   assert.deepEqual(repo.promoCalls, [{ agentId: AGENT, code: "PRUEBA30" }]);
 });
 
-// Hallazgo: los errores de promo son AppError "pelones" (sin errorCode), en
-// contra de RULES §2. El globalErrorHandler les pone VALIDATION_FAILED por el
-// 400, así que la app recibe un código válido pero NO puede distinguir
-// "expirado" de "ya usado" por código: solo muestra el mensaje en español.
-// Arreglarlo exige un código nuevo en backend Y en error_translator.dart.
-Deno.test({
-  name: "Promo: cada error lleva su propio errorCode estable (RULES §2)",
-  ignore: true,
-  fn: async () => {
+// Cada motivo de rechazo trae su propio errorCode (RULES §2): antes eran
+// AppError "pelones" y el globalErrorHandler les ponía VALIDATION_FAILED, así
+// que la app no distinguía "expirado" de "ya usado". Los códigos tienen que
+// ser distintos entre sí, o la app vuelve a no poder distinguirlos.
+Deno.test("Promo: cada error lleva su propio errorCode estable (RULES §2)", async () => {
+  const codes = new Set<string>();
+  for (const [sqlError] of PROMO_ERRORS) {
     const { repo, service } = setup();
-    repo.promoResult = { data: null, error: { message: "promo_expired" } };
+    repo.promoResult = { data: null, error: { message: sqlError } };
     const err = await captureError<AppError>(() => service.applyPromoCode(AGENT, "X"));
-    assert.ok(err.errorCode, "falta errorCode");
-  },
+    assert.ok(err.errorCode, `falta errorCode para ${sqlError}`);
+    assert.notEqual(err.errorCode, "VALIDATION_FAILED");
+    codes.add(err.errorCode!);
+  }
+  assert.equal(codes.size, PROMO_ERRORS.length);
 });

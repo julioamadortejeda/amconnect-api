@@ -19,7 +19,8 @@ Route → Controller → Service → Repository → Supabase
 
 - **Nunca** hacer `c.json({error: ...})` manual ni `try/catch` que trague errores en controllers. Lanzar SIEMPRE una subclase de `AppError` (`shared/errors.ts`) y dejar que `globalErrorHandler` responda.
 - Toda `AppError` DEBE llevar `errorCode` estable en SCREAMING_SNAKE_CASE. Códigos existentes:
-  `VALIDATION_FAILED`, `RESOURCE_NOT_FOUND`, `SESSION_EXPIRED`, `ACCESS_DENIED`, `SUBSCRIPTION_REQUIRED`, `QUOTA_EXCEEDED`, `RESOURCE_CONFLICT`, `AI_ERROR`, `AI_PROVIDER_BUSY`, `AI_INVOCATION_FAILED`.
+  `VALIDATION_FAILED`, `RESOURCE_NOT_FOUND`, `SESSION_EXPIRED`, `ACCESS_DENIED`, `SUBSCRIPTION_REQUIRED`, `QUOTA_EXCEEDED`, `RESOURCE_CONFLICT`, `AI_ERROR`, `AI_PROVIDER_BUSY`, `AI_INVOCATION_FAILED`,
+  y los de código promocional (`PromoCodeError`, 400): `PROMO_INVALID`, `PROMO_EXPIRED`, `PROMO_EXHAUSTED`, `PROMO_ALREADY_USED`, `PROMO_NOT_APPLICABLE`.
 - Si necesitas un caso nuevo, crea una subclase con su código nuevo en `shared/errors.ts` **y agrégalo al `error_translator.dart` de la app Flutter con su clave de localización** (contrato compartido backend ↔ app).
 - Formato de respuesta de error (no cambiar): `{ success: false, error: <mensaje humano>, errorCode: <CODE>, errorId?: <uuid> }`.
 - El `error` (mensaje) es fallback para la UI; la app traduce por `errorCode`. El mensaje debe ser claro y en español neutro.
@@ -53,6 +54,7 @@ Existe un tercer caso que **no encaja en ninguno**: texto que el backend **escri
 - Aplicar con `supabase migration up`. **NUNCA `supabase db push`** (apunta al remoto).
 - **Toda tabla nueva en `public` lleva, en la misma migración, `enable row level security` + sus policies + `GRANT` explícitos** (`select` a `anon` solo si de verdad lo necesita; `select, insert, update, delete` a `authenticated` y `service_role`). Desde 2026-10-30 Supabase ya no otorga acceso al Data API automáticamente: sin `GRANT` la tabla devuelve "permission denied", también en `supabase db reset` local. Las tablas existentes conservan sus grants.
 - RLS con `agent_id = auth.uid()` protege las tablas de agente — no agregar `.eq("agent_id", ...)` redundante cuando el cliente ya viene autenticado con el JWT.
+- **Toda referencia entre tablas de asesor exige el mismo asesor** (2026-11-21, `20261121051742_tenant_integrity.sql`). Una FK simple solo revisa que el padre exista, y se valida sin RLS: así quedaron pólizas apuntando al producto de otro asesor y la app mostraba "—". Si la hija tiene `agent_id`: FK compuesta `foreign key (agent_id, x_id) references padre (agent_id, id)` con nombre `<hija>_<col>_same_agent_fkey` (el padre ya tiene `unique (agent_id, id)`; si es nuevo, agrégaselo) y el mismo `on delete` que la FK simple (`set null (x_id)`, nunca de `agent_id`). Si la hija no tiene `agent_id` y cuelga de dos padres de asesor: trigger como `tgfn_policy_participants_same_agent`. La meta-prueba de `tenant_isolation.test.sql` truena si una FK nueva entre tablas de asesor no está cubierta. Antes de migrar en prod: `supabase/snippets/check_cross_agent_refs.sql`.
 - **Nunca** usar `SUPABASE_SERVICE_ROLE_KEY` en services. Única excepción: el endpoint interno de cron (`notifications/send-due`).
 - Si un insert necesita el `id` de vuelta y la tabla no tiene policy de SELECT (ej: `error_logs`), genera el UUID en código (`crypto.randomUUID()`) e insértalo — `insert().select()` falla con RLS sin SELECT.
 - Convención SQL: funciones sin prefijo (`search_contacts`), triggers `tg_`, funciones de trigger `tgfn_`.

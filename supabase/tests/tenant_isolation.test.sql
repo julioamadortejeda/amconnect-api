@@ -579,52 +579,254 @@ select matches(
   format('ATAQUE %s: authenticated no ve nada de una tabla solo-servidor', tbl))
 from t_class where kind = 'server_only' order by tbl;
 
--- ═══ 6. Hallazgos documentados (TODO: hoy NO se cumple) ══════════════════════
--- Fallan a propósito y no rompen la suite (pgTAP `todo`). Cuando se corrija la
--- policy correspondiente con una migración nueva, pasan y hay que quitar el todo.
+-- ═══ 6. Integridad entre asesores: firmas y referencias cruzadas ════════════
+-- Antes eran `todo` (20261121051742_tenant_integrity.sql los cerró).
 
-select todo('error_logs: la policy de INSERT es `with check (true)`; falta agent_id = auth.uid()', 1);
 select is(
   pg_temp.attempt($q$ insert into error_logs (agent_id, error_type, status_code, error_message)
                        values ('b2b2b2b2-0000-4000-8000-00000000000b', 'FAKE', 500, 'x') $q$),
   '42501',
-  'HALLAZGO error_logs: A no debería poder registrar errores a nombre de B'
+  'ATAQUE error_logs: A no puede registrar errores a nombre de B'
 );
 
-select todo('reminder_comments: el WITH CHECK valida el recordatorio pero no la columna agent_id', 1);
+select is(
+  pg_temp.attempt($q$ insert into error_logs (agent_id, error_type, status_code, error_message)
+                       values (null, 'FAKE', 500, 'x') $q$),
+  '42501',
+  'ATAQUE error_logs: A no puede registrar errores anónimos con su JWT'
+);
+
+select is(
+  pg_temp.attempt($q$ insert into error_logs (agent_id, error_type, status_code, error_message)
+                       values ('a1a1a1a1-0000-4000-8000-00000000000a', 'FAKE', 500, 'x') $q$),
+  'ok:1',
+  'CONTROL error_logs: A sí registra sus propios errores (globalErrorHandler)'
+);
+
 select is(
   pg_temp.attempt(format($q$ insert into reminder_comments (reminder_id, agent_id, content) values (%L, %L, 'firmado como B') $q$,
          (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'reminders'),
          'b2b2b2b2-0000-4000-8000-00000000000b')),
   '42501',
-  'HALLAZGO reminder_comments: A no debería poder firmar un comentario como B'
+  'ATAQUE reminder_comments: A no puede firmar un comentario como B'
 );
 
--- Las FK se validan sin RLS: A puede colgar SUS filas de un id de B si lo
--- conoce. No lee nada de B (el RLS de contacts le devuelve null), pero la BD
--- no impide la referencia cruzada. Los UUID no se adivinan; requiere filtrar un id.
-select todo('FK cruzadas: las policies no verifican que el padre referenciado sea del mismo asesor', 3);
 select is(
-  pg_temp.attempt(format($q$ update policies set contact_id = %L where id = %L $q$,
-         (select id from t_ids where agent = 'b2b2b2b2-0000-4000-8000-00000000000b' and tbl = 'contacts'),
-         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'policies'))),
-  '42501',
-  'HALLAZGO policies: A no debería poder apuntar su póliza al contacto de B'
+  pg_temp.attempt(format($q$ insert into reminder_comments (reminder_id, agent_id, content) values (%L, %L, 'mío') $q$,
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'reminders'),
+         'a1a1a1a1-0000-4000-8000-00000000000a')),
+  'ok:1',
+  'CONTROL reminder_comments: A sí comenta su recordatorio'
 );
+
+-- Las FK se validan sin RLS: sin las FK compuestas, A podía colgar SUS filas
+-- de un id de B si lo conocía (caso real: pólizas apuntando al producto de
+-- otro asesor, la app mostraba "—"). Las pruebas se generan desde el catálogo:
+-- toda FK `<hija>_<col>_same_agent_fkey` hereda ataque y control.
+create temp view v_same_agent_fk as
+  select c.conrelid::regclass::text as child, a.attname::text as col,
+         c.confrelid::regclass::text as parent, c.conname::text as conname
+    from pg_constraint c
+    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[2]
+   where c.contype = 'f' and c.connamespace = 'public'::regnamespace
+     and c.conname like '%\_same\_agent\_fkey';
+grant select on v_same_agent_fk to authenticated, anon;
+
+-- META: toda FK de una tabla con agent_id hacia otra tabla con agent_id está
+-- cubierta por una FK compuesta. Una relación nueva sin cubrir rompe aquí.
+-- Excepción declarada: client_commitments.resolved_by_session_id no tiene FK
+-- por diseño (no aparece en pg_constraint).
+select is_empty(
+  $$ select c.conrelid::regclass || '.' || a.attname
+       from pg_constraint c
+       join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+      where c.contype = 'f' and c.connamespace = 'public'::regnamespace
+        and array_length(c.conkey, 1) = 1
+        and exists (select 1 from pg_attribute x where x.attrelid = c.conrelid and x.attname = 'agent_id' and not x.attisdropped)
+        and exists (select 1 from pg_attribute x where x.attrelid = c.confrelid and x.attname = 'agent_id' and not x.attisdropped)
+        and not exists (select 1 from v_same_agent_fk f
+                         where f.child = c.conrelid::regclass::text and f.col = a.attname) $$,
+  'META: toda referencia entre tablas de asesor exige el mismo asesor (FK compuesta)'
+);
+
+-- Hijas sin agent_id que apuntan a DOS padres de asesor: necesitan trigger.
+select is_empty(
+  $$ select c.conrelid::regclass::text
+       from pg_constraint c
+      where c.contype = 'f' and c.connamespace = 'public'::regnamespace
+        and not exists (select 1 from pg_attribute x where x.attrelid = c.conrelid and x.attname = 'agent_id' and not x.attisdropped)
+        and exists (select 1 from pg_attribute x where x.attrelid = c.confrelid and x.attname = 'agent_id' and not x.attisdropped)
+      group by c.conrelid
+     having count(*) > 1
+     except select 'policy_participants' $$,
+  'META: toda tabla hija sin agent_id con dos padres de asesor tiene su trigger declarado'
+);
+
+select cmp_ok((select count(*)::int from v_same_agent_fk), '>=', 21,
+  'SETUP: las FKs compuestas de mismo asesor existen');
+
+-- Mover lo mío hacia un padre de B (UPDATE). Solo tablas que A puede editar.
 select is(
-  pg_temp.attempt(format($q$ update reminders set policy_id = %L where id = %L $q$,
-         (select id from t_ids where agent = 'b2b2b2b2-0000-4000-8000-00000000000b' and tbl = 'policies'),
-         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'reminders'))),
-  '42501',
-  'HALLAZGO reminders: A no debería poder apuntar su recordatorio a la póliza de B'
-);
+  pg_temp.attempt(format('update %I set %I = %L where agent_id = %L', f.child, f.col,
+         (select id from t_ids where agent = 'b2b2b2b2-0000-4000-8000-00000000000b' and tbl = f.parent),
+         'a1a1a1a1-0000-4000-8000-00000000000a')),
+  '23503',
+  format('ATAQUE %s.%s: A no puede apuntar su fila a %s de B', f.child, f.col, f.parent))
+from v_same_agent_fk f join t_class k on k.tbl = f.child
+where k.kind = 'agent' order by f.child, f.col;
+
+-- Crear una fila nueva colgada de un padre de B (INSERT). Tablas donde A inserta.
+select is(
+  pg_temp.attempt(format('insert into %I select * from jsonb_populate_record(null::%I, %L::jsonb)',
+         f.child, f.child,
+         -- fila de B, pasada a A con TODAS sus referencias apuntando a lo de A,
+         -- salvo la columna bajo prueba: así el 23503 solo puede venir de ella.
+         r.b_row
+           || jsonb_build_object('agent_id', 'a1a1a1a1-0000-4000-8000-00000000000a')
+           || (select coalesce(jsonb_object_agg(o.col, (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = o.parent)), '{}')
+                 from v_same_agent_fk o where o.child = f.child and r.b_row ? o.col and r.b_row ->> o.col is not null)
+           || jsonb_build_object(f.col, (select id from t_ids where agent = 'b2b2b2b2-0000-4000-8000-00000000000b' and tbl = f.parent)))),
+  '23503',
+  format('ATAQUE %s.%s: A no puede crear una fila colgada de %s de B', f.child, f.col, f.parent))
+from v_same_agent_fk f
+join t_class k on k.tbl = f.child
+join t_rows r on r.tbl = f.child
+where k.kind in ('agent', 'own_append') order by f.child, f.col;
+
+-- Controles: apuntar a lo propio sí se puede, y los opcionales aceptan null.
+select matches(
+  pg_temp.attempt(format('update %I set %I = %L where agent_id = %L', f.child, f.col,
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = f.parent),
+         'a1a1a1a1-0000-4000-8000-00000000000a')),
+  '^ok:[1-9]',
+  format('CONTROL %s.%s: A sí apunta su fila a su propio %s', f.child, f.col, f.parent))
+from v_same_agent_fk f join t_class k on k.tbl = f.child
+where k.kind = 'agent' order by f.child, f.col;
+
+select matches(
+  pg_temp.attempt(format('update %I set %I = null where agent_id = %L', f.child, f.col,
+         'a1a1a1a1-0000-4000-8000-00000000000a')),
+  '^ok:[1-9]',
+  format('CONTROL %s.%s: la referencia opcional acepta null', f.child, f.col))
+from v_same_agent_fk f join t_class k on k.tbl = f.child
+join pg_attribute a on a.attrelid = f.child::regclass and a.attname = f.col
+where k.kind = 'agent' and not a.attnotnull order by f.child, f.col;
+
+-- Los casos concretos del hallazgo original, con nombre propio.
 select is(
   pg_temp.attempt(format($q$ insert into ai_chat_messages (session_id, agent_id, role, content) values (%L, %L, 'user', 'x') $q$,
          (select id from t_ids where agent = 'b2b2b2b2-0000-4000-8000-00000000000b' and tbl = 'ai_sessions'),
          'a1a1a1a1-0000-4000-8000-00000000000a')),
-  '42501',
-  'HALLAZGO ai_chat_messages: A no debería poder escribir en la sesión de B'
+  '23503',
+  'ATAQUE ai_chat_messages: A no puede escribir en la sesión de B'
 );
+
+select is(
+  pg_temp.attempt(format($q$ insert into policies (agent_id, contact_id, product_id, status_id, currency_id, policy_number)
+                              values (%L, %L, %L, (select id from policy_statuses where code = 'ACTIVE'),
+                                      (select id from currencies where code = 'MXN'), 'ISO-CRUZADA') $q$,
+         'a1a1a1a1-0000-4000-8000-00000000000a',
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'contacts'),
+         (select id from t_ids where agent = 'b2b2b2b2-0000-4000-8000-00000000000b' and tbl = 'products'))),
+  '23503',
+  'ATAQUE policies: A no puede dar de alta una póliza con el producto de B (el caso "—")'
+);
+
+select is(
+  pg_temp.attempt(format($q$ insert into products (agent_id, carrier_id, branch_id, name) values (%L, %L, %L, 'Cruzado') $q$,
+         'a1a1a1a1-0000-4000-8000-00000000000a',
+         (select id from t_ids where agent = 'b2b2b2b2-0000-4000-8000-00000000000b' and tbl = 'carriers'),
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'branches'))),
+  '23503',
+  'ATAQUE products: A no puede crear un producto con la aseguradora de B'
+);
+
+select is(
+  pg_temp.attempt(format($q$ insert into policies (agent_id, contact_id, product_id, status_id, currency_id, policy_number)
+                              values (%L, %L, %L, (select id from policy_statuses where code = 'ACTIVE'),
+                                      (select id from currencies where code = 'MXN'), 'ISO-PROPIA') $q$,
+         'a1a1a1a1-0000-4000-8000-00000000000a',
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'contacts'),
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'products'))),
+  'ok:1',
+  'CONTROL policies: A sí da de alta una póliza con su contacto y su producto'
+);
+
+select is(
+  pg_temp.attempt(format($q$ insert into reminders (agent_id, contact_id, policy_id, type_id, status_id, title, due_date)
+                              values (%L, %L, null, (select id from reminder_types where code = 'CALL'),
+                                      (select id from reminder_statuses where code = 'CREATED'), 'Sin póliza', now()) $q$,
+         'a1a1a1a1-0000-4000-8000-00000000000a',
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'contacts'))),
+  'ok:1',
+  'CONTROL reminders: A sí crea un recordatorio con su contacto y sin póliza (null)'
+);
+
+-- policy_participants no tiene agent_id: lo cubre un trigger.
+select is(
+  pg_temp.attempt(format($q$ insert into policy_participants (policy_id, contact_id, role_id)
+                              values (%L, %L, (select id from participant_roles where code = 'INSURED')) $q$,
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'policies'),
+         (select id from t_ids where agent = 'b2b2b2b2-0000-4000-8000-00000000000b' and tbl = 'contacts'))),
+  '23503',
+  'ATAQUE policy_participants: A no puede poner al contacto de B como asegurado de su póliza'
+);
+
+select is(
+  pg_temp.attempt(format($q$ update policy_participants set contact_id = %L where id = %L $q$,
+         (select id from t_ids where agent = 'b2b2b2b2-0000-4000-8000-00000000000b' and tbl = 'contacts'),
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'policy_participants'))),
+  '23503',
+  'ATAQUE policy_participants: A no puede cambiar su participante al contacto de B'
+);
+
+select is(
+  pg_temp.attempt(format($q$ insert into policy_participants (policy_id, contact_id, role_id)
+                              values (%L, %L, (select id from participant_roles where code = 'INSURED')) $q$,
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'policies'),
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'contacts'))),
+  'ok:1',
+  'CONTROL policy_participants: A sí agrega a su propio contacto'
+);
+
+select is(
+  pg_temp.attempt(format($q$ insert into policy_participants (policy_id, contact_id, role_id)
+                              values (%L, null, (select id from participant_roles where code = 'INSURED')) $q$,
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'policies'))),
+  'ok:1',
+  'CONTROL policy_participants: participante sin contacto (null) sigue permitido'
+);
+
+reset role;
+
+-- Las FKs compuestas repiten el ON DELETE de la simple: borrar un padre
+-- deja la nota sin contacto (set null SOLO de contact_id, no de agent_id) y
+-- borrar una sesión se lleva sus mensajes. Como postgres (hard delete).
+do $$
+declare v_contact uuid; v_note uuid;
+begin
+  insert into contacts (agent_id, full_name) values ('a1a1a1a1-0000-4000-8000-00000000000a', 'Para borrar')
+  returning id into v_contact;
+  insert into agent_notes (agent_id, contact_id, source_type, content)
+  values ('a1a1a1a1-0000-4000-8000-00000000000a', v_contact, 'text', 'nota huérfana') returning id into v_note;
+  delete from contacts where id = v_contact;
+  create temp table t_deleted_note on commit drop as
+    select contact_id, agent_id from agent_notes where id = v_note;
+end $$;
+
+select results_eq(
+  'select contact_id is null, agent_id::text from t_deleted_note',
+  $$ values (true, 'a1a1a1a1-0000-4000-8000-00000000000a') $$,
+  'CONTROL borrar contacto: la nota queda con contact_id null y conserva su agent_id'
+);
+
+select lives_ok(
+  format('delete from ai_sessions where id = %L',
+         (select id from t_ids where agent = 'a1a1a1a1-0000-4000-8000-00000000000a' and tbl = 'ai_sessions')),
+  'CONTROL borrar sesión: cascada a mensajes, tareas y tokens sin chocar con la FK compuesta'
+);
+
+select pg_temp.login_as('a1a1a1a1-0000-4000-8000-00000000000a');
 
 -- ═══ 7. Storage: bucket `policies`, carpeta = id del asesor ══════════════════
 
