@@ -18,7 +18,21 @@ export async function executeSkill(
   name: string,
   args: unknown,
   ctx: SkillContext,
+  /**
+   * Herramientas que se le OFRECIERON al modelo en este turno. Los caminos de
+   * producción (chat y voz) SIEMPRE la pasan: el modelo solo puede ejecutar lo
+   * que se le declaró. Sin esto, un texto inyectado en un documento o nota
+   * podía hacer que el modelo llamara `create_policy` en un turno que solo
+   * ofrecía herramientas de contactos, porque se buscaba en todo el registro.
+   * Solo las pruebas unitarias de skills la omiten.
+   */
+  offered?: ReadonlySet<string>,
 ): Promise<SkillExecutionResult> {
+  if (offered && !offered.has(name)) {
+    // LFPDPPP: solo el nombre, nunca args.
+    console.warn(`[SKILL] Rejected tool not offered in this turn: "${name}"`);
+    return { response: { error: `Tool not available in this turn: ${name}` } };
+  }
   const skill = getSkillByName(name);
   if (!skill) {
     return { response: { error: `Unknown skill: ${name}` } };

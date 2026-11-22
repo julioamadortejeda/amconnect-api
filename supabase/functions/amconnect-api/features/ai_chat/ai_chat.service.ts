@@ -1,7 +1,7 @@
 import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface.ts";
 import { AiSessionService } from "./ai_session.service.ts";
 import { AiProviderError } from "../../shared/errors.ts";
-import { buildToolDeclarations } from "../../shared/tool_declarations.ts";
+import { buildToolDeclarations, offeredToolNames } from "../../shared/tool_declarations.ts";
 import { executeSkill } from "./skills/skill_executor.ts";
 import { SkillContext, SkillServices } from "./skills/skill.core.ts";
 import { buildLocalDateTime, DEFAULT_TIMEZONE } from "../../shared/datetime.ts";
@@ -106,6 +106,7 @@ export class AiChatService {
         exclude: pendingTasks.length === 0 ? ["resolve_pending_task"] : [],
       }),
     }];
+    const offeredTools = offeredToolNames(tools[0].functionDeclarations);
 
     // Fecha y hora local del asesor — implementación compartida con voz
     const { localIso, offsetStr } = buildLocalDateTime(timezone || DEFAULT_TIMEZONE);
@@ -232,7 +233,7 @@ export class AiChatService {
         // deno-lint-ignore no-explicit-any
         const callId = (originalStep as any)?.functionCall?.id || `call_${Math.random().toString(36).substring(7)}`;
 
-        const execution = await executeSkill(call.name, call.args, ctx);
+        const execution = await executeSkill(call.name, call.args, ctx, offeredTools);
         if (execution.metadata) skillMetadata = execution.metadata;
         const response = execution.response;
 

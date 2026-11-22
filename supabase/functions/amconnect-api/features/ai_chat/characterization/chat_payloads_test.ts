@@ -55,6 +55,7 @@ Deno.test("tarjeta contact_info: campos que la app renderiza", async () => {
 Deno.test("tarjeta policy_list y reminder_list conservan type y forma", async () => {
   const p = buildAssistantHarness({
     script: [callTool("get_all_policies", {}), say("ok")],
+    classify: { domains: ["policy"], language: "Spanish" },
     skillData: { agentPolicies: [buildPolicy()] },
   });
   const a = await chat(p, { message: "pólizas gnp" });
@@ -64,6 +65,7 @@ Deno.test("tarjeta policy_list y reminder_list conservan type y forma", async ()
 
   const r = buildAssistantHarness({
     script: [callTool("get_upcoming_reminders", {}), say("ok")],
+    classify: { domains: ["reminder"], language: "Spanish" },
     skillData: { upcoming: [buildReminder()] },
   });
   const b = await chat(r, { message: "mi agenda" });
@@ -211,21 +213,7 @@ Deno.test("inyección: un [[cite:]] dentro del resultado de la herramienta NO cu
   assert.deepEqual(json.data.metadata.attachments.map((a: { id: string }) => a.id).sort(), [N1, N2]);
 });
 
-Deno.test("caracterización: el servicio ejecuta cualquier skill registrada aunque no se ofreciera en el turno", async () => {
-  // Un modelo manipulado (p. ej. por texto inyectado) puede llamar a una skill de otro dominio.
-  const h = buildAssistantHarness({
-    script: [callTool("create_policy", { contact_id: "3f1c2a8e-5b7d-4e19-9a0c-2d6f8b1e4c37", product_id: "3f1c2a8e-5b7d-4e19-9a0c-2d6f8b1e4c38" }), say("ok")],
-    classify: { domains: ["contact"], language: "Spanish" },
-  });
-  await chat(h, { message: "x" });
-  assert.ok(!h.provider.toolsAt(0).includes("create_policy"), "no se ofreció");
-  const res = h.provider.interactions[1].input as Record<string, unknown>[];
-  assert.ok(!/Unknown skill/.test((res[0].result as { text: string }[])[0].text), "pero se intentó ejecutar");
-});
-
-Deno.test("inyección: ejecutar una herramienta NO ofrecida en el turno debería rechazarse", {
-  ignore: true, // BUG: ai_chat.service.ts:235 executeSkill(call.name...) busca en el registro completo (skill_executor.ts getSkillByName), no en las herramientas declaradas del turno
-}, async () => {
+Deno.test("inyección: ejecutar una herramienta NO ofrecida en el turno se rechaza", async () => {
   const h = buildAssistantHarness({
     script: [callTool("create_policy", { contact_id: "3f1c2a8e-5b7d-4e19-9a0c-2d6f8b1e4c37", product_id: "3f1c2a8e-5b7d-4e19-9a0c-2d6f8b1e4c38" }), say("ok")],
     classify: { domains: ["contact"], language: "Spanish" },

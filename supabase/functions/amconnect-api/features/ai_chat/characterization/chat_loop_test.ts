@@ -132,13 +132,13 @@ Deno.test("tope de vueltas + cierre vacío: mensaje honesto fijo, 200, y se pers
   assert.match((last.parts[0] as { text: string }).text, /revisa tu agenda/);
 });
 
-Deno.test("herramienta desconocida: el modelo recibe { error: 'Unknown skill' } y puede recuperarse", async () => {
+Deno.test("herramienta desconocida (no ofrecida): el modelo recibe un error y puede recuperarse", async () => {
   const h = buildAssistantHarness({ script: [callTool("drop_database", {}), say("No pude hacer eso.")] });
   const { status, json } = await chat(h);
   assert.equal(status, 200);
   assert.equal(json.data.text, "No pude hacer eso.");
   const res = h.provider.interactions[1].input as Record<string, unknown>[];
-  assert.match(JSON.stringify(res[0].result), /Unknown skill: drop_database/);
+  assert.match(JSON.stringify(res[0].result), /Tool not available in this turn: drop_database/);
 });
 
 Deno.test("herramienta que truena: ok:false con el mensaje al modelo; el chat NO falla", async () => {

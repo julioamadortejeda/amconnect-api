@@ -25,7 +25,7 @@ Deno.test("voz execute-tool: skill desconocida, args inválidos y skill que true
     skillOverrides: { contactService: { findSimilarContact: () => Promise.reject(new Error("db down")) } },
   });
   const unk = await post(h, "/ai/voice/execute-tool", { sessionId: SID, toolName: "drop_database", args: {} });
-  assert.deepEqual(unk.json.data.result, { error: "Unknown skill: drop_database" });
+  assert.deepEqual(unk.json.data.result, { error: "Tool not available in this turn: drop_database" });
   const bad = await post(h, "/ai/voice/execute-tool", { sessionId: SID, toolName: "search_contact", args: {} });
   assert.match(bad.json.data.result.error, /^Missing required data/);
   const boom = await post(h, "/ai/voice/execute-tool", { sessionId: SID, toolName: "search_contact", args: { query: "x" } });
@@ -81,4 +81,10 @@ Deno.test("caracterización: voz save-round con sesión inexistente hoy → 500 
   const r = await post(h, "/ai/voice/save-round", { sessionId: SID, userText: "x", modelText: "y", promptTokens: 1, completionTokens: 1, totalTokens: 2 });
   assert.equal(r.status, 500);
   assert.equal(h.usageRepo.increments.length, 0);
+});
+
+Deno.test("voz execute-tool: una skill que la voz excluye a propósito se rechaza aunque el cliente la pida", async () => {
+  const h = buildAssistantHarness({});
+  const res = await post(h, "/ai/voice/execute-tool", { sessionId: SID, toolName: "resolve_pending_task", args: { task_id: SID } });
+  assert.deepEqual(res.json.data.result, { error: "Tool not available in this turn: resolve_pending_task" });
 });

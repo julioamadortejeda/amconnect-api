@@ -9,7 +9,7 @@ import {
 import { GoogleGenAiProvider } from "../../providers/google_genai.provider.ts";
 import { GeminiLiveProvider } from "../../providers/gemini_live.provider.ts";
 import { LIVE_AUDIO_MODEL } from "../../shared/config.ts";
-import { buildToolDeclarations } from "../../shared/tool_declarations.ts";
+import { buildToolDeclarations, offeredToolNames } from "../../shared/tool_declarations.ts";
 import { executeSkill } from "./skills/skill_executor.ts";
 import { SkillContext, SkillServices } from "./skills/skill.core.ts";
 import { buildLocalDateTime, calcTimezoneOffset } from "../../shared/datetime.ts";
@@ -60,6 +60,11 @@ function buildVoiceTools(): { function_declarations: FunctionDeclaration[] }[] {
     }),
   }];
 }
+
+// Lista blanca de la voz: lo mismo que se le declara a Gemini Live. El REST
+// `execute-tool` recibe el nombre desde el cliente, así que sin esto podía
+// ejecutar cualquier skill, incluidas las que la voz excluye a propósito.
+const VOICE_TOOL_NAMES = offeredToolNames(buildVoiceTools()[0].function_declarations);
 
 export interface VoiceToolCallLog {
   name: string;
@@ -319,7 +324,7 @@ export class VoiceChatService {
         pushPendingUserTurn();
         turns.push({ kind: "function_call", name: call.name, args: call.args });
 
-        const execution = await executeSkill(call.name, call.args, ctx);
+        const execution = await executeSkill(call.name, call.args, ctx, VOICE_TOOL_NAMES);
         turns.push({ kind: "function_result", name: call.name, response: execution.response });
         geminiLive?.sendToolResponse(call.id, call.name, execution.response);
       },
@@ -419,7 +424,7 @@ export class VoiceChatService {
       ...this.skillContext,
     };
 
-    const execution = await executeSkill(toolName, args, ctx);
+    const execution = await executeSkill(toolName, args, ctx, VOICE_TOOL_NAMES);
     return {
       result: execution.response,
       __skillMetadata: execution.metadata,

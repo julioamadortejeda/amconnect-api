@@ -85,9 +85,7 @@ Verificado quitando el `ignore`: los 9 fallan.
 5. **Misma causa, sesión**: tras ese error crudo la sesión sigue `active` y facturable (`ai_chat.service.ts:306-309`).
 6. **Carrera en la misma sesión**: dos mensajes simultáneos hacen leer-modificar-escribir del historial completo y el último
    pisa al primero (se pierde un mensaje). Reproducido con latencia simulada en el repo.
-7. **Herramienta no ofrecida se ejecuta** (`ai_chat.service.ts:235` → `skill_executor.ts:22`): `executeSkill` busca en todo el
-   registro, no en las herramientas declaradas del turno. Un modelo manipulado (p. ej. por inyección) puede llamar a
-   `create_policy` aunque el turno solo ofreciera contacto. Hay test de caracterización que lo documenta.
+7. ✅ **Arreglado 2026-11-21.** ~~Herramienta no ofrecida se ejecuta~~: `executeSkill` recibe la lista de herramientas ofrecidas en el turno (chat) o las de la voz (WebSocket y REST `execute-tool`) y rechaza cualquier otra con `Tool not available in this turn`. Prueba: "inyección: ejecutar una herramienta NO ofrecida en el turno se rechaza" y la de voz con `resolve_pending_task`.
 8. **Voz `save-round` con sesión inexistente**: 500 sin código en vez de 404 (`voice_chat.service.ts` saveRound + `ai_session.service.ts:158`).
 
 ## Observaciones (no son bug confirmado, quedan caracterizadas)

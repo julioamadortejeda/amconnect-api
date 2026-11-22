@@ -45,3 +45,8 @@ export function buildToolDeclarations(
     };
   }) as FunctionDeclaration[];
 }
+
+/** Nombres de las herramientas declaradas; es la lista blanca de `executeSkill`. */
+export function offeredToolNames(declarations: readonly { name?: string }[]): ReadonlySet<string> {
+  return new Set(declarations.map((d) => d.name).filter((n): n is string => typeof n === "string"));
+}
