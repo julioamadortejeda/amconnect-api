@@ -8,6 +8,9 @@ import { AiRole, type AiFunctionCall, type AiGenerationResult, type AiMessage, t
 import { executeSkill as defaultExecuteSkill, type SkillExecutionResult } from "./skills/skill_executor.ts";
 import type { SkillContext } from "./skills/skill.core.ts";
 import { extractCitations, RagAttachmentCollector } from "./rag_attachments.ts";
+import { collectAdvisorWords } from "./chat_turn.ts";
+import { type GuardTurnState, type ToolRecord, ToolGuards } from "./tool_guards.ts";
+import { TOOL_GUARDS_MODE, type ToolGuardsMode } from "../../shared/assistant.config.ts";
 import { addUsage, emptyUsage } from "./token_usage.ts";
 import type { UsageTokens } from "./ai_session.service.ts";
 import {
@@ -62,6 +65,10 @@ export interface AgentLoopOptions {
   maxLoops?: number;
   /** Inyectable para pruebas; en producción, executeSkill. */
   runSkill?: SkillRunner;
+  /** Modo de las guardas; por defecto TOOL_GUARDS_MODE de assistant.config.ts. */
+  guardsMode?: ToolGuardsMode;
+  /** Inyectable para pruebas. */
+  guards?: ToolGuards;
 }
 
 /** Estado mutable de un turno. */
@@ -77,6 +84,11 @@ interface TurnState {
   finalText: string;
   modelCalls: number;
   cancelled: boolean;
+  /** Lo que las guardas ven del turno: herramientas ya ejecutadas y palabras del asesor. */
+  toolRecords: ToolRecord[];
+  advisorWords: string;
+  sessionAdvisorWords: string;
+  priorAssistantText: string;
 }
 
 type ModelResult = AiGenerationResult & { interactionId?: string };
@@ -84,8 +96,10 @@ type ModelResult = AiGenerationResult & { interactionId?: string };
 export class AgentLoop {
   private readonly maxLoops: number;
   private readonly runSkill: SkillRunner;
+  private readonly guards: ToolGuards;
 
   constructor(private provider: IAiProvider, opts: AgentLoopOptions = {}) {
+    this.guards = opts.guards ?? new ToolGuards(opts.guardsMode ?? TOOL_GUARDS_MODE);
     this.maxLoops = opts.maxLoops ?? MAX_LOOPS;
     this.runSkill = opts.runSkill ?? defaultExecuteSkill;
   }
@@ -113,6 +127,11 @@ export class AgentLoop {
       finalText: "",
       modelCalls: 0,
       cancelled: false,
+      toolRecords: [],
+      // El último mensaje del historial es el del asesor en este turno.
+      advisorWords: collectAdvisorWords(p.history.slice(-1)),
+      sessionAdvisorWords: collectAdvisorWords(p.history),
+      priorAssistantText: lastModelText(p.history.slice(0, -1)),
     };
   }
 
@@ -192,9 +211,17 @@ export class AgentLoop {
   private async runTool(s: TurnState, call: AiFunctionCall): Promise<unknown> {
     const label = toolLabel(call.name, s.p.replyLanguage);
     await this.emit(s, { type: "tool_started", name: call.name, label });
+    const blocked = s.p.offeredNames.has(call.name) ? this.guards.check(call, guardState(s)) : null;
+    if (blocked) {
+      const response = { ok: false, error: blocked.messageForModel };
+      s.toolRecords.push({ name: call.name, args: call.args ?? {}, result: response });
+      await this.emit(s, { type: "tool_finished", name: call.name, label, ok: false });
+      return response;
+    }
     const execution = await this.runSkill(call.name, call.args, s.p.ctx, s.p.offeredNames);
     if (execution.metadata) s.skillMetadata = execution.metadata;
     const response = execution.response;
+    s.toolRecords.push({ name: call.name, args: call.args ?? {}, result: response });
     // Si la base de conocimiento o notas de contacto/póliza devuelven vacío,
     // forzamos que en el siguiente turno genere texto directo.
     if (s.ragAttachments.harvest(call.name, response).emptyRagSearch) s.forceTextOnly = true;
@@ -293,4 +320,25 @@ function isOkResponse(response: unknown): boolean {
   if (!response || typeof response !== "object" || Array.isArray(response)) return true;
   const r = response as Record<string, unknown>;
   return r.ok !== false && !("error" in r);
+}
+
+function guardState(s: TurnState): GuardTurnState {
+  return {
+    toolCalls: s.toolRecords,
+    advisorWords: s.advisorWords,
+    sessionAdvisorWords: s.sessionAdvisorWords,
+    priorAssistantText: s.priorAssistantText,
+    replyLanguage: s.p.replyLanguage,
+  };
+}
+
+/** Último texto del modelo en el historial (lo que el asesor pudo aceptar con un "sí"). */
+function lastModelText(history: AiMessage[]): string {
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].role !== AiRole.MODEL) continue;
+    const text = ((history[i].parts ?? []) as { text?: unknown }[])
+      .map((p) => p.text).filter((t): t is string => typeof t === "string").join("\n");
+    if (text) return text;
+  }
+  return "";
 }
