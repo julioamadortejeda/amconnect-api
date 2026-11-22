@@ -259,14 +259,31 @@ Deno.test("concurrencia: dos mensajes simultáneos en sesiones distintas no se m
   assert.equal(h.usageRepo.increments.length, 2);
 });
 
-Deno.test("concurrencia en la MISMA sesión: el historial no pierde mensajes", {
-  ignore: true, // BUG: read-modify-write sin bloqueo (ai_chat.service.ts:62-66 + saveChatRound): el último en guardar pisa el historial del otro
-}, async () => {
+Deno.test("concurrencia en la MISMA sesión: el segundo mensaje recibe 409 sin gastar modelo y el primer turno queda íntegro", async () => {
   const h = buildAssistantHarness({ script: [say("r1"), say("r2"), say("r3")] });
   const first = await chat(h, { message: "base" });
   const sid = first.json.data.sessionId;
+  const callsBefore = h.provider.calls;
   h.sessionsRepo.latencyMs = 5; // lecturas/escrituras con latencia real de BD
-  await Promise.all([chat(h, { message: "msg-X1", sessionId: sid }), chat(h, { message: "msg-Y2", sessionId: sid })]);
+  const [x, y] = await Promise.all([chat(h, { message: "msg-X1", sessionId: sid }), chat(h, { message: "msg-Y2", sessionId: sid })]);
+  assert.equal(x.status, 200);
+  assert.equal(y.status, 409);
+  assert.equal(y.json.errorCode, "RESOURCE_CONFLICT");
+  assert.equal(h.provider.calls - callsBefore, 1, "solo el turno ganador invoca al modelo");
+  assert.equal(h.usageRepo.increments.length - h.usageRepo.refunds.length, 2, "el turno rechazado no se cobra");
   const texts = persistedHistory(h, sid).flatMap((m) => m.parts.map((p) => (p as { text?: string }).text ?? ""));
-  assert.ok(texts.some((t) => t.includes("msg-X1")) && texts.some((t) => t.includes("msg-Y2")), "ambos mensajes deben quedar");
+  assert.ok(texts.some((t) => t.includes("msg-X1")), "el turno ganador queda guardado");
+  assert.ok(!texts.some((t) => t.includes("msg-Y2")));
+  assert.equal(h.sessionsRepo.sessions.get(sid)!.turnLockedUntil, null, "el candado se libera");
+  // Con el candado libre, el siguiente mensaje pasa.
+  assert.equal((await chat(h, { message: "otro", sessionId: sid })).status, 200);
+});
+
+Deno.test("el candado se libera aunque el turno falle", async () => {
+  const h = buildAssistantHarness({ script: [say("r1"), { error: new Error("red caída") }, say("r3")] });
+  const first = await chat(h, { message: "base" });
+  const sid = first.json.data.sessionId;
+  assert.equal((await chat(h, { message: "falla", sessionId: sid })).status, 500);
+  assert.equal(h.sessionsRepo.sessions.get(sid)!.turnLockedUntil, null);
+  assert.equal((await chat(h, { message: "reintento", sessionId: sid })).status, 200);
 });

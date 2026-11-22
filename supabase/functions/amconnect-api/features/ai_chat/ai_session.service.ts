@@ -1,5 +1,13 @@
 import type { IAiSessionRepository, TokenUsageRow, ChatMessageRow, PendingTaskRow, ModelRatesRow } from "./ai_session.repository.ts";
-import { AppError } from "../../shared/errors.ts";
+import { AppError, ConflictError, NotFoundError } from "../../shared/errors.ts";
+
+/**
+ * Cuánto dura el candado de turno si nadie lo libera (proceso caído).
+ * Debe superar con holgura el turno más largo: MAX_LOOPS (6) vueltas + turno de
+ * cierre + clasificador, cada una con reintentos de `withAiRetry`. Se libera en
+ * `finally`, así que este tiempo solo importa ante un crash.
+ */
+export const TURN_LOCK_SECONDS = 120;
 
 export interface CreateSessionInput {
   triggerMessage: string;
@@ -45,6 +53,30 @@ export class AiSessionService {
       modelName: input.modelName,
       embeddingModelName: input.embeddingModelName,
     });
+  }
+
+  /**
+   * Toma el candado de turno de una sesión existente ANTES de gastar modelo o
+   * cuota. 404 si no existe/es ajena, 409 si ya hay un turno en curso. Quien lo
+   * toma DEBE llamar `releaseTurnLock` en un `finally`.
+   */
+  async acquireTurnLock(sessionId: string): Promise<void> {
+    const acquired = await this.repository.acquireTurnLock(sessionId, new Date(), TURN_LOCK_SECONDS * 1000);
+    if (acquired) return;
+    // El UPDATE no distingue "bloqueada" de "no existe / ajena" (RLS): se
+    // desambigua solo en la ruta de fallo.
+    const session = await this.repository.getSessionContext(sessionId);
+    if (!session) throw new NotFoundError("Sesión no encontrada.");
+    throw new ConflictError("Todavía estoy respondiendo tu mensaje anterior en esta conversación.");
+  }
+
+  /** Un fallo al liberar no debe tapar el resultado (ni el error) del turno; el candado expira solo. */
+  async releaseTurnLock(sessionId: string): Promise<void> {
+    try {
+      await this.repository.releaseTurnLock(sessionId);
+    } catch (e) {
+      console.error("[AiSession] No se pudo liberar el candado de turno (expira solo):", e);
+    }
   }
 
   async trackIngestionUsage(

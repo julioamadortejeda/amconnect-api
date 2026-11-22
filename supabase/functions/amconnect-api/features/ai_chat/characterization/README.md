@@ -72,7 +72,7 @@ viaja solo como `functionResponse`, un `[[cite:]]` inyectado no cuenta).
 
 ## Fallan hoy (bugs encontrados) — `ignore: true`
 
-Verificado quitando el `ignore`: los 9 fallaban. Arreglados el 1, 3, 4, 5 y 7 (2026-11-22 y antes); quedan 6 y 8 (`ignore: true`).
+Verificado quitando el `ignore`: los 9 fallaban. Arreglados el 1, 3, 4, 5, 6 y 7 (2026-11-22 y antes); queda el 8 (`ignore: true`); el 6 también está arreglado.
 
 1. ✅ **Arreglado 2026-11-22**: `processMessage` lanza `NotFoundError` (404 `RESOURCE_NOT_FOUND`) si la sesión no existe/es ajena, antes del modelo; el controller devuelve el cobro. ~~**sessionId de otro asesor / inexistente** (`chat_session_test.ts`, 2 tests): el RLS devuelve `null`, `ai_chat.service.ts:62-66`
    lo toma como sesión vacía, **gasta el modelo** y truena al final en `ai_session.service.ts:158` con 500 `INTERNAL_ERROR`
@@ -83,8 +83,8 @@ Verificado quitando el `ignore`: los 9 fallaban. Arreglados el 1, 3, 4, 5 y 7 (2
 3. ✅ **Arreglado 2026-11-22** (`globalErrorHandler`: SyntaxError del body → 422 `VALIDATION_FAILED`, toda ruta). ~~**JSON malformado → 500** en vez de 4xx (`ai.controller.ts:29`): `SyntaxError` no es `AppError`. No cobra.~~
 4. ✅ **Arreglado 2026-11-22** (el controller reembolsa también ante errores que no son `AppError`). ~~**Timeout/red del proveedor se cobra** (`ai.controller.ts:40-44`): solo `AiProviderError` reembolsa; un `Error` crudo deja el cobro.~~
 5. ✅ **Arreglado 2026-11-22** (`processMessage` marca `provider_error`/no facturable también ante errores crudos). ~~**Misma causa, sesión**: tras ese error crudo la sesión sigue `active` y facturable.~~
-6. **Carrera en la misma sesión**: dos mensajes simultáneos hacen leer-modificar-escribir del historial completo y el último
-   pisa al primero (se pierde un mensaje). Reproducido con latencia simulada en el repo.
+6. ✅ **Arreglado 2026-11-22** (candado de turno `ai_sessions.turn_locked_until`, `AiSessionService.acquireTurnLock`): el segundo mensaje simultáneo recibe 409 `RESOURCE_CONFLICT` antes del clasificador/modelo y se le devuelve el cobro; el primer turno se guarda íntegro. ~~**Carrera en la misma sesión**: dos mensajes simultáneos hacen leer-modificar-escribir del historial completo y el último
+   pisa al primero (se pierde un mensaje).~~
 7. ✅ **Arreglado 2026-11-21.** ~~Herramienta no ofrecida se ejecuta~~: `executeSkill` recibe la lista de herramientas ofrecidas en el turno (chat) o las de la voz (WebSocket y REST `execute-tool`) y rechaza cualquier otra con `Tool not available in this turn`. Prueba: "inyección: ejecutar una herramienta NO ofrecida en el turno se rechaza" y la de voz con `resolve_pending_task`.
 8. **Voz `save-round` con sesión inexistente**: 500 sin código en vez de 404 (`voice_chat.service.ts` saveRound + `ai_session.service.ts:158`).
 

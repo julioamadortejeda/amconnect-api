@@ -104,6 +104,12 @@ export interface IAiSessionRepository {
     summary: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; thoughtsTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
   }>;
   getSessionWithRates(sessionId: string): Promise<SessionWithRatesRow | null>;
+  /**
+   * Toma el candado de turno con un solo UPDATE condicional. `true` si lo tomó;
+   * `false` si la sesión no existe, es de otro asesor (RLS) o ya está bloqueada.
+   */
+  acquireTurnLock(sessionId: string, now: Date, lockMs: number): Promise<boolean>;
+  releaseTurnLock(sessionId: string): Promise<void>;
 }
 
 export class AiSessionRepository implements IAiSessionRepository {
@@ -208,6 +214,29 @@ export class AiSessionRepository implements IAiSessionRepository {
       }
     }
     return usage;
+  }
+
+  async acquireTurnLock(sessionId: string, now: Date, lockMs: number): Promise<boolean> {
+    const { data, error } = await this.supabase
+      .from("ai_sessions")
+      .update({ turn_locked_until: new Date(now.getTime() + lockMs).toISOString() })
+      .eq("id", sessionId)
+      .or(`turn_locked_until.is.null,turn_locked_until.lt.${now.toISOString()}`)
+      .select("id");
+    if (error) {
+      throw internalError("No se pudo iniciar el turno de la conversación.", `acquireTurnLock failed: ${error.message}`);
+    }
+    return (data?.length ?? 0) > 0;
+  }
+
+  async releaseTurnLock(sessionId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from("ai_sessions")
+      .update({ turn_locked_until: null })
+      .eq("id", sessionId);
+    if (error) {
+      throw internalError("No se pudo liberar el turno de la conversación.", `releaseTurnLock failed: ${error.message}`);
+    }
   }
 
   async createSession(data: CreateSessionData): Promise<string> {
