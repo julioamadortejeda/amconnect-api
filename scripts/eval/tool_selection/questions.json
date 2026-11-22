@@ -256,8 +256,7 @@
     "lang": "es",
     "text": "Oye que me dijo rosa que tenía?",
     "expectedTools": [
-      "search_contact",
-      "search_contact_notes"
+      "search_contact"
     ],
     "forbiddenTools": [
       "create_reminder",
@@ -266,6 +265,12 @@
       "add_note_to_client",
       "delete_contact",
       "delete_reminder"
+    ],
+    "anyOfTools": [
+      [
+        "search_contact_notes",
+        "recall"
+      ]
     ]
   },
   {
@@ -630,10 +635,13 @@
     "lang": "es",
     "text": "Dime qué me dijo Carlos de su rodilla y qué pendientes tengo con él",
     "expectedTools": [
-      "search_contact",
-      "search_contact_notes"
+      "search_contact"
     ],
     "anyOfTools": [
+      [
+        "search_contact_notes",
+        "recall"
+      ],
       [
         "get_upcoming_reminders",
         "search_reminders"

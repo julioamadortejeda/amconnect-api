@@ -176,7 +176,7 @@ async function cleanEvalRows(c: Client, evalStartIso: string): Promise<number> {
 const LOOP_EXHAUSTED_RE = /me qued[ée] sin poder resumirte/i;
 
 async function countUpdatedSince(c: Client, table: string, sinceIso: string): Promise<number> {
-  const rows = await c.rest<{ id: string }[]>(`${table}?select=id&updated_at=gte.${encodeURIComponent(sinceIso)}`);
+  const rows = await c.rest<{ id: string }[]>(`${table}?select=id&is_active=eq.true&updated_at=gte.${encodeURIComponent(sinceIso)}`);
   return rows.length;
 }
 
@@ -235,7 +235,8 @@ async function runOnce(c: Client, q: Question, run: number, evalStartIso: string
   try {
     if (q.isWrite || q.mustNotWrite || q.expectUpdate) await cleanEvalRows(c, evalStartIso);
     if (q.expectUpdate) await resetUpdateTarget(c, q.expectUpdate);
-    const since = new Date(Date.now() - 1000).toISOString();
+    // Después de la limpieza: sus PATCH no deben contar como escrituras del modelo.
+    const since = new Date().toISOString();
     const t0 = performance.now();
     let sessionId: string | null = null;
     let lastReply = "";
