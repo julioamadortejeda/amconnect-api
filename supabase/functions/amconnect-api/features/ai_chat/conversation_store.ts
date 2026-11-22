@@ -33,6 +33,8 @@ export interface ConversationStore {
   saveTurn(turn: SavedTurn): Promise<UsageTokens>;
   /** Falla del proveedor: la sesión deja de ser facturable. */
   markProviderError(sessionId: string, errorMessage: string): Promise<void>;
+  /** Turno detenido a medias (§7.3): la sesión queda `cancelled` (sigue usable). */
+  markTurnCancelled(sessionId: string): Promise<void>;
 }
 
 export class SessionConversationStore implements ConversationStore {
@@ -72,5 +74,9 @@ export class SessionConversationStore implements ConversationStore {
 
   markProviderError(sessionId: string, errorMessage: string): Promise<void> {
     return this.sessions.markSessionProviderError(sessionId, errorMessage);
+  }
+
+  markTurnCancelled(sessionId: string): Promise<void> {
+    return this.sessions.markSessionCancelled(sessionId);
   }
 }

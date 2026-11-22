@@ -267,6 +267,16 @@ export class AiSessionService {
     });
   }
 
+  /**
+   * Turno cancelado a medias. Reusa el status `cancelled` (el mismo de "el
+   * asesor salió del chat"); no toca `metadata` (la pisaría) ni `is_billable`
+   * (lo que Gemini ya procesó se cobra). La sesión sigue usable: ningún turno
+   * revisa el status.
+   */
+  async markSessionCancelled(sessionId: string): Promise<void> {
+    await this.repository.updateSession(sessionId, { status: "cancelled" });
+  }
+
   async deleteSession(sessionId: string): Promise<void> {
     await this.repository.deleteSession(sessionId);
   }

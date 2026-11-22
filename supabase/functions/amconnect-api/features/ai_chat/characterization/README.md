@@ -52,6 +52,13 @@ Sesión nueva vs reutilizada; historial persistido (usuario+herramienta+modelo) 
 JSON malformado; mensaje de 200 KB; solo espacios; unicode/emoji/NUL; imitación de `[CONTEXT]`; concurrencia en
 sesiones distintas y en la misma.
 
+### `chat_stream_test.ts` (`POST /ai/chat/stream`, SSE) — HTTP
+Headers SSE; orden `status → tool… → delta → done` con ids secuenciales; `done` = `data` del JSON; etiquetas
+humanas sin nombres técnicos (es/en); 422/429/404/409 como HTTP antes del stream (con las mismas devoluciones);
+`error` con el stream abierto (AI_PROVIDER_BUSY y crudo devuelven, AI_ERROR no); cancelación por desconexión
+(request abortado o `reader.cancel()`) y por `/ai/sessions/:id/cancel`: sin más llamadas al modelo, historial
+parcial, candado libre, devolución solo con 0 llamadas; cancel de sesión ajena no aborta.
+
 ### `chat_context_test.ts` (lo que recibe el modelo) — HTTP
 `[CONTEXT]` (fecha local, offset, idioma); `x-timezone` / `x-timezone-offset` / basura → default -06:00; prioridad de idioma
 (clasificador > historial > `Accept-Language` > español); clasificador recibe mensaje crudo; system prompt `ai_chat_system`

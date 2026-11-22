@@ -7,6 +7,7 @@ import { ReminderController } from "../controllers/reminder.controller.ts";
 import { CommitmentController } from "../controllers/commitment.controller.ts";
 import { ReminderSettingController } from "../controllers/reminder_setting.controller.ts";
 import { AiController } from "../controllers/ai.controller.ts";
+import { ChatStreamController } from "../controllers/chat_stream.controller.ts";
 import { VoiceChatController } from "../controllers/voice_chat.controller.ts";
 import { SubscriptionController } from "../controllers/subscription.controller.ts";
 import {
@@ -52,6 +53,7 @@ apiRouter.post("/subscription/apply-promo", SubscriptionController.applyPromo);
 // ─── AI ───────────────────────────────────────────────────────────────────────
 apiRouter.post("/ai/ingest-policy", AiController.ingestPolicy);
 apiRouter.post("/ai/chat", AiController.chat);
+apiRouter.post("/ai/chat/stream", ChatStreamController.stream);
 apiRouter.post("/ai/sessions/:sessionId/cancel", validate("param", SessionIdParamSchema), AiController.cancelSession);
 apiRouter.post("/ai/sessions/:sessionId/resolve-contact-mismatch", validate("param", SessionIdParamSchema), AiController.resolveContactMismatch);
 apiRouter.get("/ai/sessions/:sessionId/cost", validate("param", SessionIdParamSchema), AiController.getSessionCost);
