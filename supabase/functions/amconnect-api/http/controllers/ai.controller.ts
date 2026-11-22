@@ -1,7 +1,7 @@
 import { Context } from "hono";
 import { localeFromHeader } from "../../shared/locale.ts";
 import { sendSuccess } from "../../shared/api_response.ts";
-import { AiProviderError, AppError, NotFoundError } from "../../shared/errors.ts";
+import { AiProviderError, AppError, ConflictError, NotFoundError } from "../../shared/errors.ts";
 import { AiChatService } from "../../features/ai_chat/ai_chat.service.ts";
 import { AiSessionService } from "../../features/ai_chat/ai_session.service.ts";
 import { ConfirmPolicySchema } from "../../features/document_processing/confirm_policy.service.ts";
@@ -40,8 +40,9 @@ export class AiController {
     } catch (err) {
       // El asesor no recibió respuesta por algo que no es su culpa: falla del
       // proveedor, error crudo no controlado (red/timeout) o sesión inexistente/
-      // ajena (rechazada antes del modelo). AiError y demás AppError no reembolsan.
-      if (err instanceof AiProviderError || err instanceof NotFoundError || !(err instanceof AppError)) {
+      // ajena o con otro turno en curso, 409 (ambas rechazadas antes del modelo).
+      // AiError y demás AppError no reembolsan.
+      if (err instanceof AiProviderError || err instanceof NotFoundError || err instanceof ConflictError || !(err instanceof AppError)) {
         // Session already marked inside processMessage; only decrement usage
         await usageService.refundCharge(chargeId);
       }

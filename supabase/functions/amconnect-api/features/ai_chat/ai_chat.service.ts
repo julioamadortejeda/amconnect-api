@@ -54,6 +54,28 @@ export class AiChatService {
     newSessionType: "chat" = "chat",
     advisorLocale?: string,
   ): Promise<ChatResponse> {
+    // Sesión existente: candado de turno ANTES de cualquier gasto (clasificador,
+    // modelo). Dos mensajes simultáneos hacían leer-modificar-escribir del
+    // historial y el último pisaba al primero (bug #6); el segundo recibe 409.
+    // Sesión nueva: sin candado, nadie conoce su id hasta que este turno
+    // responde, así que no puede haber un segundo mensaje concurrente.
+    if (sessionId) await this.aiSessionService.acquireTurnLock(sessionId);
+    try {
+      return await this.runTurn(message, agentId, sessionId, timezone, context, newSessionType, advisorLocale);
+    } finally {
+      if (sessionId) await this.aiSessionService.releaseTurnLock(sessionId);
+    }
+  }
+
+  private async runTurn(
+    message: string,
+    agentId: string,
+    sessionId?: string | null,
+    timezone?: string,
+    context?: AiChatContext | null,
+    newSessionType: "chat" = "chat",
+    advisorLocale?: string,
+  ): Promise<ChatResponse> {
     const history: AiMessage[] = [];
     const sId = sessionId ?? undefined;
     let currentSessionId = sId;

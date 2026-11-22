@@ -189,6 +189,7 @@ export const usage = (promptTokens: number, completionTokens: number, cachedToke
 // ─── Repositorio de sesiones en memoria ─────────────────────────────────────
 
 interface SessionRecord {
+  turnLockedUntil?: Date | null;
   id: string;
   agentId: string;
   type: string;
@@ -276,6 +277,20 @@ export class InMemoryAiSessionRepository implements IAiSessionRepository {
     if (data.history !== undefined) s.history = structuredClone(data.history);
     if (data.metadata !== undefined) s.metadata = data.metadata;
     if (data.lastInteractionId !== undefined) s.lastInteractionId = data.lastInteractionId;
+  }
+  /** Mismo contrato que el UPDATE condicional: atómico (sin await entre leer y escribir) y con RLS. */
+  async acquireTurnLock(sessionId: string, now: Date, lockMs: number): Promise<boolean> {
+    await this.tick();
+    const s = this.visible(sessionId);
+    if (!s) return false;
+    if (s.turnLockedUntil && s.turnLockedUntil.getTime() >= now.getTime()) return false;
+    s.turnLockedUntil = new Date(now.getTime() + lockMs);
+    return true;
+  }
+  async releaseTurnLock(sessionId: string): Promise<void> {
+    const s = this.visible(sessionId);
+    if (s) s.turnLockedUntil = null;
+    await Promise.resolve();
   }
   deleteSession(sessionId: string): Promise<void> {
     this.sessions.delete(sessionId);
