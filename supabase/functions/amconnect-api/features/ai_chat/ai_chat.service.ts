@@ -18,6 +18,8 @@ import {
   resolveChatDomains,
 } from "./chat_turn.ts";
 import { extractCitations, RagAttachmentCollector } from "./rag_attachments.ts";
+import { TOOL_SELECTION_MODE, type ToolSelectionMode } from "../../shared/assistant.config.ts";
+import { detectReplyLanguage, type ReplyLanguage } from "./reply_language.ts";
 
 const MAX_LOOPS = 6;
 
@@ -35,6 +37,8 @@ export class AiChatService {
     private skillContext: SkillServices,
     private aiSessionService: AiSessionService,
     private promptService: PromptService,
+    // Inyectable para pruebas; en producción es el valor de shared/assistant.config.ts.
+    private toolSelectionMode: ToolSelectionMode = TOOL_SELECTION_MODE,
   ) {}
 
   async cancelSession(sessionId: string): Promise<{ cancelledTasks: number }> {
@@ -80,9 +84,16 @@ export class AiChatService {
     let activeDomains: string[];
     let classifyUsage;
     let detectedLanguage: string | undefined;
+    // Solo el modo "all" detecta el idioma localmente; se resuelve más abajo
+    // porque su fallback depende del historial.
+    const useAllTools = !isPolicyIngestion && this.toolSelectionMode === "all";
 
     if (isPolicyIngestion) {
       activeDomains = POLICY_INGESTION_DOMAINS;
+    } else if (useAllTools) {
+      // Todas las herramientas de chat, en el orden del registro de skills
+      // (estable entre turnos y asesores). Sin clasificador.
+      activeDomains = AVAILABLE_DOMAINS;
     } else {
       // TODO: Previously 'catalog' was always active. Kept as dynamic load to save tokens.
       const { domains, usage, language } = await this.aiProvider.classifyMessage(message, AVAILABLE_DOMAINS);
@@ -140,9 +151,19 @@ export class AiChatService {
     //      otro modo caerían al idioma de la app y romperían una conversación
     //      que iba en el otro.
     //   3. El idioma que el asesor configuró en la app, para el primer turno.
-    const replyLanguage = detectedLanguage ??
-      lastReplyLanguage(history) ??
-      languageName(advisorLocale);
+    let langSource: "detected" | "fallback" = detectedLanguage ? "detected" : "fallback";
+    const fallbackLanguage = lastReplyLanguage(history) ?? languageName(advisorLocale);
+    let replyLanguage = detectedLanguage ?? fallbackLanguage;
+    if (useAllTools) {
+      const d = detectReplyLanguage(message, fallbackLanguage === "English" ? "English" : "Spanish" as ReplyLanguage);
+      replyLanguage = d.language;
+      langSource = d.source;
+    }
+    if (!isPolicyIngestion) {
+      console.warn(
+        `[TOOLS] mode=${this.toolSelectionMode} count=${tools[0].functionDeclarations.length} lang=${replyLanguage} langSource=${langSource}`,
+      );
+    }
     const contextPrefix = buildContextPrefix({ localIso, offsetStr, replyLanguage, pendingTasks, context });
 
     history.push({ role: AiRole.USER, parts: [{ text: contextPrefix + message }] });

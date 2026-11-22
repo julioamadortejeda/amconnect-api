@@ -145,7 +145,7 @@ Deno.test("processMessage: herramienta RAG → texto citado → attachment_list 
   ]);
   const session = fakeSession();
   const prompts = { getPrompt: () => Promise.resolve("SYSTEM") } as unknown as PromptService;
-  const service = new AiChatService(provider, ctx as unknown as SkillServices, session.service, prompts);
+  const service = new AiChatService(provider, ctx as unknown as SkillServices, session.service, prompts, "by_domain");
 
   const result = await quiet(() => service.processMessage("¿qué me dijo Rosa de su mamá?", "agent-1", null, "America/Mexico_City"));
 
@@ -179,7 +179,7 @@ Deno.test("processMessage: RAG vacío fuerza texto en el turno siguiente", async
   ]);
   const session = fakeSession();
   const prompts = { getPrompt: () => Promise.resolve("SYSTEM") } as unknown as PromptService;
-  const service = new AiChatService(provider, ctx as unknown as SkillServices, session.service, prompts);
+  const service = new AiChatService(provider, ctx as unknown as SkillServices, session.service, prompts, "by_domain");
   const result = await quiet(() => service.processMessage("¿subí algún currículum?", "agent-1"));
   assert.equal(result.text, "No encontré nada.");
   assert.equal(interactions[1].forceTextOnly, true);
