@@ -31,3 +31,23 @@
 export type ToolSelectionMode = "all" | "by_domain";
 
 export const TOOL_SELECTION_MODE: ToolSelectionMode = "by_domain";
+
+// ─── TOOL_GUARDS_MODE ──────────────────────────────────────────────────────
+//
+// Reglas deterministas (features/ai_chat/tool_guards.ts) que se revisan en el
+// chat de texto ANTES de ejecutar una herramienta de escritura. La voz NO las
+// usa. Mismo procedimiento que arriba: editar el valor y volver a desplegar.
+//
+//   "off"      No se evalúa nada.
+//
+//   "log"      Se evalúan pero NUNCA bloquean: la herramienta se ejecuta igual
+//              y se escribe `[GUARD] would_block guard=<guarda> tool=<tool>
+//              reason=<código>` (sin datos personales). Sirve para medir
+//              falsos positivos antes de activarlas.
+//
+//   "enforce"  Si una guarda bloquea, la herramienta NO se ejecuta: el modelo
+//              recibe `{ ok: false, error: <explicación> }` como resultado,
+//              el evento `tool_finished` sale con ok=false y el turno sigue.
+export type ToolGuardsMode = "off" | "log" | "enforce";
+
+export const TOOL_GUARDS_MODE: ToolGuardsMode = "log";
