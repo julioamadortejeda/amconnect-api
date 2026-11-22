@@ -37,7 +37,7 @@ export function buildToolDeclarations(
   const skills = getSkillsByDomains(domains)
     .filter((s) => !exclude.includes(s.declaration.name));
   return skills.map((s) => {
-    const { $schema: _omit, ...parameters } = zodToJsonSchema(s.declaration.schema) as Record<string, unknown>;
+    const { $schema: _omit, ...parameters } = zodToJsonSchema(s.declaration.schema, { $refStrategy: "none" }) as Record<string, unknown>;
     return {
       name: s.declaration.name,
       description: s.declaration.description,
