@@ -8,6 +8,10 @@ import assert from "node:assert/strict";
 import { executeSkill } from "./skill_executor.ts";
 import type { SkillContext } from "./skill.core.ts";
 import { RAG_THRESHOLD_ENTITY_UNSCOPED, RAG_THRESHOLD_SCOPED } from "../../rag/rag.service.ts";
+import { NotFoundError } from "../../../shared/errors.ts";
+import type { ReminderResponseDTO } from "../../../modules/reminder/reminder.dto.ts";
+import { reminderSkills } from "./reminder.skills.ts";
+import { getSkillsByDomains } from "./index.ts";
 import { withRealWorkflows } from "../../../shared/testing/skill_workflows.ts";
 
 const AGENT = "agent-1";
@@ -22,7 +26,7 @@ interface Calls {
 
 // Solo los services que tocan estas skills; el resto no existe a propósito:
 // si una skill llamara a otro, la prueba truena en vez de pasar en silencio.
-function fakeCtx(): { ctx: SkillContext; calls: Calls } {
+function fakeCtx(reminders: Record<string, ReminderResponseDTO> = {}): { ctx: SkillContext; calls: Calls } {
   const calls: Calls = { search: [], reminderUpdates: [], policyUpdates: [], expiring: [] };
   const ctx = {
     agentId: AGENT,
@@ -38,8 +42,10 @@ function fakeCtx(): { ctx: SkillContext; calls: Calls } {
     reminderService: {
       update: (id: string, changes: Record<string, unknown>) => {
         calls.reminderUpdates.push({ id, changes });
-        return Promise.resolve(null);
+        return Promise.resolve(reminders[id] ? { ...reminders[id], ...changes } : null);
       },
+      // Como el repositorio real: sin fila visible (otro asesor por RLS, o no existe) lanza 404.
+      getById: (id: string) => reminders[id] ? Promise.resolve(reminders[id]) : Promise.reject(new NotFoundError()),
     },
     // Un estado por UUID se busca en el catálogo para saber si es cancelar.
     catalogServices: { reminderStatusService: { getAll: () => Promise.resolve([]) } },
@@ -227,4 +233,73 @@ Deno.test("get_expiring_policies: rango inválido (to < from, fecha mal formada,
     assert.ok((response as { error?: string }).error, JSON.stringify(args));
   }
   assert.equal(calls.expiring.length, 0);
+});
+
+// ─── reschedule_reminder ────────────────────────────────────────────────────
+
+const REM_ID = "9b2d7c41-0a5e-4f63-8d1b-7e3a5c9f2b10";
+const remAt = (dueDate: string): ReminderResponseDTO => ({ id: REM_ID, title: "Cita", dueDate } as ReminderResponseDTO);
+const reschedule = (args: Record<string, unknown>, reminders: Record<string, ReminderResponseDTO>) => {
+  const { ctx, calls } = fakeCtx(reminders);
+  return quiet(() => executeSkill("reschedule_reminder", args, ctx)).then(({ response }) => ({ response, calls }));
+};
+
+Deno.test("reschedule_reminder: está en el dominio reminder", () => {
+  const names = getSkillsByDomains(["reminder"]).map((s) => s.declaration.name);
+  assert.ok(names.includes("reschedule_reminder"));
+  assert.ok(reminderSkills.some((s) => s.declaration.name === "reschedule_reminder" && s.domain === "reminder"));
+});
+
+Deno.test("reschedule_reminder: validación de reminder_id, new_date y new_time", async () => {
+  for (
+    const bad of [
+      {},
+      { reminder_id: "no-uuid", new_date: "2026-12-01" },
+      { reminder_id: REM_ID },
+      { reminder_id: REM_ID, new_date: "01/12/2026" },
+      { reminder_id: REM_ID, new_date: "2026-02-30" },
+      { reminder_id: REM_ID, new_date: "2026-12-01", new_time: "25:00" },
+      { reminder_id: REM_ID, new_date: "2026-12-01", new_time: "5pm" },
+    ]
+  ) {
+    const { response, calls } = await reschedule(bad, { [REM_ID]: remAt("2026-11-23T23:00:00+00:00") });
+    assert.match(String((response as { error: string }).error), /^Missing required data/);
+    assert.equal(calls.reminderUpdates.length, 0);
+  }
+});
+
+Deno.test("reschedule_reminder: sin new_time conserva la hora local original", async () => {
+  // 23:00 UTC = 17:00 en Ciudad de México (UTC-6)
+  const { response, calls } = await reschedule({ reminder_id: REM_ID, new_date: "2026-12-01" }, { [REM_ID]: remAt("2026-11-23T23:00:00+00:00") });
+  assert.equal(calls.reminderUpdates.length, 1);
+  assert.deepEqual(calls.reminderUpdates[0].changes, { dueDate: "2026-12-01T17:00:00-06:00" });
+  assert.equal((response as { id: string }).id, REM_ID);
+  assert.equal((response as { dueDate: string }).dueDate, "2026-12-01T17:00:00-06:00");
+});
+
+Deno.test("reschedule_reminder: new_time explícito gana", async () => {
+  const { calls } = await reschedule(
+    { reminder_id: REM_ID, new_date: "2026-12-01", new_time: "9:30" },
+    { [REM_ID]: remAt("2026-11-23T23:00:00+00:00") },
+  );
+  assert.deepEqual(calls.reminderUpdates[0].changes, { dueDate: "2026-12-01T09:30:00-06:00" });
+});
+
+Deno.test("reschedule_reminder: recordatorio de solo fecha (medianoche local) sigue de solo fecha", async () => {
+  const { calls } = await reschedule({ reminder_id: REM_ID, new_date: "2026-12-05" }, { [REM_ID]: remAt("2026-11-23T06:00:00+00:00") });
+  assert.deepEqual(calls.reminderUpdates[0].changes, { dueDate: "2026-12-05T00:00:00-06:00" });
+});
+
+Deno.test("reschedule_reminder: no existe → ok:false, no escribe y nunca crea", async () => {
+  const { response, calls } = await reschedule({ reminder_id: REM_ID, new_date: "2026-12-01" }, {});
+  assert.equal((response as { ok: boolean }).ok, false);
+  assert.match(String((response as { error: string }).error), /No reminder/);
+  assert.equal(calls.reminderUpdates.length, 0);
+});
+
+Deno.test("reschedule_reminder: recordatorio ajeno (RLS no lo devuelve) → igual que no existe", async () => {
+  const OTHER = "11111111-2222-4333-8444-555555555555";
+  const { response, calls } = await reschedule({ reminder_id: OTHER, new_date: "2026-12-01" }, { [REM_ID]: remAt("2026-11-23T23:00:00+00:00") });
+  assert.equal((response as { ok: boolean }).ok, false);
+  assert.equal(calls.reminderUpdates.length, 0);
 });

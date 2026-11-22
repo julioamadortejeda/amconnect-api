@@ -34,9 +34,12 @@ export const TOOL_SELECTION_MODE: ToolSelectionMode = "by_domain";
 
 // ─── TOOL_GUARDS_MODE ──────────────────────────────────────────────────────
 //
-// Reglas deterministas (features/ai_chat/tool_guards.ts) que se revisan en el
-// chat de texto ANTES de ejecutar una herramienta de escritura. La voz NO las
-// usa. Mismo procedimiento que arriba: editar el valor y volver a desplegar.
+// Reglas deterministas y ESTRUCTURALES (features/ai_chat/tool_guards.ts) que se
+// revisan en el chat de texto ANTES de ejecutar una herramienta de escritura.
+// Deciden solo con las herramientas ya ejecutadas en el turno y sus resultados
+// (p. ej. no crear ligado a un cliente si la última búsqueda dio varios);
+// nunca leen palabras del asesor ni usan listas de palabras o regex. La voz NO
+// las usa. Mismo procedimiento que arriba: editar el valor y volver a desplegar.
 //
 //   "off"      No se evalúa nada.
 //

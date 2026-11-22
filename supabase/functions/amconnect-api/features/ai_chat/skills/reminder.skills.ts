@@ -101,13 +101,13 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "update_reminder",
-      description: "Modifies, updates status, adds comments, or reschedules an existing reminder. Call get_upcoming_reminders or search first to get the reminder_id. CRITICAL: When the user asks to add details, updates, or notes to an existing reminder (e.g. 'agrégale que...', 'escribe que...'), do NOT append this to the 'description'. Keep the 'description' as a concise summary, and pass the new details/notes into the 'comment' parameter so they are logged in the history.",
+      description: "Modifies, updates status or adds comments to an existing reminder. To MOVE a reminder or appointment to another day or time use reschedule_reminder, not this tool. Call get_upcoming_reminders or search first to get the reminder_id. CRITICAL: When the user asks to add details, updates, or notes to an existing reminder (e.g. 'agrégale que...', 'escribe que...'), do NOT append this to the 'description'. Keep the 'description' as a concise summary, and pass the new details/notes into the 'comment' parameter so they are logged in the history.",
       schema: z.object({
         reminder_id: z.string({ required_error: "The UUID of the reminder to update is required" })
           .describe("UUID of the reminder to update"),
         title: z.string().optional().describe("Short summarized title (e.g. 'Llamar a Julio')"),
         description: z.string().optional().describe("Concise summary of the task. Do NOT bloat or append follow-up details here; use the 'comment' parameter instead."),
-        due_date: z.string().optional().describe("New due date in ISO 8601 format with timezone offset matching the advisor's local time (e.g., 2026-06-02T15:00:00-06:00)"),
+        due_date: z.string().optional().describe("Only for correcting the stored date. To move/reschedule/postpone use reschedule_reminder instead."),
         type_id: z.string().optional().describe("UUID of the new type (call get_reminder_types if you don't know it)"),
         status: z.string().optional().describe(`${STATUS_UPDATE_DESC} If setting to CANCELLED, a comment is MANDATORY: ask the advisor why they are cancelling it and pass that reason in comment.`),
         comment: z.string().optional().describe("Any follow-up details, notes, updates, or additions requested by the user. Pass the complete text of the new update/note here."),
@@ -128,6 +128,35 @@ export const reminderSkills: SkillDefinition[] = [
         return { error: "A comment is mandatory to cancel a reminder." };
       }
       if (result.outcome === "no_changes") throw nothingToUpdate();
+      return result.reminder ? slimReminder(result.reminder, ctx.timezone) : null;
+    },
+  },
+  {
+    domain: "reminder",
+    declaration: {
+      name: "reschedule_reminder",
+      description: "Moves an EXISTING reminder or appointment to another day and/or time. Use it whenever the advisor asks to move, reschedule or postpone an appointment or reminder. First find the reminder with search_reminders or get_upcoming_reminders and use its id. If no such reminder is found, do NOT create one: tell the advisor there is none and ask whether they want to create one and at what time. This tool can never create a reminder. If new_time is omitted the reminder keeps its original local time (a date-only reminder stays date-only).",
+      schema: z.object({
+        reminder_id: z.string({ required_error: "The UUID of the reminder to move is required" }).uuid()
+          .describe("UUID of the existing reminder, taken from search_reminders or get_upcoming_reminders"),
+        new_date: z.string({ required_error: "The new date (YYYY-MM-DD) is required" })
+          .regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD")
+          .refine((d) => !isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().startsWith(d), "not a real calendar date")
+          .describe("New day in the advisor's local calendar, YYYY-MM-DD"),
+        new_time: z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/, "must be HH:MM (24h)").optional()
+          .describe("New local time HH:MM (24h). Only send it if the advisor gave a time; otherwise leave it out and the original time is kept."),
+      }),
+    },
+    async execute({ reminder_id, new_date, new_time }, ctx) {
+      const time = new_time as string | undefined;
+      const result = await ctx.reminderWorkflow.reschedule(reminder_id as string, {
+        newDate: new_date as string,
+        newTime: time ? time.padStart(5, "0") : undefined,
+        timezone: ctx.timezone,
+      });
+      if (result.outcome === "not_found") {
+        return { ok: false, error: "No reminder with that id exists for this advisor. Nothing was moved or created." };
+      }
       return result.reminder ? slimReminder(result.reminder, ctx.timezone) : null;
     },
   },
