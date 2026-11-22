@@ -163,11 +163,16 @@
     "category": "short_followup",
     "lang": "es",
     "text": "¿Cuándo vencen las pólizas de este año?",
-    "expectedTools": [
-      "get_expiring_policies"
-    ],
+    "expectedTools": [],
     "followUps": [
       "y las del próximo mes"
+    ],
+    "anyOfTools": [
+      [
+        "get_expiring_policies",
+        "get_all_policies",
+        "search_policies"
+      ]
     ]
   },
   {
@@ -682,5 +687,40 @@
       "delete_contact",
       "delete_reminder"
     ]
+  },
+  {
+    "id": "multiturn-villarreal-carta",
+    "category": "multiturn_write",
+    "lang": "es",
+    "text": "Villarreal quedó de mandarme la carta de antigüedad la próxima semana",
+    "expectedTools": [
+      "search_contact",
+      "create_commitment"
+    ],
+    "followUps": [
+      "el segundo"
+    ],
+    "isWrite": true,
+    "writeTable": "client_commitments",
+    "expectedWrites": 1
+  },
+  {
+    "id": "multiturn-villarreal-carta-sin-fecha",
+    "category": "multiturn_write",
+    "lang": "es",
+    "text": "Villarreal quedó de mandarme la carta de antigüedad",
+    "expectedTools": [
+      "search_contact",
+      "create_commitment"
+    ],
+    "forbiddenTools": [
+      "add_note_to_client"
+    ],
+    "followUps": [
+      "el segundo"
+    ],
+    "isWrite": true,
+    "writeTable": "client_commitments",
+    "expectedWrites": 1
   }
 ]

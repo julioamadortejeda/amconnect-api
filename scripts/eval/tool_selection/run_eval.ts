@@ -134,6 +134,46 @@ async function countRowsSince(c: Client, table: string, sinceIso: string): Promi
 }
 
 const WRITE_TABLES = ["reminders", "client_commitments", "agent_notes"];
+const SEED_TAG = "eval-seed";
+
+/**
+ * Limpieza entre corridas: da de baja (soft delete) las filas que creó el eval, es decir,
+ * created_at >= evalStart y SIN la marca `eval-seed`. Lo que existía antes de que
+ * arrancara el eval (y lo sembrado, que también es anterior) nunca se toca.
+ * Devuelve cuántas filas dio de baja.
+ */
+async function cleanEvalRows(c: Client, evalStartIso: string): Promise<number> {
+  const since = encodeURIComponent(evalStartIso);
+  const now = new Date().toISOString();
+  const tagged = (v: unknown) => typeof v === "string" && v.includes(SEED_TAG);
+  let n = 0;
+
+  const rems = await c.rest<{ id: string; description: string | null }[]>(
+    `reminders?select=id,description&is_active=eq.true&created_at=gte.${since}`,
+  );
+  for (const r of rems.filter((r) => !tagged(r.description))) {
+    await c.restPatch(`reminders?id=eq.${r.id}`, { is_active: false, deleted_at: now });
+    n++;
+  }
+  const comms = await c.rest<{ id: string; quote: string | null }[]>(
+    `client_commitments?select=id,quote&is_active=eq.true&created_at=gte.${since}`,
+  );
+  for (const r of comms.filter((r) => !tagged(r.quote))) {
+    await c.restPatch(`client_commitments?id=eq.${r.id}`, { is_active: false, deleted_at: now });
+    n++;
+  }
+  // agent_notes no tiene deleted_at, solo is_active.
+  const notes = await c.rest<{ id: string; ai_content: string | null }[]>(
+    `agent_notes?select=id,ai_content&is_active=eq.true&created_at=gte.${since}`,
+  );
+  for (const r of notes.filter((r) => !tagged(r.ai_content))) {
+    await c.restPatch(`agent_notes?id=eq.${r.id}`, { is_active: false });
+    n++;
+  }
+  return n;
+}
+
+const LOOP_EXHAUSTED_RE = /me qued[ée] sin poder resumirte/i;
 
 async function countUpdatedSince(c: Client, table: string, sinceIso: string): Promise<number> {
   const rows = await c.rest<{ id: string }[]>(`${table}?select=id&updated_at=gte.${encodeURIComponent(sinceIso)}`);
@@ -168,7 +208,7 @@ export function claimsSuccess(reply: string): boolean {
 
 // ─── Una corrida ────────────────────────────────────────────────────────────
 
-async function runOnce(c: Client, q: Question, run: number): Promise<RunResult> {
+async function runOnce(c: Client, q: Question, run: number, evalStartIso: string): Promise<RunResult> {
   const base: RunResult = {
     questionId: q.id,
     category: q.category,
@@ -182,6 +222,8 @@ async function runOnce(c: Client, q: Question, run: number): Promise<RunResult> 
     claimedSuccess: null,
     rowCreated: null,
     falseSuccess: null,
+    loopExhausted: false,
+    reply: "",
     writeOk: null,
     replyLanguage: "unknown",
     languageOk: false,
@@ -191,6 +233,7 @@ async function runOnce(c: Client, q: Question, run: number): Promise<RunResult> 
     completionTokens: 0,
   };
   try {
+    if (q.isWrite || q.mustNotWrite || q.expectUpdate) await cleanEvalRows(c, evalStartIso);
     if (q.expectUpdate) await resetUpdateTarget(c, q.expectUpdate);
     const since = new Date(Date.now() - 1000).toISOString();
     const t0 = performance.now();
@@ -203,6 +246,8 @@ async function runOnce(c: Client, q: Question, run: number): Promise<RunResult> 
     }
     base.latencyMs = Math.round(performance.now() - t0);
     base.sessionId = sessionId;
+    base.reply = lastReply.slice(0, 500);
+    base.loopExhausted = LOOP_EXHAUSTED_RE.test(lastReply);
 
     // La persistencia de tokens/historial es posterior a la respuesta.
     await sleep(500);
@@ -220,7 +265,8 @@ async function runOnce(c: Client, q: Question, run: number): Promise<RunResult> 
     base.languageOk = base.replyLanguage === "unknown" || base.replyLanguage === q.lang;
 
     if (q.isWrite) {
-      base.claimedSuccess = claimsSuccess(lastReply);
+      // El texto de cierre por agotamiento del loop no es una afirmación de éxito.
+      base.claimedSuccess = base.loopExhausted ? false : claimsSuccess(lastReply);
       if (q.mustNotWrite) {
         let wrote = 0;
         for (const t of WRITE_TABLES) wrote += await countRowsSince(c, t, since);
@@ -268,6 +314,7 @@ async function main() {
     const fake: RunResult[] = selected.map((q) => ({
       questionId: q.id, category: q.category, run: 1, sessionId: null, toolsCalled: q.expectedTools, missingTools: [],
       forbiddenCalled: [], pass: true, isWrite: !!q.isWrite, claimedSuccess: null, rowCreated: null, falseSuccess: null,
+      loopExhausted: false, reply: "",
       replyLanguage: q.lang, languageOk: true, latencyMs: 1000, promptTokens: 10000, cachedTokens: 8000, completionTokens: 100,
     }));
     console.log("\n[dry-run] summary rendering check:\n");
@@ -280,12 +327,20 @@ async function main() {
   await client.login(requireEnv("EVAL_EMAIL"), requireEnv("EVAL_PASSWORD"));
 
   const results: RunResult[] = [];
+  // Marca de inicio: solo se limpia lo creado a partir de aquí (margen de 2 s por desfase de reloj).
+  const evalStartIso = new Date(Date.now() - 2000).toISOString();
   for (const q of selected) {
     for (let run = 1; run <= args.runs; run++) {
-      const r = await runOnce(client, q, run);
+      const r = await runOnce(client, q, run, evalStartIso);
       results.push(r);
-      console.log(`${r.pass ? "PASS" : "FAIL"} ${q.id} #${run} tools=[${r.toolsCalled.join(",")}] ${r.latencyMs}ms${r.error ? ` ERROR ${r.error}` : ""}`);
+      console.log(`${r.pass ? "PASS" : "FAIL"} ${q.id} #${run} tools=[${r.toolsCalled.join(",")}] ${r.latencyMs}ms${r.loopExhausted ? " LOOP_EXHAUSTED" : ""}${r.error ? ` ERROR ${r.error}` : ""}`);
     }
+  }
+
+  try {
+    console.log(`final cleanup: ${await cleanEvalRows(client, evalStartIso)} eval-created rows soft-deleted`);
+  } catch (e) {
+    console.error("final cleanup failed:", e instanceof Error ? e.message : e);
   }
 
   const timestamp = new Date().toISOString();

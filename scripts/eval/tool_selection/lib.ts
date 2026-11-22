@@ -51,6 +51,10 @@ export interface RunResult {
   claimedSuccess: boolean | null;
   rowCreated: boolean | null;
   falseSuccess: boolean | null;
+  /** La respuesta fue el texto de respaldo "Me quedé sin poder resumirte…" (no cuenta como false-success). */
+  loopExhausted?: boolean;
+  /** Respuesta final del asistente, truncada a 500 caracteres, para revisar fallos sin consultar la BD. */
+  reply?: string;
   /** Solo si la pregunta declara expectedWrites/mustNotWrite/expectUpdate: la escritura fue la correcta. */
   writeOk?: boolean | null;
   missingAnyOf?: string[][];
@@ -79,6 +83,7 @@ export interface Summary {
   cachePct: number;
   avgLatencyMs: number;
   writeFalseSuccess: number;
+  loopExhausted: number;
   languageOkRate: number;
   errors: number;
 }
@@ -103,6 +108,7 @@ export function summarize(results: RunResult[]): Summary {
     cachePct: prompt ? cached / prompt : 0,
     avgLatencyMs: avg(results.map((r) => r.latencyMs)),
     writeFalseSuccess: results.filter((r) => r.falseSuccess === true).length,
+    loopExhausted: results.filter((r) => r.loopExhausted === true).length,
     languageOkRate: results.length ? results.filter((r) => r.languageOk).length / results.length : 0,
     errors: results.filter((r) => r.error).length,
   };
@@ -130,6 +136,7 @@ export function summaryMarkdown(f: ResultsFile): string {
     `| Cache % (cached/prompt) | ${pct(s.cachePct)} |`,
     `| Avg latency ms | ${n0(s.avgLatencyMs)} |`,
     `| Write false-success | ${s.writeFalseSuccess} |`,
+    `| Loop exhausted | ${s.loopExhausted} |`,
     `| Reply language ok | ${pct(s.languageOkRate)} |`,
     `| Runs with errors | ${s.errors} |`,
   ];
@@ -149,6 +156,7 @@ export function compareMarkdown(a: ResultsFile, b: ResultsFile): string {
     ["Cache %", pct(sa.cachePct), pct(sb.cachePct)],
     ["Avg latency ms", n0(sa.avgLatencyMs), n0(sb.avgLatencyMs)],
     ["Write false-success", String(sa.writeFalseSuccess), String(sb.writeFalseSuccess)],
+    ["Loop exhausted", String(sa.loopExhausted), String(sb.loopExhausted)],
     ["Reply language ok", pct(sa.languageOkRate), pct(sb.languageOkRate)],
     ["Runs with errors", String(sa.errors), String(sb.errors)],
   ];
