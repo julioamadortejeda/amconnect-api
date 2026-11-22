@@ -239,21 +239,19 @@ Deno.test("toolLabel: idioma inglés y etiqueta genérica", () => {
 const GUARD_CALL = { client_name: "Patricia", due_date: "2026-11-23T09:00:00-06:00" };
 async function runGuarded(mode: "log" | "enforce") {
   const skills = fakeSkills({
-    search_contact: { contacts: [{ id: "c-1", fullName: "Patricia Lopez" }] },
-    get_upcoming_reminders: { reminders: [] },
+    search_contact: { contacts: [{ id: "c-1", fullName: "Patricia Lopez" }, { id: "c-2", fullName: "Patricia Ruiz" }] },
   });
   const warns: string[] = [];
   const orig = console.warn;
   const provider = new ScriptedAiProvider([
     callTool("search_contact", { query: "Patricia" }),
-    callTool("get_upcoming_reminders", { contact_id: "c-1" }),
     callTool("create_reminder_for_client", GUARD_CALL),
     say("listo"),
   ]);
   const loop = new AgentLoop(provider, { runSkill: skills.run, guardsMode: mode });
   const events: AgentEvent[] = [];
   const history: AiMessage[] = [{ role: AiRole.USER, parts: [{ text: "[CONTEXT] x\n\nreagéndale la cita a Patricia" }] }];
-  const offered = ["search_contact", "get_upcoming_reminders", "create_reminder_for_client"];
+  const offered = ["search_contact", "create_reminder_for_client"];
   console.warn = (m: unknown) => warns.push(String(m));
   try {
     await loop.run({
@@ -268,21 +266,20 @@ async function runGuarded(mode: "log" | "enforce") {
 
 Deno.test("guardas en modo log: la herramienta se ejecuta y se registra would_block", async () => {
   const { skills, warns, events } = await runGuarded("log");
-  assert.deepEqual(skills.called, ["search_contact", "get_upcoming_reminders", "create_reminder_for_client"]);
-  assert.ok(warns.includes("[GUARD] would_block guard=reschedule_without_appointment tool=create_reminder_for_client reason=no_appointment_found"));
-  assert.ok(warns.some((w) => w.includes("guard=invented_time")));
+  assert.deepEqual(skills.called, ["search_contact", "create_reminder_for_client"]);
+  assert.deepEqual(warns, ["[GUARD] would_block guard=create_before_disambiguation tool=create_reminder_for_client reason=ambiguous_contact"]);
   const fin = events.filter((e) => e.type === "tool_finished").at(-1) as Extract<AgentEvent, { type: "tool_finished" }>;
   assert.equal(fin.ok, true);
 });
 
 Deno.test("guardas en modo enforce: no se ejecuta y el modelo recibe el mensaje", async () => {
   const { skills, warns, events, provider } = await runGuarded("enforce");
-  assert.deepEqual(skills.called, ["search_contact", "get_upcoming_reminders"]);
-  assert.ok(warns[0].startsWith("[GUARD] blocked guard=reschedule_without_appointment"));
+  assert.deepEqual(skills.called, ["search_contact"]);
+  assert.ok(warns[0].startsWith("[GUARD] blocked guard=create_before_disambiguation"));
   const fin = events.filter((e) => e.type === "tool_finished").at(-1) as Extract<AgentEvent, { type: "tool_finished" }>;
   assert.equal(fin.name, "create_reminder_for_client");
   assert.equal(fin.ok, false);
-  assert.match(JSON.stringify(provider.interactions[3].input), /no existing appointment/);
+  assert.match(JSON.stringify(provider.interactions[2].input), /several contacts/);
 });
 
 Deno.test("guardas en modo off: ni evalúa ni registra", async () => {

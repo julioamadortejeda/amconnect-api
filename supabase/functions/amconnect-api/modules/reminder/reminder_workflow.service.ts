@@ -4,10 +4,12 @@ import type { CatalogServices } from "../catalog/catalog.service.ts";
 import type { ContactResponseDTO } from "../contact/contact.dto.ts";
 import type { ContactWorkflowService } from "../contact/contact_workflow.service.ts";
 import { daysFromNowRange, hasAnyChange, isUuid } from "../../shared/utils.ts";
+import { calcTimezoneOffset, utcToLocalIso } from "../../shared/datetime.ts";
+import { AppError } from "../../shared/errors.ts";
 
 type ReminderDeps = Pick<
   ReminderService,
-  "create" | "update" | "getUpcoming" | "countPendingAfter" | "countPendingBefore" | "searchReminders"
+  "create" | "update" | "getById" | "getUpcoming" | "countPendingAfter" | "countPendingBefore" | "searchReminders"
 >;
 type CatalogDeps = Pick<CatalogServices, "reminderTypeService" | "reminderStatusService">;
 type ContactResolver = Pick<ContactWorkflowService, "resolveByName">;
@@ -42,6 +44,19 @@ export interface UpdateReminderInput {
   status?: string;
   comment?: string;
 }
+
+export interface RescheduleReminderInput {
+  /** Día nuevo, YYYY-MM-DD, en el huso del asesor. */
+  newDate: string;
+  /** Hora nueva HH:MM (local). Sin ella se conserva la hora local original. */
+  newTime?: string;
+  /** Huso del asesor (IANA). */
+  timezone: string;
+}
+
+export type RescheduleReminderResult =
+  | { outcome: "not_found" }
+  | { outcome: "rescheduled"; reminder: ReminderResponseDTO | null };
 
 export type CreateReminderResult =
   | { outcome: "type_unresolved" }
@@ -182,6 +197,32 @@ export class ReminderWorkflowService {
     if (!hasAnyChange(changes)) return { outcome: "no_changes" };
     const reminder = await this.reminderService.update(id, changes);
     return { outcome: "updated", reminder };
+  }
+
+  /**
+   * Mueve un recordatorio que YA existe a otro día (y hora). Nunca crea: si no
+   * hay tal recordatorio visible para el asesor (RLS) devuelve `not_found`.
+   * Sin `newTime` conserva la hora local original; un recordatorio de solo
+   * fecha (medianoche local) sigue siendo de solo fecha.
+   */
+  async reschedule(id: string, input: RescheduleReminderInput): Promise<RescheduleReminderResult> {
+    let existing: ReminderResponseDTO | null;
+    try {
+      existing = await this.reminderService.getById(id);
+    } catch (e) {
+      if (e instanceof AppError && e.statusCode === 404) return { outcome: "not_found" };
+      throw e;
+    }
+    if (!existing) return { outcome: "not_found" };
+
+    const originalLocal = utcToLocalIso(existing.dueDate, input.timezone) ?? existing.dueDate;
+    const originalTime = originalLocal.match(/T(\d{2}:\d{2}:\d{2})/)?.[1] ?? "00:00:00";
+    const time = input.newTime ? `${input.newTime}:00` : originalTime;
+    // El offset se calcula en el día NUEVO: puede cambiar por horario de verano.
+    const offset = calcTimezoneOffset(input.timezone, new Date(`${input.newDate}T${time}Z`));
+    const dueDate = `${input.newDate}T${time}${offset}`;
+    const reminder = await this.reminderService.update(id, { dueDate });
+    return { outcome: "rescheduled", reminder };
   }
 
   private async isCancelStatus(rawStatus: string | undefined, statusIsId: boolean): Promise<boolean> {
