@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { todayInTimezone } from "../../../shared/datetime.ts";
 import { nothingToUpdate, SkillDefinition } from "./skill.core.ts";
 import { objectToCamelCase } from "../../../shared/case_converter.ts";
 import { entityThreshold } from "../../rag/rag.service.ts";
@@ -25,6 +26,44 @@ const CreatePolicySchema = z.object({
   insured_item: z.string().optional().describe("Short label of the insured asset for Auto/Hogar/Mascotas policies (e.g. 'Suzuki Swift 2021 · ABC-123'). Leave empty for policies insuring a person."),
   policy_version: z.string().optional().describe("Policy version or endorsement number"),
 });
+
+const EXPIRING_MAX_SPAN_DAYS = 1830; // ~5 años
+
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").refine(
+  (v) => {
+    const d = new Date(`${v}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  },
+  "Not a real calendar date",
+);
+
+function addDays(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const ExpiringPoliciesSchema = z.object({
+  days: z.number().int().min(1).max(EXPIRING_MAX_SPAN_DAYS).optional()
+    .describe("Days ahead of from_date (default: today) to search (default: 30). Ignored when to_date is given."),
+  from_date: isoDate.optional().describe("Start of the window, YYYY-MM-DD in the advisor's local date (default: today)"),
+  to_date: isoDate.optional().describe("End of the window, YYYY-MM-DD inclusive, must not be before from_date"),
+});
+
+// La regla entre campos (to >= from, tope de rango) vive en resolveExpiringRange:
+// el esquema de una skill debe ser un ZodObject plano para declararse al modelo.
+/** from/to efectivos en fecha local del asesor. Lanza si el rango queda al revés o excede el tope. */
+export function resolveExpiringRange(
+  args: z.infer<typeof ExpiringPoliciesSchema>,
+  timezone: string,
+  now: Date = new Date(),
+): { from: string; to: string } {
+  const from = args.from_date ?? todayInTimezone(timezone, now);
+  const to = args.to_date ?? addDays(from, args.days ?? 30);
+  if (to < from) throw new Error("to_date must be on or after from_date (from_date defaults to today)");
+  if (addDays(from, EXPIRING_MAX_SPAN_DAYS) < to) throw new Error(`Range cannot exceed ${EXPIRING_MAX_SPAN_DAYS} days`);
+  return { from, to };
+}
 
 const UpdatePolicySchema = z.object({
   policy_id: z.string({ required_error: "The UUID of the policy to update is required." }).uuid(),
@@ -181,13 +220,12 @@ export const policySkills: SkillDefinition[] = [
     domain: "policy",
     declaration: {
       name: "get_expiring_policies",
-      description: "Retrieves policies that are about to expire or renew in the coming days (defaults to the next 30 days).",
-      schema: z.object({
-        days: z.number().optional().describe("Days in the future to search for expirations (default: 30)"),
-      }),
+      description: "Lists the advisor's policies whose end date falls in a window, soonest first. For a calendar period ('next month', 'this year', 'in December', 'between March and May') resolve it to exact from_date/to_date (YYYY-MM-DD, inclusive) using today's date from the [CONTEXT] block — e.g. 'next month' = first to last day of that month. For 'in the next N days/weeks' just pass days. Use days alone, or from_date/to_date; with neither it returns the next 30 days. If only from_date is given the window is days (default 30) after it; if to_date is given it wins over days. Use this instead of listing every policy and filtering yourself.",
+      schema: ExpiringPoliciesSchema,
     },
-    async execute({ days }, ctx) {
-      const items = await ctx.policyService.getUpcomingExpirations(ctx.agentId, (days as number) ?? 30);
+    async execute(args, ctx) {
+      const { from, to } = resolveExpiringRange(args as z.infer<typeof ExpiringPoliciesSchema>, ctx.timezone);
+      const items = await ctx.policyService.getExpiringBetween(ctx.agentId, from, to);
       return (items ?? []).map(slimPolicy);
     },
   },

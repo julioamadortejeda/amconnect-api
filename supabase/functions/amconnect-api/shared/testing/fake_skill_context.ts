@@ -148,7 +148,7 @@ export function fakeSkillContext(overrides: Partial<FakeData> = {}): FakeSkillCo
       getParticipants: rec("policyService.getParticipants", () => []),
       getBeneficiaries: rec("policyService.getBeneficiaries", () => []),
       count: rec("policyService.count", () => data.agentPolicies.length),
-      getUpcomingExpirations: rec("policyService.getUpcomingExpirations", () => data.agentPolicies),
+      getExpiringBetween: rec("policyService.getExpiringBetween", () => data.agentPolicies),
     },
     reminderService: {
       create: rec("reminderService.create", () => data.reminder),

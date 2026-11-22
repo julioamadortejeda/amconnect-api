@@ -55,4 +55,24 @@ export class PolicyRepository extends SupabaseRepository<PolicyResponseDTO> {
     return ((data ?? []) as PolicyResponseDTO[])
       .sort((a, b) => (position.get(a.id) ?? 0) - (position.get(b.id) ?? 0));
   }
+
+  /**
+   * Pólizas activas del asesor cuyo `end_date` cae en [from, to] (YYYY-MM-DD,
+   * ambos inclusive), de la que vence primero a la última. El filtro vive en
+   * SQL: antes se traían las 100 más recientes y se filtraba en memoria, así
+   * que un rango lejano dejaba fuera pólizas.
+   */
+  async findExpiringBetween(agentId: string, from: string, to: string, limit = 200): Promise<PolicyResponseDTO[]> {
+    const { data, error } = await this.table
+      .select(this.selectString)
+      .eq("agent_id", agentId)
+      .eq("is_active", true)
+      .gte("end_date", from)
+      .lte("end_date", to)
+      .order("end_date", { ascending: true })
+      .limit(limit);
+
+    if (error) handleSupabaseError(error, "policy.findExpiringBetween");
+    return (data ?? []) as PolicyResponseDTO[];
+  }
 }
