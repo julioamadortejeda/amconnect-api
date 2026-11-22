@@ -78,7 +78,7 @@ Verificado quitando el `ignore`: los 9 fallaban. Arreglados el 1, 3, 4, 5 y 7 (2
    lo toma como sesión vacía, **gasta el modelo** y truena al final en `ai_session.service.ts:158` con 500 `INTERNAL_ERROR`
    (sin reembolso).~~ Esperado: 404 `RESOURCE_NOT_FOUND` antes de invocar al modelo. (Ajeno no filtra datos: el RLS lo impide;
    hay un test de caracterización que lo fija.)
-2. **`sessionUsage` cuenta el turno dos veces** (`ai_session.service.ts:184-187`): se insertan las filas de `tokens_usage` del turno
+2. ✅ **Arreglado (`c903411`).** **`sessionUsage` cuenta el turno dos veces** (`ai_session.service.ts:184-187`): se insertan las filas de `tokens_usage` del turno
    y LUEGO `getSessionTokens` las suma otra vez y se le añade `deltaUsage`. Turno 1 con 230 tokens de prompt devuelve 460.
 3. ✅ **Arreglado 2026-11-22** (`globalErrorHandler`: SyntaxError del body → 422 `VALIDATION_FAILED`, toda ruta). ~~**JSON malformado → 500** en vez de 4xx (`ai.controller.ts:29`): `SyntaxError` no es `AppError`. No cobra.~~
 4. ✅ **Arreglado 2026-11-22** (el controller reembolsa también ante errores que no son `AppError`). ~~**Timeout/red del proveedor se cobra** (`ai.controller.ts:40-44`): solo `AiProviderError` reembolsa; un `Error` crudo deja el cobro.~~
