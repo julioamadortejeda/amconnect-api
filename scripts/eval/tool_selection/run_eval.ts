@@ -163,10 +163,10 @@ async function cleanEvalRows(c: Client, evalStartIso: string): Promise<number> {
     n++;
   }
   // agent_notes no tiene deleted_at, solo is_active.
-  const notes = await c.rest<{ id: string; ai_content: string | null }[]>(
-    `agent_notes?select=id,ai_content&is_active=eq.true&created_at=gte.${since}`,
+  const notes = await c.rest<{ id: string; content: string | null }[]>(
+    `agent_notes?select=id,content&is_active=eq.true&created_at=gte.${since}`,
   );
-  for (const r of notes.filter((r) => !tagged(r.ai_content))) {
+  for (const r of notes.filter((r) => !tagged(r.content))) {
     await c.restPatch(`agent_notes?id=eq.${r.id}`, { is_active: false });
     n++;
   }

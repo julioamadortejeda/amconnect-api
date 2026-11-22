@@ -9,7 +9,7 @@ import type { AiChatContext } from "./ai.dto.ts";
 export const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "commitment", "pending_task", "catalog", "knowledge"];
 export const POLICY_INGESTION_DOMAINS = ["policy_ingestion"];
 /** Disponibles siempre, sin importar lo que diga el clasificador (RULES §5.1). */
-const ALWAYS_ACTIVE = ["pending_task", "knowledge"];
+const ALWAYS_ACTIVE = ["contact", "pending_task", "knowledge"];
 
 /**
  * Dominios activos del turno a partir de lo que devolvió el clasificador.

@@ -27,12 +27,12 @@ Deno.test("resolveChatDomains: clasificador vacío ⇒ todos + siempre activos",
 });
 
 Deno.test("resolveChatDomains: policy ⇒ catalog; reminder ⇄ commitment; pantalla fuerza su dominio", () => {
-  assert.deepEqual(resolveChatDomains(["policy"]), ["pending_task", "knowledge", "policy", "catalog"]);
-  assert.deepEqual(resolveChatDomains(["reminder"]), ["pending_task", "knowledge", "reminder", "commitment"]);
-  assert.deepEqual(resolveChatDomains(["commitment"]), ["pending_task", "knowledge", "commitment", "reminder"]);
+  assert.deepEqual(resolveChatDomains(["policy"]), ["contact", "pending_task", "knowledge", "policy", "catalog"]);
+  assert.deepEqual(resolveChatDomains(["reminder"]), ["contact", "pending_task", "knowledge", "reminder", "commitment"]);
+  assert.deepEqual(resolveChatDomains(["commitment"]), ["contact", "pending_task", "knowledge", "commitment", "reminder"]);
   assert.deepEqual(
     resolveChatDomains(["contact"], { type: "policy", id: null, data: {} }),
-    ["pending_task", "knowledge", "contact", "policy", "catalog"],
+    ["contact", "pending_task", "knowledge", "policy", "catalog"],
   );
 });
 
