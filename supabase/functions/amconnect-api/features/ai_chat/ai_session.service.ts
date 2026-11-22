@@ -15,6 +15,7 @@ export interface UsageTokens {
   completionTokens: number;
   totalTokens: number;
   cachedTokens?: number;
+  thoughtsTokens?: number;
 }
 
 export interface ChatMessageInput {
@@ -24,6 +25,7 @@ export interface ChatMessageInput {
   completionTokens: number;
   totalTokens: number;
   cachedTokens?: number;
+  thoughtsTokens?: number;
   interactionId?: string | null;
   textPromptTokens?: number;
   audioPromptTokens?: number;
@@ -70,6 +72,7 @@ export class AiSessionService {
         promptTokens: extractionUsage.promptTokens,
         completionTokens: extractionUsage.completionTokens,
         cachedTokens: extractionUsage.cachedTokens ?? 0,
+        thoughtsTokens: extractionUsage.thoughtsTokens ?? 0,
       });
     }
     rows.push({
@@ -106,6 +109,7 @@ export class AiSessionService {
       promptTokens: extractionUsage?.promptTokens ?? 0,
       completionTokens: extractionUsage?.completionTokens ?? 0,
       cachedTokens: extractionUsage?.cachedTokens ?? 0,
+      thoughtsTokens: extractionUsage?.thoughtsTokens ?? 0,
     });
   }
 
@@ -163,7 +167,7 @@ export class AiSessionService {
 
     const tokenUsageRows: TokenUsageRow[] = [];
     for (const m of messages) {
-      if (m.promptTokens > 0 || m.completionTokens > 0) {
+      if (m.promptTokens > 0 || m.completionTokens > 0 || (m.thoughtsTokens ?? 0) > 0) {
         tokenUsageRows.push({
           agentId,
           sessionId,
@@ -172,6 +176,7 @@ export class AiSessionService {
           promptTokens: m.promptTokens,
           completionTokens: m.completionTokens,
           cachedTokens: m.cachedTokens ?? 0,
+          thoughtsTokens: m.thoughtsTokens ?? 0,
           textPromptTokens: m.textPromptTokens,
           audioPromptTokens: m.audioPromptTokens,
           textCompletionTokens: m.textCompletionTokens,
@@ -184,20 +189,20 @@ export class AiSessionService {
       await this.repository.logTokenUsage(tokenUsageRows);
     }
 
-    const current = await this.repository.getSessionTokens(sessionId);
-    const nextTokens = replaceTokens
+    // El acumulado de la sesión se calcula SIEMPRE desde tokens_usage (única
+    // fuente de verdad; ai_sessions ya no guarda tokens). Las filas de este
+    // turno se insertaron arriba, así que `current` ya las incluye: sumarles
+    // `deltaUsage` contaba el turno dos veces. Con `replaceTokens` (voz por
+    // WebSocket) el delta es el snapshot acumulado de toda la sesión.
+    const nextTokens: UsageTokens = replaceTokens
       ? {
           promptTokens: deltaUsage.promptTokens,
           completionTokens: deltaUsage.completionTokens,
           totalTokens: deltaUsage.totalTokens,
           cachedTokens: deltaUsage.cachedTokens ?? 0,
+          thoughtsTokens: deltaUsage.thoughtsTokens ?? 0,
         }
-      : {
-          promptTokens: current.promptTokens + deltaUsage.promptTokens,
-          completionTokens: current.completionTokens + deltaUsage.completionTokens,
-          totalTokens: current.totalTokens + deltaUsage.totalTokens,
-          cachedTokens: current.cachedTokens + (deltaUsage.cachedTokens ?? 0),
-        };
+      : await this.repository.getSessionTokens(sessionId);
 
     await Promise.all([
       this.repository.updateSession(sessionId, {
@@ -293,6 +298,7 @@ export class AiSessionService {
       promptTokens: number,
       cachedTokens: number,
       completionTokens: number,
+      thoughtsTokens: number,
       model: ModelRatesRow | null,
       desglose?: {
         textPromptTokens: number;
@@ -322,7 +328,8 @@ export class AiSessionService {
       if (!hayDesglose) {
         const nonCached = Math.max(0, promptTokens - cachedTokens);
         const inputCostUsd = (nonCached * tarifaTexto) / 1_000_000;
-        const outputCostUsd = (completionTokens * tarifaSalidaTexto) / 1_000_000;
+        // Los thoughts se cobran a tarifa de salida de texto.
+        const outputCostUsd = ((completionTokens + thoughtsTokens) * tarifaSalidaTexto) / 1_000_000;
         return { inputCostUsd, cacheReadCostUsd, outputCostUsd, totalCostUsd: inputCostUsd + cacheReadCostUsd + outputCostUsd };
       }
 
@@ -333,20 +340,21 @@ export class AiSessionService {
         (textoSinCache * tarifaTexto + desglose.audioPromptTokens * tarifaAudioIn) / 1_000_000;
       const outputCostUsd =
         (desglose.textCompletionTokens * tarifaSalidaTexto +
-          desglose.audioCompletionTokens * tarifaAudioOut) / 1_000_000;
+          desglose.audioCompletionTokens * tarifaAudioOut +
+          thoughtsTokens * tarifaSalidaTexto) / 1_000_000;
 
       return { inputCostUsd, cacheReadCostUsd, outputCostUsd, totalCostUsd: inputCostUsd + cacheReadCostUsd + outputCostUsd };
     };
 
-    const chatCosts = calcCosts(usage.chat.promptTokens, usage.chat.cachedTokens, usage.chat.completionTokens, chatModel, usage.chat);
-    const extractionCosts = calcCosts(usage.extraction.promptTokens, usage.extraction.cachedTokens, usage.extraction.completionTokens, chatModel, usage.extraction);
+    const chatCosts = calcCosts(usage.chat.promptTokens, usage.chat.cachedTokens, usage.chat.completionTokens, usage.chat.thoughtsTokens, chatModel, usage.chat);
+    const extractionCosts = calcCosts(usage.extraction.promptTokens, usage.extraction.cachedTokens, usage.extraction.completionTokens, usage.extraction.thoughtsTokens, chatModel, usage.extraction);
 
     let embeddingCostUsd = 0;
     if (embeddingModel) {
       embeddingCostUsd = (usage.embedding.totalTokens * Number(embeddingModel.input_cost_per_1m)) / 1_000_000;
     }
 
-    const ttsCosts = calcCosts(data.tts_prompt_tokens ?? 0, 0, data.tts_completion_tokens ?? 0, ttsModel);
+    const ttsCosts = calcCosts(data.tts_prompt_tokens ?? 0, 0, data.tts_completion_tokens ?? 0, 0, ttsModel);
 
     const totalCostUsd = chatCosts.totalCostUsd + extractionCosts.totalCostUsd + embeddingCostUsd + ttsCosts.totalCostUsd;
 
@@ -359,6 +367,7 @@ export class AiSessionService {
         completionTokens: usage.chat.completionTokens,
         totalTokens: usage.chat.totalTokens,
         cachedTokens: usage.chat.cachedTokens,
+        thoughtsTokens: usage.chat.thoughtsTokens,
         cost: {
           inputUsd: chatCosts.inputCostUsd,
           cacheReadUsd: chatCosts.cacheReadCostUsd,
@@ -373,6 +382,7 @@ export class AiSessionService {
         completionTokens: usage.extraction.completionTokens,
         totalTokens: usage.extraction.totalTokens,
         cachedTokens: usage.extraction.cachedTokens,
+        thoughtsTokens: usage.extraction.thoughtsTokens,
         cost: {
           inputUsd: extractionCosts.inputCostUsd,
           cacheReadUsd: extractionCosts.cacheReadCostUsd,

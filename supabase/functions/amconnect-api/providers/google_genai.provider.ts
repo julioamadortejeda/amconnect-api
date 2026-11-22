@@ -14,6 +14,46 @@ import { normalizeHistoryRoles } from "../shared/ai_history.ts";
 import { PromptService } from "../modules/prompt/prompt.service.ts";
 import { withAiRetry } from "../shared/retry.ts";
 
+interface GenerateContentUsageMetadata {
+  promptTokenCount?: number;
+  candidatesTokenCount?: number;
+  totalTokenCount?: number;
+  cachedContentTokenCount?: number;
+  thoughtsTokenCount?: number;
+}
+
+interface InteractionUsage {
+  total_input_tokens?: number;
+  total_output_tokens?: number;
+  total_tokens?: number;
+  total_cached_tokens?: number;
+  total_thought_tokens?: number;
+}
+
+// Gemini factura los tokens de razonamiento (thoughts) a tarifa de salida pero
+// NO los incluye en candidatesTokenCount: sin leerlos el costo se subestima.
+// Aquí se traduce el vocabulario de Gemini al TokenUsage común; el resto del
+// backend nunca sabe qué proveedor lo produjo.
+export function mapGenerateContentUsage(u: GenerateContentUsageMetadata): TokenUsage {
+  return {
+    promptTokens: u.promptTokenCount ?? 0,
+    completionTokens: u.candidatesTokenCount ?? 0,
+    totalTokens: u.totalTokenCount ?? 0,
+    cachedTokens: u.cachedContentTokenCount ?? 0,
+    thoughtsTokens: u.thoughtsTokenCount ?? 0,
+  };
+}
+
+export function mapInteractionUsage(u: InteractionUsage): TokenUsage {
+  return {
+    promptTokens: u.total_input_tokens ?? 0,
+    completionTokens: u.total_output_tokens ?? 0,
+    totalTokens: u.total_tokens ?? 0,
+    cachedTokens: u.total_cached_tokens ?? 0,
+    thoughtsTokens: u.total_thought_tokens ?? 0,
+  };
+}
+
 export function wrapGeminiError(e: unknown, context: string): never {
   // deno-lint-ignore no-explicit-any
   const err = e as any;
@@ -85,12 +125,7 @@ export class GoogleGenAiProvider implements IAiProvider {
       functionCalls: functionCalls.length > 0 ? functionCalls : undefined,
       rawModelParts: parts,
       usage: response.usageMetadata
-        ? {
-          promptTokens: response.usageMetadata.promptTokenCount ?? 0,
-          completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
-          totalTokens: response.usageMetadata.totalTokenCount ?? 0,
-          cachedTokens: response.usageMetadata.cachedContentTokenCount ?? 0,
-        }
+        ? mapGenerateContentUsage(response.usageMetadata)
         : undefined,
     };
   }
@@ -181,12 +216,7 @@ export class GoogleGenAiProvider implements IAiProvider {
       rawModelParts: rawModelParts.length > 0 ? rawModelParts : undefined,
       interactionId: response.id,
       usage: response.usage
-        ? {
-          promptTokens: response.usage.total_input_tokens ?? 0,
-          completionTokens: response.usage.total_output_tokens ?? 0,
-          totalTokens: response.usage.total_tokens ?? 0,
-          cachedTokens: response.usage.total_cached_tokens ?? 0,
-        }
+        ? mapInteractionUsage(response.usage)
         : undefined,
     };
   }
@@ -241,12 +271,7 @@ export class GoogleGenAiProvider implements IAiProvider {
     return {
       data: schema.parse(parsed),
       usage: response.usageMetadata
-        ? {
-          promptTokens: response.usageMetadata.promptTokenCount ?? 0,
-          completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
-          totalTokens: response.usageMetadata.totalTokenCount ?? 0,
-          cachedTokens: response.usageMetadata.cachedContentTokenCount ?? 0,
-        }
+        ? mapGenerateContentUsage(response.usageMetadata)
         : undefined,
     };
   }
@@ -308,12 +333,7 @@ export class GoogleGenAiProvider implements IAiProvider {
         ? parsed.language.trim()
         : undefined,
       usage: response.usageMetadata
-        ? {
-          promptTokens: response.usageMetadata.promptTokenCount ?? 0,
-          completionTokens: response.usageMetadata.candidatesTokenCount ?? 0,
-          totalTokens: response.usageMetadata.totalTokenCount ?? 0,
-          cachedTokens: response.usageMetadata.cachedContentTokenCount ?? 0,
-        }
+        ? mapGenerateContentUsage(response.usageMetadata)
         : undefined,
     };
   }

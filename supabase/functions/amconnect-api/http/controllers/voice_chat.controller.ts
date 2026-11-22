@@ -169,6 +169,7 @@ export class VoiceChatController {
       audioPromptTokens,
       textCompletionTokens,
       audioCompletionTokens,
+      thoughtsTokens,
     } = body;
 
     const voiceChatService: VoiceChatService = c.get("services").voiceChatService;
@@ -186,6 +187,7 @@ export class VoiceChatController {
         audioPromptTokens: typeof audioPromptTokens === "number" ? audioPromptTokens : undefined,
         textCompletionTokens: typeof textCompletionTokens === "number" ? textCompletionTokens : undefined,
         audioCompletionTokens: typeof audioCompletionTokens === "number" ? audioCompletionTokens : undefined,
+        thoughtsTokens: typeof thoughtsTokens === "number" ? thoughtsTokens : undefined,
       },
     );
 

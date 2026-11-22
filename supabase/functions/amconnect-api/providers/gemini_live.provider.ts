@@ -1,4 +1,18 @@
+import type { TokenUsage } from "../core/ai_provider.interface.ts";
 import { LiveClientContentMessage, LiveClientContentMessageSchema } from "../features/ai_chat/ai.dto.ts";
+
+// Live manda usage_metadata en snake_case o camelCase según el transporte.
+// thoughts: solo si el modelo live lo reporta; si no, 0.
+export function mapLiveUsage(u: Record<string, unknown>): TokenUsage {
+  const n = (snake: string, camel: string) => Number(u[snake] ?? u[camel] ?? 0) || 0;
+  return {
+    promptTokens: n("prompt_token_count", "promptTokenCount"),
+    completionTokens: n("candidates_token_count", "candidatesTokenCount"),
+    totalTokens: n("total_token_count", "totalTokenCount"),
+    cachedTokens: n("cached_content_token_count", "cachedContentTokenCount"),
+    thoughtsTokens: n("thoughts_token_count", "thoughtsTokenCount"),
+  };
+}
 
 const LIVE_API_URL =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
@@ -17,7 +31,7 @@ export interface GeminiLiveCallbacks {
   onToolCall: (call: LiveToolCall) => Promise<void>;
   onInterrupted: () => void;
   onTurnComplete: () => Promise<void>;
-  onUsageMetadata: (usage: { promptTokens: number; completionTokens: number; totalTokens: number }) => void;
+  onUsageMetadata: (usage: TokenUsage) => void;
   onClose: (code: number, reason: string) => Promise<void>;
   onError: (message: string) => void;
 }
@@ -161,16 +175,7 @@ export class GeminiLiveProvider {
 
     const usageMetadata = msg.usage_metadata ?? msg.usageMetadata;
     if (usageMetadata) {
-      const promptTokenCount = usageMetadata.prompt_token_count ?? usageMetadata.promptTokenCount ?? 0;
-      const candidatesTokenCount = usageMetadata.candidates_token_count ?? usageMetadata.candidatesTokenCount ?? 0;
-      const totalTokenCount = usageMetadata.total_token_count ?? usageMetadata.totalTokenCount ?? 0;
-
-      const tokens = {
-        promptTokens: promptTokenCount as number,
-        completionTokens: candidatesTokenCount as number,
-        totalTokens: totalTokenCount as number,
-      };
-      this.callbacks.onUsageMetadata(tokens);
+      this.callbacks.onUsageMetadata(mapLiveUsage(usageMetadata));
     }
   }
 

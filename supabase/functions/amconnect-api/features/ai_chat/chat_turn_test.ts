@@ -151,7 +151,7 @@ Deno.test("processMessage: herramienta RAG → texto citado → attachment_list 
 
   assert.equal(result.text, "Su mamá tiene diabetes.");
   assert.equal(result.sessionId, "session-1");
-  assert.deepEqual(result.usage, { promptTokens: 31, completionTokens: 8, totalTokens: 39, cachedTokens: 8 });
+  assert.deepEqual(result.usage, { promptTokens: 31, completionTokens: 8, totalTokens: 39, cachedTokens: 8, thoughtsTokens: 0 });
   assert.deepEqual(result.metadata, {
     type: "attachment_list",
     attachments: [{ id: NOTE_A, fileName: "A.pdf", storagePath: "a.pdf", sourceType: "document", summary: "a" }],

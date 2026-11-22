@@ -93,7 +93,7 @@ export class KnowledgeIngestionService {
     // From this point forward, any error must be AiInvokedError so the controller
     // marks the session as failed instead of deleting it.
     let extraction: z.infer<typeof RawExtractionBase>;
-    let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } | undefined;
+    let extractionUsage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number; thoughtsTokens?: number } | undefined;
     try {
       const result = await this.aiProvider.generateStructuredData(
         prompt,
@@ -198,7 +198,7 @@ export class KnowledgeIngestionService {
     const rawLocale = advisorLocale.split(/[-_]/)[0].toLowerCase();
     const isQuickNote = content.length <= QUICK_NOTE_MAX_LENGTH;
 
-    let aiResult: { data: z.infer<typeof TextMetadataSchema>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number } };
+    let aiResult: { data: z.infer<typeof TextMetadataSchema>; usage?: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number; thoughtsTokens?: number } };
     let docResult: { noteId: string; embeddingTotalTokens: number; embeddingCount: number };
     try {
       if (isQuickNote) {
