@@ -135,6 +135,16 @@ function successSchema(doc: RouteDoc, paginated: boolean): Json {
   return envelope(doc.responseIsList ? { type: "array", items: item } : item);
 }
 
+function successResponse(doc: RouteDoc, paginated: boolean): Json {
+  if (doc.eventStream) {
+    return {
+      description: doc.eventStream,
+      content: { "text/event-stream": { schema: { type: "string", description: "Eventos SSE (ver descripción)." } } },
+    };
+  }
+  return { description: "Éxito", content: { "application/json": { schema: successSchema(doc, paginated) } } };
+}
+
 function buildOperation(route: { method: string; path: string; handlers: unknown[] }, doc: RouteDoc): Json {
   const key = routeKey(route.method, route.path);
   const parameters: Json[] = [];
@@ -154,10 +164,7 @@ function buildOperation(route: { method: string; path: string; handlers: unknown
 
   const billed = !SUBSCRIPTION_EXEMPT_ROUTES.has(key);
   const responses: Json = {
-    [doc.created ? "201" : "200"]: {
-      description: "Éxito",
-      content: { "application/json": { schema: successSchema(doc, paginated) } },
-    },
+    [doc.created ? "201" : "200"]: successResponse(doc, paginated),
     "401": errorResponse("Token ausente, inválido o expirado.", "SESSION_EXPIRED"),
   };
   if (billed) responses["402"] = errorResponse("Suscripción vencida o periodo de prueba terminado.", "SUBSCRIPTION_REQUIRED");

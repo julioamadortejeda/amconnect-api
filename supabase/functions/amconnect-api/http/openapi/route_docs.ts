@@ -42,9 +42,27 @@ export interface RouteDoc {
   created?: boolean;
   /** Consume cuota mensual (chat/ingesta) → puede responder 429 QUOTA_EXCEEDED. */
   quota?: boolean;
+  /**
+   * El éxito es un stream `text/event-stream` (SSE) en vez del sobre JSON;
+   * el texto describe los eventos. Los errores ANTES de abrir el stream siguen
+   * siendo el sobre JSON con su status.
+   */
+  eventStream?: string;
   /** No entra al documento (no es REST/JSON). `reason` explica por qué. */
   internal?: { reason: string };
 }
+
+/** Eventos de `POST /ai/chat/stream` (fuente: http/sse/chat_stream_writer.ts). */
+const CHAT_STREAM_EVENTS = [
+  "Stream SSE. Cada evento trae `id` (secuencia 1, 2, 3…) y `data` en JSON:",
+  "- `status` `{phase:\"thinking\", sessionId}`: antes de cada llamada al modelo.",
+  "- `tool` `{label, state:\"started\"|\"finished\", ok?}`: etiqueta humana de lo que hace; nunca el nombre técnico.",
+  "- `delta` `{text}`: texto de la respuesta (hoy llega completo en un solo delta).",
+  "- `done`: el mismo `data` que `POST /ai/chat` (`text, sessionId, usage, sessionUsage, metadata, aiBackend`). Último evento.",
+  "- `error` `{errorCode, error, errorId?}`: falla con el stream ya abierto (mismos códigos que el JSON). Último evento.",
+  "- `cancelled` `{sessionId, modelCalls}`: el turno se detuvo (cliente desconectado o `/ai/sessions/:id/cancel`). Último evento.",
+  "Errores antes de abrir el stream (422, 404, 409, 429, 402) llegan como el sobre JSON de siempre.",
+].join("\n");
 
 /** Clave: `"METHOD /ruta/:param"` tal cual está registrada en el router. */
 export const ROUTE_DOCS: Record<string, RouteDoc> = {
@@ -63,7 +81,13 @@ export const ROUTE_DOCS: Record<string, RouteDoc> = {
   // ─── AI
   "POST /ai/ingest-policy": { summary: "Extrae una póliza de un PDF o imagen ya subido", body: AiIngestPolicySchema, quota: true, created: true },
   "POST /ai/chat": { summary: "Mensaje de texto al asistente", body: AiChatSchema, quota: true },
-  "POST /ai/sessions/:sessionId/cancel": { summary: "Cancela las tareas pendientes de una sesión del asistente" },
+  "POST /ai/chat/stream": {
+    summary: "Mensaje de texto al asistente, contado en vivo por SSE",
+    body: AiChatSchema,
+    quota: true,
+    eventStream: CHAT_STREAM_EVENTS,
+  },
+  "POST /ai/sessions/:sessionId/cancel": { summary: "Cancela las tareas pendientes de una sesión del asistente y, si corre en esta instancia, su turno en curso" },
   "POST /ai/sessions/:sessionId/resolve-contact-mismatch": { summary: "Resuelve a qué cliente se asigna una ingesta ambigua", body: AiResolveContactMismatchSchema },
   "GET /ai/sessions/:sessionId/cost": { summary: "Costo de una sesión del asistente" },
   "GET /ai/upload-url": { summary: "URL firmada para subir un archivo a Storage" },

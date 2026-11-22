@@ -27,7 +27,11 @@ export type AgentEvent =
   | { type: "model_call_started"; call: number; forceTextOnly: boolean }
   | { type: "tool_started"; name: string; label: string }
   | { type: "tool_finished"; name: string; label: string; ok: boolean }
-  /** Texto completo del turno. Con streaming (paso 4) llegarán deltas. */
+  /**
+   * Texto completo del turno; el SSE lo manda como un solo `delta`.
+   * TODO(fase2-sse): deltas reales (generateContentStream en Vertex, stream del
+   * Interactions API en studio) — ver http/sse/chat_stream_writer.ts.
+   */
   | { type: "text"; text: string }
   | { type: "exhausted"; reason: ExhaustedReason; maxLoops: number }
   /** Se detuvo antes de la siguiente llamada al modelo o herramienta (§7.3). */

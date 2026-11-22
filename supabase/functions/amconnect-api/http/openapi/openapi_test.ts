@@ -100,6 +100,16 @@ Deno.test("openapi: el body referencia el esquema del DTO (PATCH = parcial)", ()
   assert.ok(post.properties.carrierId);
 });
 
+Deno.test("openapi: /ai/chat/stream se documenta como text/event-stream con la lista de eventos", () => {
+  const op = doc.paths["/ai/chat/stream"].post;
+  const ok = op.responses["200"];
+  assert.ok(ok.content["text/event-stream"]);
+  assert.equal(ok.content["application/json"], undefined);
+  for (const e of ["status", "tool", "delta", "done", "error", "cancelled"]) assert.match(ok.description, new RegExp("`" + e + "`"));
+  assert.ok(op.requestBody.content["application/json"].schema.required.includes("message"));
+  assert.ok(op.responses["429"].content["application/json"].examples.QUOTA_EXCEEDED);
+});
+
 Deno.test("openapi: el WebSocket de voz no se publica", () => {
   assert.equal(doc.paths["/ai/voice"], undefined);
   assert.ok(doc.paths["/ai/voice/token"]);

@@ -519,6 +519,57 @@ export async function request(
   return { status: res.status, json, headers: res.headers };
 }
 
+/** Un evento SSE ya parseado (`data` en JSON). */
+export interface SseEvent {
+  event: string;
+  id: string;
+  // deno-lint-ignore no-explicit-any
+  data: any;
+}
+
+export interface StreamResult extends HttpResult {
+  /** Eventos SSE (vacío si la respuesta fue JSON, p. ej. un 409 antes de abrir el stream). */
+  events: SseEvent[];
+  /** Cuerpo crudo, para revisar que no se filtre nada. */
+  raw: string;
+}
+
+/** Parte un cuerpo `text/event-stream` en eventos. */
+export function parseSse(raw: string): SseEvent[] {
+  return raw.split("\n\n").filter((b) => b.trim()).map((block) => {
+    const fields: Record<string, string[]> = {};
+    for (const line of block.split("\n")) {
+      const i = line.indexOf(":");
+      (fields[line.slice(0, i)] ??= []).push(line.slice(i + 1).replace(/^ /, ""));
+    }
+    return { event: fields.event?.[0] ?? "message", id: fields.id?.[0] ?? "", data: JSON.parse((fields.data ?? []).join("\n")) };
+  });
+}
+
+/** POST /ai/chat/stream: lee el stream completo. `signal` simula la desconexión del cliente. */
+export async function postChatStream(
+  h: AssistantHarness,
+  body: unknown,
+  headers: Record<string, string> = {},
+  signal?: AbortSignal,
+): Promise<StreamResult> {
+  const res = await h.app.request("/amconnect-api/ai/chat/stream", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...headers },
+    body: JSON.stringify(body),
+    signal,
+  });
+  const raw = await res.text();
+  const isStream = (res.headers.get("content-type") ?? "").startsWith("text/event-stream");
+  return {
+    status: res.status,
+    headers: res.headers,
+    raw,
+    events: isStream ? parseSse(raw) : [],
+    json: isStream ? null : JSON.parse(raw),
+  };
+}
+
 /** Texto plano de todos los mensajes del historial persistido de una sesión. */
 export function persistedHistory(h: AssistantHarness, sessionId: string): AiMessage[] {
   return (h.sessionsRepo.sessions.get(sessionId)?.history ?? []) as AiMessage[];

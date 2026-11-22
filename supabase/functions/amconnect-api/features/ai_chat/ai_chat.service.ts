@@ -9,9 +9,10 @@ import { AiChatContext } from "./ai.dto.ts";
 import { buildContextPrefix, collectAdvisorWords } from "./chat_turn.ts";
 import { TOOL_SELECTION_MODE, type ToolSelectionMode } from "../../shared/assistant.config.ts";
 import { type ConversationStore, SessionConversationStore } from "./conversation_store.ts";
-import { DomainToolSelector, type ToolSelector } from "./tool_selector.ts";
-import { AgentLoop } from "./agent_loop.ts";
-import type { AgentLoopResult } from "./agent_events.ts";
+import { DomainToolSelector, type ToolSelection, type ToolSelector } from "./tool_selector.ts";
+import { AgentLoop, type AgentLoopOutcome } from "./agent_loop.ts";
+import type { AgentEventListener, AgentLoopResult } from "./agent_events.ts";
+import { activeTurns, type ActiveTurnRegistry } from "./active_turns.ts";
 import { addUsage, emptyUsage } from "./token_usage.ts";
 
 export interface ChatResponse {
@@ -22,10 +23,54 @@ export interface ChatResponse {
   metadata?: Record<string, unknown>;
 }
 
+/** Un mensaje del asesor y lo que lo rodea (headers del request). */
+export interface ChatTurnRequest {
+  message: string;
+  agentId: string;
+  sessionId?: string | null;
+  timezone?: string;
+  context?: AiChatContext | null;
+  advisorLocale?: string;
+}
+
+/** Opciones del turno en streaming (SSE). */
+export interface StreamTurnOptions {
+  /** Eventos del AgentLoop, tal cual (el transporte decide qué mostrar). */
+  onEvent?: AgentEventListener;
+  /** Desconexión del cliente (§7.3): el loop se detiene antes de la siguiente llamada o herramienta. */
+  signal?: AbortSignal;
+  /** Se llama en cuanto se conoce el id de la sesión (también si es nueva). */
+  onSessionOpened?: (sessionId: string) => void | Promise<void>;
+}
+
+export type ChatTurnOutcome =
+  | { status: "done"; response: ChatResponse }
+  /** Se detuvo a medias: se guardó lo ocurrido y la sesión quedó `cancelled`. */
+  | { status: "cancelled"; sessionId: string; modelCalls: number };
+
+interface OpenedSession {
+  sessionId: string;
+  history: AiMessage[];
+  type: string;
+  lastInteractionId: string | undefined;
+}
+
+/** Lo que el AgentLoop necesita del turno, ya armado. */
+interface PreparedTurn {
+  session: OpenedSession;
+  /** Largo del historial antes de agregar el mensaje de este turno. */
+  priorHistoryLength: number;
+  input: string;
+  selection: ToolSelection;
+  systemInstruction: string;
+  ctx: SkillContext;
+}
+
 export class AiChatService {
   private store: ConversationStore;
   private toolSelector: ToolSelector;
   private agentLoop: AgentLoop;
+  private activeTurns: ActiveTurnRegistry;
 
   constructor(
     private aiProvider: IAiProvider,
@@ -38,14 +83,24 @@ export class AiChatService {
     store?: ConversationStore,
     toolSelector?: ToolSelector,
     agentLoop?: AgentLoop,
+    activeTurnRegistry?: ActiveTurnRegistry,
   ) {
     this.store = store ?? new SessionConversationStore(aiSessionService);
     this.toolSelector = toolSelector ?? new DomainToolSelector(aiProvider, toolSelectionMode);
     this.agentLoop = agentLoop ?? new AgentLoop(aiProvider);
+    this.activeTurns = activeTurnRegistry ?? activeTurns;
   }
 
-  async cancelSession(sessionId: string): Promise<{ cancelledTasks: number }> {
-    return await this.aiSessionService.cancelSession(sessionId);
+  /**
+   * Cancela las tareas pendientes de la sesión y, si en ESTA instancia hay un
+   * turno en curso de esa sesión, lo detiene. `cancelledTurn` solo aparece
+   * cuando sí había uno (la respuesta de siempre no cambia).
+   */
+  async cancelSession(sessionId: string): Promise<{ cancelledTasks: number; cancelledTurn?: true }> {
+    // Primero la sesión (404 si es ajena): el registro es del isolate y lo
+    // comparten todos los asesores, así que nunca se aborta sin verificar.
+    const result = await this.aiSessionService.cancelSession(sessionId);
+    return this.activeTurns.cancel(sessionId) ? { ...result, cancelledTurn: true } : result;
   }
 
   async processMessage(
@@ -54,7 +109,7 @@ export class AiChatService {
     sessionId?: string | null,
     timezone?: string,
     context?: AiChatContext | null,
-    newSessionType: "chat" = "chat",
+    _newSessionType: "chat" = "chat",
     advisorLocale?: string,
   ): Promise<ChatResponse> {
     // Sesión existente: candado de turno ANTES de cualquier gasto (clasificador,
@@ -62,34 +117,71 @@ export class AiChatService {
     // historial y el último pisaba al primero (bug #6); el segundo recibe 409.
     // Sesión nueva: sin candado, nadie conoce su id hasta que este turno
     // responde, así que no puede haber un segundo mensaje concurrente.
-    if (sessionId) await this.store.acquireTurnLock(sessionId);
+    await this.acquireTurn(sessionId);
     try {
-      return await this.runTurn(message, agentId, sessionId, timezone, context, newSessionType, advisorLocale);
+      const outcome = await this.runTurn({ message, agentId, sessionId, timezone, context, advisorLocale });
+      return expectDone(outcome);
     } finally {
       if (sessionId) await this.store.releaseTurnLock(sessionId);
     }
   }
 
-  private async runTurn(
-    message: string,
-    agentId: string,
-    sessionId: string | null | undefined,
-    timezone: string | undefined,
-    context: AiChatContext | null | undefined,
-    newSessionType: "chat",
-    advisorLocale: string | undefined,
-  ): Promise<ChatResponse> {
-    const session = await this.openSession(message, agentId, sessionId, newSessionType);
+  /**
+   * Primer paso del turno en streaming: toma el candado ANTES de abrir el
+   * stream, para que 404/409 salgan como status HTTP. Quien lo llama DEBE
+   * seguir con `processLockedTurn`, que lo suelta.
+   */
+  async acquireTurn(sessionId?: string | null): Promise<void> {
+    if (sessionId) await this.store.acquireTurnLock(sessionId);
+  }
+
+  /** Corre un turno con el candado ya tomado (`acquireTurn`) y lo suelta al terminar. Cancelable. */
+  async processLockedTurn(req: ChatTurnRequest, opts: StreamTurnOptions = {}): Promise<ChatTurnOutcome> {
+    try {
+      return await this.runTurn(req, opts, true);
+    } finally {
+      if (req.sessionId) await this.store.releaseTurnLock(req.sessionId);
+    }
+  }
+
+  private async runTurn(req: ChatTurnRequest, opts: StreamTurnOptions = {}, cancellable = false): Promise<ChatTurnOutcome> {
+    const session = await this.openSession(req.message, req.agentId, req.sessionId);
+    await opts.onSessionOpened?.(session.sessionId);
+    const active = cancellable ? this.activeTurns.register(session.sessionId) : null;
+    try {
+      const turn = await this.prepareTurn(req, session);
+      const signal = combineSignals(opts.signal, active?.signal);
+      // El loop ya incluye la pasada de cierre y el texto de respaldo si no
+      // hubo texto (MAX_LOOPS agotado o respuesta vacía).
+      const loop = await this.guardProviderErrors(session.sessionId, () => this.runLoop(turn, opts.onEvent, signal));
+      if (loop.cancelled) return await this.finishCancelledTurn(req, turn, loop);
+      const response = await this.finishTurn({
+        message: req.message,
+        agentId: req.agentId,
+        sessionId: session.sessionId,
+        history: session.history,
+        loop,
+        classifyUsage: turn.selection.classifyUsage,
+        context: req.context,
+      });
+      return { status: "done", response };
+    } finally {
+      active?.release();
+    }
+  }
+
+  /** Herramientas, prompt, [CONTEXT] y SkillContext del turno; agrega el mensaje al historial. */
+  private async prepareTurn(req: ChatTurnRequest, session: OpenedSession): Promise<PreparedTurn> {
     const { history } = session;
     const pendingTasks = await this.store.getPendingTasks(session.sessionId);
 
     const selection = await this.toolSelector.select({
-      message,
-      context,
+      message: req.message,
+      context: req.context,
       pendingTasks,
       sessionType: session.type,
       history,
-      advisorLocale,
+      advisorLocale: req.advisorLocale,
     });
 
     const isPolicyIngestion = session.type === "policy_ingestion";
@@ -101,48 +193,42 @@ export class AiChatService {
     const systemInstruction = await this.promptService.getPrompt(dbPromptCode, {});
 
     // Fecha y hora local del asesor — implementación compartida con voz
-    const { localIso, offsetStr } = buildLocalDateTime(timezone || DEFAULT_TIMEZONE);
+    const { localIso, offsetStr } = buildLocalDateTime(req.timezone || DEFAULT_TIMEZONE);
     const contextPrefix = buildContextPrefix({
       localIso,
       offsetStr,
       replyLanguage: selection.replyLanguage,
       pendingTasks,
-      context,
+      context: req.context,
     });
-    history.push({ role: AiRole.USER, parts: [{ text: contextPrefix + message }] });
+    const priorHistoryLength = history.length;
+    history.push({ role: AiRole.USER, parts: [{ text: contextPrefix + req.message }] });
 
     const ctx: SkillContext = {
-      agentId,
+      agentId: req.agentId,
       sessionId: session.sessionId,
       aiSessionService: this.aiSessionService,
       ...this.skillContext,
-      timezone: timezone || "America/Mexico_City",
+      timezone: req.timezone || "America/Mexico_City",
       timezoneOffset: offsetStr || "-06:00",
       advisorWords: collectAdvisorWords(history),
     };
 
-    // El loop ya incluye la pasada de cierre y el texto de respaldo si no
-    // hubo texto (MAX_LOOPS agotado o respuesta vacía).
-    const loop = await this.guardProviderErrors(session.sessionId, () =>
-      this.agentLoop.run({
-        input: contextPrefix + message,
-        history,
-        tools: selection.tools,
-        offeredNames: selection.offeredNames,
-        systemInstruction,
-        ctx,
-        lastInteractionId: session.lastInteractionId,
-        replyLanguage: selection.replyLanguage,
-      }));
+    return { session, priorHistoryLength, input: contextPrefix + req.message, selection, systemInstruction, ctx };
+  }
 
-    return await this.finishTurn({
-      message,
-      agentId,
-      sessionId: session.sessionId,
-      history,
-      loop,
-      classifyUsage: selection.classifyUsage,
-      context,
+  private runLoop(turn: PreparedTurn, onEvent?: AgentEventListener, signal?: AbortSignal): Promise<AgentLoopOutcome> {
+    return this.agentLoop.run({
+      input: turn.input,
+      history: turn.session.history,
+      tools: turn.selection.tools,
+      offeredNames: turn.selection.offeredNames,
+      systemInstruction: turn.systemInstruction,
+      ctx: turn.ctx,
+      lastInteractionId: turn.session.lastInteractionId,
+      replyLanguage: turn.selection.replyLanguage,
+      onEvent,
+      signal,
     });
   }
 
@@ -151,8 +237,8 @@ export class AiChatService {
     message: string,
     agentId: string,
     sessionId: string | null | undefined,
-    newSessionType: "chat",
-  ): Promise<{ sessionId: string; history: AiMessage[]; type: string; lastInteractionId: string | undefined }> {
+  ): Promise<OpenedSession> {
+    const newSessionType = "chat";
     if (sessionId) {
       const loaded = await this.store.loadSession(sessionId);
       return {
@@ -221,6 +307,41 @@ export class AiChatService {
     return { text: loop.text, sessionId: p.sessionId, usage: totalUsage, sessionUsage, metadata };
   }
 
+  /**
+   * Turno cancelado (§7.3). Se guarda lo que SÍ ocurrió: si el modelo ya pidió
+   * herramientas, el historial lleva sus llamadas y respuestas (el loop
+   * rellena las que no corrieron), para que el siguiente mensaje sepa qué se
+   * escribió. Sin ninguna llamada al modelo no pasó nada y el historial queda
+   * como estaba. Los tokens gastados (clasificador incluido) se registran.
+   *
+   * `lastInteractionId` NO avanza: la última interacción del turno terminó en
+   * function calls cuyas respuestas nunca se mandaron, y seguir desde ahí con
+   * un mensaje de texto rompería la cadena del Interactions API (studio).
+   */
+  private async finishCancelledTurn(
+    req: ChatTurnRequest,
+    turn: PreparedTurn,
+    loop: AgentLoopOutcome,
+  ): Promise<ChatTurnOutcome> {
+    const { session } = turn;
+    const classifyTokens = addUsage(emptyUsage(), turn.selection.classifyUsage);
+    const history = loop.modelCalls > 0 ? session.history : session.history.slice(0, turn.priorHistoryLength);
+    await this.store.saveTurn({
+      agentId: req.agentId,
+      sessionId: session.sessionId,
+      history,
+      messages: [
+        { role: "user", content: req.message, promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        { role: "classify", content: null, ...classifyTokens },
+        { role: "model", content: null, ...loop.usage },
+      ],
+      totalUsage: addUsage({ ...classifyTokens }, loop.usage),
+      lastInteractionId: session.lastInteractionId,
+    });
+    await this.store.markTurnCancelled(session.sessionId);
+    return { status: "cancelled", sessionId: session.sessionId, modelCalls: loop.modelCalls };
+  }
+
   async startPolicySession(
     sessionId: string,
     agentId: string,
@@ -256,4 +377,16 @@ export class AiChatService {
 
     return await this.processMessage(initialMessage, agentId, sessionId);
   }
+}
+
+/** El endpoint JSON no pasa señal de cancelación: su turno siempre termina en `done`. */
+function expectDone(outcome: ChatTurnOutcome): ChatResponse {
+  if (outcome.status !== "done") throw new AppError("El turno se canceló.", 500);
+  return outcome.response;
+}
+
+function combineSignals(...signals: (AbortSignal | undefined)[]): AbortSignal | undefined {
+  const present = signals.filter((s): s is AbortSignal => s !== undefined);
+  if (present.length <= 1) return present[0];
+  return AbortSignal.any(present);
 }
