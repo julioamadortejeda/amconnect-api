@@ -1,25 +1,17 @@
-import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface.ts";
+import { AiMessage, AiRole, IAiProvider, type TokenUsage } from "../../core/ai_provider.interface.ts";
 import { AiSessionService, type UsageTokens } from "./ai_session.service.ts";
-import { AiProviderError, AppError, NotFoundError } from "../../shared/errors.ts";
-import { buildToolDeclarations, offeredToolNames } from "../../shared/tool_declarations.ts";
+import { AiProviderError, AppError } from "../../shared/errors.ts";
 import { executeSkill } from "./skills/skill_executor.ts";
 import { SkillContext, SkillServices } from "./skills/skill.core.ts";
 import { buildLocalDateTime, DEFAULT_TIMEZONE } from "../../shared/datetime.ts";
 import { PromptService } from "../../modules/prompt/prompt.service.ts";
 import type { PolicyChange } from "../document_processing/policy_diff.ts";
 import { AiChatContext } from "./ai.dto.ts";
-import { languageName } from "../../shared/locale.ts";
-import {
-  AVAILABLE_DOMAINS,
-  buildContextPrefix,
-  collectAdvisorWords,
-  lastReplyLanguage,
-  POLICY_INGESTION_DOMAINS,
-  resolveChatDomains,
-} from "./chat_turn.ts";
+import { buildContextPrefix, collectAdvisorWords } from "./chat_turn.ts";
 import { extractCitations, RagAttachmentCollector } from "./rag_attachments.ts";
 import { TOOL_SELECTION_MODE, type ToolSelectionMode } from "../../shared/assistant.config.ts";
-import { detectReplyLanguage, type ReplyLanguage } from "./reply_language.ts";
+import { type ConversationStore, SessionConversationStore } from "./conversation_store.ts";
+import { DomainToolSelector, type ToolSelection, type ToolSelector } from "./tool_selector.ts";
 
 const MAX_LOOPS = 6;
 
@@ -31,15 +23,49 @@ export interface ChatResponse {
   metadata?: Record<string, unknown>;
 }
 
+/** Resultado del bucle de function calling de un turno. */
+interface LoopResult {
+  finalText: string;
+  citedNoteIds: Set<string>;
+  skillMetadata: Record<string, unknown> | undefined;
+  loopUsage: UsageTokens;
+  lastInteractionId: string | undefined;
+  ragAttachments: RagAttachmentCollector;
+}
+
+function emptyUsage(): UsageTokens {
+  return { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, thoughtsTokens: 0 };
+}
+
+/** Suma `usage` (si hay) a `target` y lo devuelve. */
+function addUsage(target: UsageTokens, usage?: TokenUsage): UsageTokens {
+  if (!usage) return target;
+  target.promptTokens += usage.promptTokens;
+  target.completionTokens += usage.completionTokens;
+  target.totalTokens += usage.totalTokens;
+  target.cachedTokens = (target.cachedTokens ?? 0) + (usage.cachedTokens ?? 0);
+  target.thoughtsTokens = (target.thoughtsTokens ?? 0) + (usage.thoughtsTokens ?? 0);
+  return target;
+}
+
 export class AiChatService {
+  private store: ConversationStore;
+  private toolSelector: ToolSelector;
+
   constructor(
     private aiProvider: IAiProvider,
     private skillContext: SkillServices,
     private aiSessionService: AiSessionService,
     private promptService: PromptService,
     // Inyectable para pruebas; en producción es el valor de shared/assistant.config.ts.
-    private toolSelectionMode: ToolSelectionMode = TOOL_SELECTION_MODE,
-  ) {}
+    toolSelectionMode: ToolSelectionMode = TOOL_SELECTION_MODE,
+    // Inyectables para pruebas; por defecto se construyen sobre el provider y la sesión.
+    store?: ConversationStore,
+    toolSelector?: ToolSelector,
+  ) {
+    this.store = store ?? new SessionConversationStore(aiSessionService);
+    this.toolSelector = toolSelector ?? new DomainToolSelector(aiProvider, toolSelectionMode);
+  }
 
   async cancelSession(sessionId: string): Promise<{ cancelledTasks: number }> {
     return await this.aiSessionService.cancelSession(sessionId);
@@ -59,143 +85,58 @@ export class AiChatService {
     // historial y el último pisaba al primero (bug #6); el segundo recibe 409.
     // Sesión nueva: sin candado, nadie conoce su id hasta que este turno
     // responde, así que no puede haber un segundo mensaje concurrente.
-    if (sessionId) await this.aiSessionService.acquireTurnLock(sessionId);
+    if (sessionId) await this.store.acquireTurnLock(sessionId);
     try {
       return await this.runTurn(message, agentId, sessionId, timezone, context, newSessionType, advisorLocale);
     } finally {
-      if (sessionId) await this.aiSessionService.releaseTurnLock(sessionId);
+      if (sessionId) await this.store.releaseTurnLock(sessionId);
     }
   }
 
   private async runTurn(
     message: string,
     agentId: string,
-    sessionId?: string | null,
-    timezone?: string,
-    context?: AiChatContext | null,
-    newSessionType: "chat" = "chat",
-    advisorLocale?: string,
+    sessionId: string | null | undefined,
+    timezone: string | undefined,
+    context: AiChatContext | null | undefined,
+    newSessionType: "chat",
+    advisorLocale: string | undefined,
   ): Promise<ChatResponse> {
-    const history: AiMessage[] = [];
-    const sId = sessionId ?? undefined;
-    let currentSessionId = sId;
+    const session = await this.openSession(message, agentId, sessionId, newSessionType);
+    const { history } = session;
+    const pendingTasks = await this.store.getPendingTasks(session.sessionId);
 
-    // Cargar historial si hay sesión
-    let sessionType: string = newSessionType;
-    let lastInteractionId: string | undefined = undefined;
+    const selection = await this.toolSelector.select({
+      message,
+      context,
+      pendingTasks,
+      sessionType: session.type,
+      history,
+      advisorLocale,
+    });
 
-    if (sId) {
-      const session = await this.aiSessionService.getSessionContext(sId);
-      // Inexistente o de otro asesor (el RLS devuelve null): se rechaza ANTES de
-      // invocar al modelo. Tratarla como sesión vacía gastaba tokens y tronaba al guardar.
-      if (!session) throw new NotFoundError("Sesión no encontrada.");
-      if (session.history) history.push(...(session.history as AiMessage[]));
-      sessionType = session.type ?? newSessionType;
-      lastInteractionId = session.last_interaction_id ?? undefined;
-    } else {
-      // Crear nueva sesión
-      currentSessionId = await this.aiSessionService.createSession(agentId, {
-        triggerMessage: message,
-        sessionType: newSessionType,
-        modelName: this.aiProvider.model,
-      });
-    }
-
-    // Cargar pending tasks activos de la sesión para darle contexto al AI
-    const pendingTasks = await this.aiSessionService.getActivePendingTasks(currentSessionId!);
-
-    // Seleccionar domains y system prompt según tipo de sesión
-    const isPolicyIngestion = sessionType === "policy_ingestion";
-    let activeDomains: string[];
-    let classifyUsage;
-    let detectedLanguage: string | undefined;
-    // Solo el modo "all" detecta el idioma localmente; se resuelve más abajo
-    // porque su fallback depende del historial.
-    const useAllTools = !isPolicyIngestion && this.toolSelectionMode === "all";
-
-    if (isPolicyIngestion) {
-      activeDomains = POLICY_INGESTION_DOMAINS;
-    } else if (useAllTools) {
-      // Todas las herramientas de chat, en el orden del registro de skills
-      // (estable entre turnos y asesores). Sin clasificador.
-      activeDomains = AVAILABLE_DOMAINS;
-    } else {
-      // TODO: Previously 'catalog' was always active. Kept as dynamic load to save tokens.
-      const { domains, usage, language } = await this.aiProvider.classifyMessage(message, AVAILABLE_DOMAINS);
-      classifyUsage = usage;
-      detectedLanguage = language;
-      activeDomains = resolveChatDomains(domains, context);
-    }
-
-    // Sin tareas pendientes, `resolve_pending_task` ni siquiera se ofrece.
-    //
-    // No es optimización: es quitarle al modelo una salida falsa. Cuando hay
-    // que desambiguar un cliente, en el turno de la aclaración ("el segundo")
-    // el modelo llama a resolve_pending_task —con un id inventado, porque no
-    // guardó ninguna— la da por buena y le confirma al asesor un compromiso
-    // que nunca creó. Pedírselo por prompt no bastó: se probó dos veces el
-    // 2026-08-28 y en la segunda cambió una mentira por otra ("lo registré en
-    // las notas", sin llamar a nada). Si la herramienta no existe en el turno,
-    // no hay a dónde escaparse: tiene que llamar a la que de verdad escribe.
-    const tools = [{
-      functionDeclarations: buildToolDeclarations(activeDomains, {
-        exclude: pendingTasks.length === 0 ? ["resolve_pending_task"] : [],
-      }),
-    }];
-    const offeredTools = offeredToolNames(tools[0].functionDeclarations);
-
-    // Fecha y hora local del asesor — implementación compartida con voz
-    const { localIso, offsetStr } = buildLocalDateTime(timezone || DEFAULT_TIMEZONE);
-
-    // System instruction ESTÁTICO: ya no le queda ni una sustitución. Hasta el
-    // 2026-09-14 traía {{advisor_language}}, que partía el prefijo en uno por
-    // idioma; ahora el idioma viaja como dato del turno (abajo) y el texto es
-    // idéntico para todos los asesores, así que el implicit caching de Gemini
-    // lo comparte entre todos (medido el 2026-09-07 con el prefijo por asesor:
-    // 12,078 tokens cacheados de 13,270 en el tercer turno).
-    //
-    // Nada se sustituye aquí: lo que cambia por request —fecha, idioma, pending
-    // tasks, pantalla activa— va en el mensaje del usuario, abajo.
+    const isPolicyIngestion = session.type === "policy_ingestion";
+    // System instruction ESTÁTICO: nada se sustituye aquí. Lo que cambia por
+    // request —fecha, idioma, pending tasks, pantalla activa— va en el mensaje
+    // del usuario (abajo), así el implicit caching de Gemini lo comparte entre
+    // todos los asesores (medido el 2026-09-07: 12,078 de 13,270 tokens cacheados).
     const dbPromptCode = isPolicyIngestion ? "policy_ingestion_system" : "ai_chat_system";
     const systemInstruction = await this.promptService.getPrompt(dbPromptCode, {});
 
-    // Contexto dinámico (fecha/hora, pending tasks) va en el mensaje del usuario,
-    // no en systemInstruction, para no romper el caching del prefix estático.
-    // El idioma en que se contesta va como DATO del turno, no como regla del
-    // prompt. Pedirle al modelo que lo detectara no bastaba: con la app en
-    // inglés y la conversación abierta en inglés, un mensaje en español se
-    // contestaba en inglés 13 de 24 veces (medido el 2026-09-14). Escrito aquí,
-    // 0 de 24.
-    //
-    // Tres fuentes, en este orden:
-    //   1. Lo que detectó el clasificador para ESTE mensaje.
-    //   2. El último idioma que se usó en la conversación. Vive en el propio
-    //      historial: este mismo bloque [CONTEXT] se guarda con cada turno del
-    //      asesor, así que releerlo no cuesta ni una consulta. Es lo que salva
-    //      los turnos sin idioma propio —"ok", "el segundo", un nombre— que de
-    //      otro modo caerían al idioma de la app y romperían una conversación
-    //      que iba en el otro.
-    //   3. El idioma que el asesor configuró en la app, para el primer turno.
-    let langSource: "detected" | "fallback" = detectedLanguage ? "detected" : "fallback";
-    const fallbackLanguage = lastReplyLanguage(history) ?? languageName(advisorLocale);
-    let replyLanguage = detectedLanguage ?? fallbackLanguage;
-    if (useAllTools) {
-      const d = detectReplyLanguage(message, fallbackLanguage === "English" ? "English" : "Spanish" as ReplyLanguage);
-      replyLanguage = d.language;
-      langSource = d.source;
-    }
-    if (!isPolicyIngestion) {
-      console.warn(
-        `[TOOLS] mode=${this.toolSelectionMode} count=${tools[0].functionDeclarations.length} lang=${replyLanguage} langSource=${langSource}`,
-      );
-    }
-    const contextPrefix = buildContextPrefix({ localIso, offsetStr, replyLanguage, pendingTasks, context });
-
+    // Fecha y hora local del asesor — implementación compartida con voz
+    const { localIso, offsetStr } = buildLocalDateTime(timezone || DEFAULT_TIMEZONE);
+    const contextPrefix = buildContextPrefix({
+      localIso,
+      offsetStr,
+      replyLanguage: selection.replyLanguage,
+      pendingTasks,
+      context,
+    });
     history.push({ role: AiRole.USER, parts: [{ text: contextPrefix + message }] });
 
     const ctx: SkillContext = {
       agentId,
-      sessionId: currentSessionId!,
+      sessionId: session.sessionId,
       aiSessionService: this.aiSessionService,
       ...this.skillContext,
       timezone: timezone || "America/Mexico_City",
@@ -203,28 +144,110 @@ export class AiChatService {
       advisorWords: collectAdvisorWords(history),
     };
 
-    const classifyTokens = {
-      promptTokens: classifyUsage?.promptTokens ?? 0,
-      completionTokens: classifyUsage?.completionTokens ?? 0,
-      totalTokens: classifyUsage?.totalTokens ?? 0,
-      cachedTokens: classifyUsage?.cachedTokens ?? 0,
-      thoughtsTokens: classifyUsage?.thoughtsTokens ?? 0,
-    };
-    const loopUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, thoughtsTokens: 0 };
+    const loop = await this.guardProviderErrors(session.sessionId, () =>
+      this.runAgentLoop({
+        input: contextPrefix + message,
+        selection,
+        systemInstruction,
+        history,
+        lastInteractionId: session.lastInteractionId,
+        ctx,
+      }));
 
-    // Bucle de function calling
+    const finalText = loop.finalText || this.exhaustedFallback(history);
+    return await this.finishTurn({
+      message,
+      agentId,
+      sessionId: session.sessionId,
+      history,
+      loop,
+      finalText,
+      classifyUsage: selection.classifyUsage,
+      context,
+    });
+  }
+
+  /** Carga la sesión existente (404 si no es tuya) o crea una nueva. */
+  private async openSession(
+    message: string,
+    agentId: string,
+    sessionId: string | null | undefined,
+    newSessionType: "chat",
+  ): Promise<{ sessionId: string; history: AiMessage[]; type: string; lastInteractionId: string | undefined }> {
+    if (sessionId) {
+      const loaded = await this.store.loadSession(sessionId);
+      return {
+        sessionId,
+        history: loaded.history,
+        type: loaded.type ?? newSessionType,
+        lastInteractionId: loaded.lastInteractionId,
+      };
+    }
+    const created = await this.store.createSession(agentId, {
+      triggerMessage: message,
+      sessionType: newSessionType,
+      modelName: this.aiProvider.model,
+    });
+    return { sessionId: created, history: [], type: newSessionType, lastInteractionId: undefined };
+  }
+
+  /**
+   * Falla del proveedor (AiProviderError) o error crudo no controlado (red,
+   * timeout): el asesor no recibió respuesta, la sesión no es facturable.
+   * AiError y demás AppError (lógica nuestra) conservan su comportamiento.
+   */
+  private async guardProviderErrors<T>(sessionId: string, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof AiProviderError || !(e instanceof AppError)) {
+        await this.store.markProviderError(sessionId, e instanceof Error ? e.message : String(e));
+      }
+      throw e;
+    }
+  }
+
+  // Ultimo recurso: ni siquiera el turno de cierre produjo texto.
+  //
+  // Sigue sin ser un 502. Para cuando llegamos aqui el asistente pudo haber
+  // escrito de verdad —un compromiso, un recordatorio, una nota— y un error
+  // le diria al asesor lo contrario. Se contesta con la verdad: no se pudo
+  // resumir, revisa. Sin inventar que se hizo algo ni jurar que no se hizo
+  // nada, porque desde aqui no se sabe cual de las dos.
+  private exhaustedFallback(history: AiMessage[]): string {
+    console.warn("[AiChat] El turno de cierre tampoco devolvió texto");
+    const text = "Me quedé sin poder resumirte lo que hice. Puede que sí haya " +
+      "quedado registrado — revisa tu agenda o vuelve a pedírmelo para confirmar.";
+    history.push({ role: AiRole.MODEL, parts: [{ text }] });
+    return text;
+  }
+
+  /** Bucle de function calling + turno de cierre si se agotaron las vueltas. */
+  private async runAgentLoop(p: {
+    input: string;
+    selection: ToolSelection;
+    systemInstruction: string;
+    history: AiMessage[];
+    lastInteractionId: string | undefined;
+    ctx: SkillContext;
+  }): Promise<LoopResult> {
+    const { selection, systemInstruction, history, ctx } = p;
+    const tools = selection.tools;
+    const offeredTools = selection.offeredNames;
+    let lastInteractionId = p.lastInteractionId;
+    const loopUsage = emptyUsage();
+
     let finalText = "";
     let loops = 0;
     let forceNextTurnToGenerateText = false;
     let skillMetadata: Record<string, unknown> | undefined;
-    let nextInteractionInput: string | Record<string, unknown>[] = contextPrefix + message;
+    let nextInteractionInput: string | Record<string, unknown>[] = p.input;
 
     // Adjuntos recolectados de los hits de RAG durante el bucle.
     const ragAttachments = new RagAttachmentCollector();
     // Notas citadas explícitamente por el modelo en su respuesta final (ver CITE_MARKER_RE).
     let citedNoteIds = new Set<string>();
 
-    try {
     while (loops < MAX_LOOPS) {
       loops++;
       // Siempre mandamos `tools` completo (aunque forceNextTurnToGenerateText esté activo)
@@ -243,13 +266,7 @@ export class AiChatService {
         lastInteractionId = result.interactionId;
       }
 
-      if (result.usage) {
-        loopUsage.promptTokens += result.usage.promptTokens;
-        loopUsage.completionTokens += result.usage.completionTokens;
-        loopUsage.totalTokens += result.usage.totalTokens;
-        loopUsage.cachedTokens += result.usage.cachedTokens ?? 0;
-        loopUsage.thoughtsTokens += result.usage.thoughtsTokens ?? 0;
-      }
+      addUsage(loopUsage, result.usage);
 
       if (result.text && !result.functionCalls?.length) {
         const { displayText, citedNoteIds: cited } = extractCitations(result.text);
@@ -338,13 +355,7 @@ export class AiChatService {
         true,
       );
 
-      if (cierre.usage) {
-        loopUsage.promptTokens += cierre.usage.promptTokens;
-        loopUsage.completionTokens += cierre.usage.completionTokens;
-        loopUsage.totalTokens += cierre.usage.totalTokens;
-        loopUsage.cachedTokens += cierre.usage.cachedTokens ?? 0;
-        loopUsage.thoughtsTokens += cierre.usage.thoughtsTokens ?? 0;
-      }
+      addUsage(loopUsage, cierre.usage);
 
       if (cierre.text) {
         const { displayText, citedNoteIds: cited } = extractCitations(cierre.text);
@@ -354,77 +365,43 @@ export class AiChatService {
       }
     }
 
-    } catch (e) {
-      // Falla del proveedor (AiProviderError) o error crudo no controlado (red,
-      // timeout): el asesor no recibió respuesta, la sesión no es facturable.
-      // AiError y demás AppError (lógica nuestra) conservan su comportamiento.
-      if ((e instanceof AiProviderError || !(e instanceof AppError)) && currentSessionId) {
-        await this.aiSessionService.markSessionProviderError(currentSessionId, e instanceof Error ? e.message : String(e));
-      }
-      throw e;
-    }
+    return { finalText, citedNoteIds, skillMetadata, loopUsage, lastInteractionId, ragAttachments };
+  }
 
-    // Ultimo recurso: ni siquiera el turno de cierre produjo texto.
-    //
-    // Sigue sin ser un 502. Para cuando llegamos aqui el asistente pudo haber
-    // escrito de verdad —un compromiso, un recordatorio, una nota— y un error
-    // le diria al asesor lo contrario. Se contesta con la verdad: no se pudo
-    // resumir, revisa. Sin inventar que se hizo algo ni jurar que no se hizo
-    // nada, porque desde aqui no se sabe cual de las dos.
-    if (!finalText) {
-      console.warn("[AiChat] El turno de cierre tampoco devolvió texto");
-      finalText = "Me quedé sin poder resumirte lo que hice. Puede que sí haya " +
-        "quedado registrado — revisa tu agenda o vuelve a pedírmelo para confirmar.";
-      history.push({ role: AiRole.MODEL, parts: [{ text: finalText }] });
-    }
+  /** Guarda el turno (historial, mensajes, tokens) y arma la respuesta. */
+  private async finishTurn(p: {
+    message: string;
+    agentId: string;
+    sessionId: string;
+    history: AiMessage[];
+    loop: LoopResult;
+    finalText: string;
+    classifyUsage: TokenUsage | undefined;
+    context: AiChatContext | null | undefined;
+  }): Promise<ChatResponse> {
+    const { loop } = p;
+    const classifyTokens = addUsage(emptyUsage(), p.classifyUsage);
+    const totalUsage = addUsage({ ...classifyTokens }, loop.loopUsage);
 
-    const totalUsage = {
-      promptTokens: classifyTokens.promptTokens + loopUsage.promptTokens,
-      completionTokens: classifyTokens.completionTokens + loopUsage.completionTokens,
-      totalTokens: classifyTokens.totalTokens + loopUsage.totalTokens,
-      cachedTokens: classifyTokens.cachedTokens + loopUsage.cachedTokens,
-      thoughtsTokens: classifyTokens.thoughtsTokens + loopUsage.thoughtsTokens,
-    };
-
-    const sessionUsage = await this.aiSessionService.saveChatRound(
-      agentId,
-      currentSessionId!,
-      history,
-      [
-        { role: "user", content: message, promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-        {
-          role: "classify",
-          content: null,
-          promptTokens: classifyTokens.promptTokens,
-          completionTokens: classifyTokens.completionTokens,
-          totalTokens: classifyTokens.totalTokens,
-          cachedTokens: classifyTokens.cachedTokens,
-          thoughtsTokens: classifyTokens.thoughtsTokens,
-        },
-        {
-          role: "model",
-          content: finalText,
-          promptTokens: loopUsage.promptTokens,
-          completionTokens: loopUsage.completionTokens,
-          totalTokens: loopUsage.totalTokens,
-          cachedTokens: loopUsage.cachedTokens,
-          thoughtsTokens: loopUsage.thoughtsTokens,
-          interactionId: lastInteractionId,
-        },
+    const sessionUsage = await this.store.saveTurn({
+      agentId: p.agentId,
+      sessionId: p.sessionId,
+      history: p.history,
+      messages: [
+        { role: "user", content: p.message, promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+        { role: "classify", content: null, ...classifyTokens },
+        { role: "model", content: p.finalText, ...loop.loopUsage, interactionId: loop.lastInteractionId },
       ],
       totalUsage,
-      lastInteractionId,
-    );
+      lastInteractionId: loop.lastInteractionId,
+    });
 
     // attachment_list se alimenta de dos fuentes complementarias: los hits de
     // RAG con documento adjunto (búsqueda vectorial) y las notas del contexto de
     // pantalla. Solo se emite si ninguna skill ya produjo su propio metadata.
-    if (!skillMetadata) {
-      skillMetadata = ragAttachments.buildAttachmentList(citedNoteIds, context);
-    }
+    const metadata = loop.skillMetadata ?? loop.ragAttachments.buildAttachmentList(loop.citedNoteIds, p.context);
 
-    return { text: finalText, sessionId: currentSessionId!, usage: totalUsage, sessionUsage, metadata: skillMetadata };
-
+    return { text: p.finalText, sessionId: p.sessionId, usage: totalUsage, sessionUsage, metadata };
   }
 
   async startPolicySession(
