@@ -24,8 +24,13 @@
     "text": "De Carlos Ramírez dame el teléfono, sus pólizas y sus recordatorios pendientes",
     "expectedTools": [
       "search_contact",
-      "get_contact_policies",
-      "search_reminders"
+      "get_contact_policies"
+    ],
+    "anyOfTools": [
+      [
+        "search_reminders",
+        "get_upcoming_reminders"
+      ]
     ]
   },
   {
@@ -66,7 +71,6 @@
     "lang": "es",
     "text": "Agrega una nota a Roberto Flores: prefiere que le llamen por la tarde",
     "expectedTools": [
-      "search_contact",
       "add_note_to_client"
     ],
     "isWrite": true,

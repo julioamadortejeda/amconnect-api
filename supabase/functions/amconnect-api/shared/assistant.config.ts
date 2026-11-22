@@ -30,4 +30,4 @@
 // `features/ai_chat/ai_chat.service.ts`.
 export type ToolSelectionMode = "all" | "by_domain";
 
-export const TOOL_SELECTION_MODE: ToolSelectionMode = "all";
+export const TOOL_SELECTION_MODE: ToolSelectionMode = "by_domain";
