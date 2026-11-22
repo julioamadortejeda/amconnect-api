@@ -11,6 +11,31 @@ export interface Question {
   /** Tabla donde debe aparecer la fila nueva en preguntas de escritura (default: reminders). */
   writeTable?: string;
   followUps?: string[];
+  /** Grupos de alternativas: de CADA grupo debe haberse llamado al menos una herramienta. */
+  anyOfTools?: string[][];
+  /** Filas nuevas esperadas en writeTable (default 1 si isWrite). */
+  expectedWrites?: number;
+  /** Pasa solo si NO se creó ni modificó nada (reminders/client_commitments/agent_notes). */
+  mustNotWrite?: boolean;
+  /**
+   * Verifica una reprogramación: antes de la corrida el recordatorio sembrado cuyo título
+   * contiene `titleContains` se deja en el día `fromDayOffset` a `time`; al final su
+   * due_date (hora de Monterrey) debe caer en el día `toDayOffset`.
+   */
+  expectUpdate?: { titleContains: string; fromDayOffset: number; toDayOffset: number; time: string };
+}
+
+/** Fecha de Monterrey (UTC-6 fijo, sin horario de verano desde 2022) a `offsetDays` de hoy, YYYY-MM-DD. */
+export function monterreyYmd(offsetDays = 0, now = new Date()): string {
+  const base = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Monterrey" }).format(now);
+  const d = new Date(`${base}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+
+/** ISO 8601 con offset -06:00 para `hhmm` ("17:00") a `offsetDays` de hoy en Monterrey. */
+export function monterreyIso(offsetDays: number, hhmm: string, now = new Date()): string {
+  return `${monterreyYmd(offsetDays, now)}T${hhmm}:00-06:00`;
 }
 
 export interface RunResult {
@@ -26,6 +51,9 @@ export interface RunResult {
   claimedSuccess: boolean | null;
   rowCreated: boolean | null;
   falseSuccess: boolean | null;
+  /** Solo si la pregunta declara expectedWrites/mustNotWrite/expectUpdate: la escritura fue la correcta. */
+  writeOk?: boolean | null;
+  missingAnyOf?: string[][];
   replyLanguage: "es" | "en" | "unknown";
   languageOk: boolean;
   latencyMs: number;
@@ -146,6 +174,11 @@ export function validateQuestions(qs: unknown): string[] {
     if (typeof q?.text !== "string" || !q.text) errs.push(`${at}: text`);
     if (!Array.isArray(q?.expectedTools)) errs.push(`${at}: expectedTools`);
     if (q?.forbiddenTools !== undefined && !Array.isArray(q.forbiddenTools)) errs.push(`${at}: forbiddenTools`);
+    if (q?.anyOfTools !== undefined && !(Array.isArray(q.anyOfTools) && q.anyOfTools.every((g: unknown) => Array.isArray(g) && g.length)))
+      errs.push(`${at}: anyOfTools must be non-empty string[][]`);
+    if (q?.expectedWrites !== undefined && !Number.isInteger(q.expectedWrites)) errs.push(`${at}: expectedWrites`);
+    if (q?.expectUpdate !== undefined && typeof q.expectUpdate?.titleContains !== "string") errs.push(`${at}: expectUpdate`);
+    if ((q?.mustNotWrite || q?.expectUpdate || q?.expectedWrites) && !q?.isWrite) errs.push(`${at}: write checks require isWrite`);
     if (q?.followUps !== undefined && !Array.isArray(q.followUps)) errs.push(`${at}: followUps`);
   });
   return errs;

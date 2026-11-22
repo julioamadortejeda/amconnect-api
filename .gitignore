@@ -19,3 +19,6 @@ bruno/environments/local.bru
 
 # ─── Backend anterior (solo referencia, no incluir) ───────────────────────────
 base-amconnect-api/
+
+# ─── Eval: PDFs de prueba (no se commitean) ───
+scripts/eval/tool_selection/fixtures/

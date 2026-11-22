@@ -49,10 +49,35 @@ También cada pregunta gasta cuota mensual de chat del asesor.
 - **Latencia** total (incluye follow-ups) y **tokens** (suma de `tokens_usage` de la
   sesión: prompt, cached, completion; cache % = cached / prompt).
 
+## Datos de prueba (`seed_eval_data.ts`)
+
+Las preguntas `real-*`, `plenitud-*`, `followup-*` etc. suponen datos sembrados en el asesor demo local.
+Siembra (LOCAL, gasta Gemini; mismas variables `EVAL_*`):
+
+```bash
+deno run scripts/eval/tool_selection/seed_eval_data.ts --dry-run      # plan, sin red
+deno run -A scripts/eval/tool_selection/seed_eval_data.ts             # borra lo marcado y siembra de nuevo
+deno run -A scripts/eval/tool_selection/seed_eval_data.ts --cleanup   # solo borra lo marcado
+```
+
+- Idempotente: todo lleva la marca `eval-seed` (descripcion/contenido/`occupation`/nombre de archivo); cada corrida limpia lo marcado (soft delete) y reinserta. Fechas relativas a hoy en America/Monterrey.
+- Crea: contactos José Treviño Garza y Rafael (Rafa) Salinas Cruz (`POST /contacts`); 4 recordatorios de hoy (`POST /reminders`, tipos del catalogo `GET /catalog/reminder-types`); notas de Rosa (gripa), Carlos (rodilla/GMM) y Rafa (solicitud, examenes) y una nota general "reembolso de parto" (`POST /ai/ingest-text`, embeben igual que produccion; las <=300 chars no usan LLM, la de reembolso si); 2 PDFs (`GET /ai/upload-url` + PUT al signed URL + `POST /ai/ingest`); un compromiso (insert PostgREST en `client_commitments`: no hay endpoint de creacion, nacen en el asistente).
+- PDFs: copiar a `fixtures/vida-mujer.pdf` y `fixtures/nuevo-plenitud.pdf` (carpeta ignorada por git; no se commitean). `/ai/ingest` es **sincrono**: responde cuando Gemini ya extrajo, resumio y embebio, asi que no hay que esperar ni sondear; solo tarda (decenas de segundos por PDF, timeout 10 min). Cada ingesta (PDFs y nota general) consume cuota de ingesta del asesor.
+- Cleanup de notas: `DELETE /notes/:id` solo sirve para notas de poliza, asi que las de conocimiento se dan de baja (`is_active=false`) por PostgREST.
+
+## Campos extra de `questions.json`
+
+- `anyOfTools: string[][]`: de CADA grupo debe llamarse al menos una herramienta (p. ej. `[["search_knowledge","recall"]]`).
+- `expectedWrites`: filas nuevas esperadas en `writeTable` (default 1). `writeTable` puede ser `client_commitments`.
+- `mustNotWrite`: pasa solo si no se creo ni modifico nada (reminders, client_commitments, agent_notes); cualquier "listo" cuenta como false-success.
+- `expectUpdate {titleContains, fromDayOffset, toDayOffset, time}`: antes de la corrida deja el recordatorio sembrado en su dia de partida (PATCH PostgREST) y al final verifica que su `due_date` cayo en el dia destino (Monterrey). Requiere el seed.
+- Si una de estas comprobaciones de escritura falla, la corrida no pasa (`writeOk=false`).
+
 ## Archivos
 
 - `questions.json`: preguntas (`id, category, lang, text, expectedTools, forbiddenTools?, isWrite?, writeTable?, followUps?`). Los nombres son del asesor demo local.
 - `run_eval.ts`: corre y escribe `results/<label>-<timestamp>.json` y `.md`.
 - `compare.ts`: tabla lado a lado de dos resultados.
-- `lib.ts`: tipos y agregación.
+- `lib.ts`: tipos, agregación y helpers de fecha de Monterrey.
+- `seed_eval_data.ts`: siembra/limpia datos de prueba.
 - `results/`: salidas (ignoradas por git).

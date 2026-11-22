@@ -4,35 +4,48 @@
     "category": "simple_lookup",
     "lang": "es",
     "text": "¿Cuál es el teléfono de Rosa Martínez?",
-    "expectedTools": ["search_contact"]
+    "expectedTools": [
+      "search_contact"
+    ]
   },
   {
     "id": "lookup-count-es",
     "category": "simple_lookup",
     "lang": "es",
     "text": "¿Cuántos clientes tengo?",
-    "expectedTools": ["count_contacts"]
+    "expectedTools": [
+      "count_contacts"
+    ]
   },
   {
     "id": "compound-carlos",
     "category": "compound",
     "lang": "es",
     "text": "De Carlos Ramírez dame el teléfono, sus pólizas y sus recordatorios pendientes",
-    "expectedTools": ["search_contact", "get_contact_policies", "search_reminders"]
+    "expectedTools": [
+      "search_contact",
+      "get_contact_policies",
+      "search_reminders"
+    ]
   },
   {
     "id": "compound-jorge",
     "category": "compound",
     "lang": "es",
     "text": "Pásame el correo de Jorge Villarreal, qué pólizas tiene y cuándo vencen",
-    "expectedTools": ["search_contact", "get_contact_policies"]
+    "expectedTools": [
+      "search_contact",
+      "get_contact_policies"
+    ]
   },
   {
     "id": "write-call-rosa",
     "category": "write_mid_turn",
     "lang": "es",
     "text": "Busca a Rosa Martínez y agéndame una llamada con ella el próximo lunes a las 10 de la mañana",
-    "expectedTools": ["search_contact"],
+    "expectedTools": [
+      "search_contact"
+    ],
     "isWrite": true,
     "writeTable": "reminders"
   },
@@ -41,7 +54,9 @@
     "category": "write_mid_turn",
     "lang": "es",
     "text": "Recuérdame llamar a Laura Sánchez el viernes para revisar su renovación",
-    "expectedTools": ["search_contact"],
+    "expectedTools": [
+      "search_contact"
+    ],
     "isWrite": true,
     "writeTable": "reminders"
   },
@@ -50,7 +65,10 @@
     "category": "write_mid_turn",
     "lang": "es",
     "text": "Agrega una nota a Roberto Flores: prefiere que le llamen por la tarde",
-    "expectedTools": ["search_contact", "add_note_to_client"],
+    "expectedTools": [
+      "search_contact",
+      "add_note_to_client"
+    ],
     "isWrite": true,
     "writeTable": "agent_notes"
   },
@@ -60,49 +78,66 @@
     "lang": "es",
     "text": "¿Qué me dijo Patricia Núñez la última vez que hablamos?",
     "expectedTools": [],
-    "forbiddenTools": ["create_reminder", "create_reminder_for_client", "delete_contact"]
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "delete_contact"
+    ]
   },
   {
     "id": "recall-agenda-es",
     "category": "open_recall",
     "lang": "es",
     "text": "¿Qué tengo que hacer esta semana?",
-    "expectedTools": ["get_upcoming_reminders"]
+    "expectedTools": [
+      "get_upcoming_reminders"
+    ]
   },
   {
     "id": "catalog-carriers",
     "category": "catalog",
     "lang": "es",
     "text": "¿Qué tipos de recordatorio puedo crear?",
-    "expectedTools": ["get_reminder_types"]
+    "expectedTools": [
+      "get_reminder_types"
+    ]
   },
   {
     "id": "catalog-carrier-search",
     "category": "catalog",
     "lang": "es",
     "text": "Busca la aseguradora GNP en mi catálogo",
-    "expectedTools": ["search_carrier"]
+    "expectedTools": [
+      "search_carrier"
+    ]
   },
   {
     "id": "en-lookup",
     "category": "english",
     "lang": "en",
     "text": "What is Alejandra Domínguez's phone number?",
-    "expectedTools": ["search_contact"]
+    "expectedTools": [
+      "search_contact"
+    ]
   },
   {
     "id": "en-compound",
     "category": "english",
     "lang": "en",
     "text": "Show me the policies and upcoming reminders for Héctor Gutiérrez",
-    "expectedTools": ["search_contact", "get_contact_policies"]
+    "expectedTools": [
+      "search_contact",
+      "get_contact_policies"
+    ]
   },
   {
     "id": "en-write",
     "category": "english",
     "lang": "en",
     "text": "Find Mariana Luna and remind me to call her next Tuesday",
-    "expectedTools": ["search_contact"],
+    "expectedTools": [
+      "search_contact"
+    ],
     "isWrite": true,
     "writeTable": "reminders"
   },
@@ -111,15 +146,537 @@
     "category": "short_followup",
     "lang": "es",
     "text": "Busca a Daniela Treviño",
-    "expectedTools": ["search_contact", "get_contact_policies"],
-    "followUps": ["¿y sus pólizas?"]
+    "expectedTools": [
+      "search_contact",
+      "get_contact_policies"
+    ],
+    "followUps": [
+      "¿y sus pólizas?"
+    ]
   },
   {
     "id": "followup-ok",
     "category": "short_followup",
     "lang": "es",
     "text": "¿Cuándo vencen las pólizas de este año?",
-    "expectedTools": ["get_expiring_policies"],
-    "followUps": ["y las del próximo mes"]
+    "expectedTools": [
+      "get_expiring_policies"
+    ],
+    "followUps": [
+      "y las del próximo mes"
+    ]
+  },
+  {
+    "id": "real-pendiente-hoy",
+    "category": "real_agenda",
+    "lang": "es",
+    "text": "Que tengo pendiente hoy?",
+    "expectedTools": [
+      "get_commitments"
+    ],
+    "anyOfTools": [
+      [
+        "get_upcoming_reminders",
+        "search_reminders"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "real-algo-hoy",
+    "category": "real_agenda",
+    "lang": "es",
+    "text": "Oye tengo que hacer algo de hoy?",
+    "expectedTools": [
+      "get_commitments"
+    ],
+    "anyOfTools": [
+      [
+        "get_upcoming_reminders",
+        "search_reminders"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "real-capacitacion",
+    "category": "real_topic_sweep",
+    "lang": "es",
+    "text": "Tengo pendiente sobre capacitación?",
+    "expectedTools": [],
+    "anyOfTools": [
+      [
+        "recall",
+        "search_reminders"
+      ],
+      [
+        "recall",
+        "get_commitments"
+      ],
+      [
+        "recall",
+        "search_knowledge"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "real-rosa-dijo",
+    "category": "real_contact_notes",
+    "lang": "es",
+    "text": "Oye que me dijo rosa que tenía?",
+    "expectedTools": [
+      "search_contact",
+      "search_contact_notes"
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "real-rodilla",
+    "category": "real_recall",
+    "lang": "es",
+    "text": "Que cliente me dijo que se lastimó la rodilla?",
+    "expectedTools": [],
+    "anyOfTools": [
+      [
+        "search_knowledge",
+        "recall"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "real-solicitud-rafa",
+    "category": "real_topic_sweep",
+    "lang": "es",
+    "text": "Oye que pasó con la solicitud de Rafa?",
+    "expectedTools": [
+      "search_contact"
+    ],
+    "anyOfTools": [
+      [
+        "search_contact_notes",
+        "recall",
+        "search_knowledge"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "real-falta-revisar",
+    "category": "real_agenda",
+    "lang": "es",
+    "text": "Que le falta el revisar hoy?",
+    "expectedTools": [],
+    "anyOfTools": [
+      [
+        "get_upcoming_reminders",
+        "search_reminders"
+      ],
+      [
+        "get_commitments",
+        "recall"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "real-write-airport",
+    "category": "real_write",
+    "lang": "es",
+    "text": "Recuérdame ir al aeropuerto mañana a medio día y después de eso como en 2 horas depues recuérdame pasar a recoger mi pedido",
+    "expectedTools": [
+      "create_reminder"
+    ],
+    "isWrite": true,
+    "writeTable": "reminders",
+    "expectedWrites": 2,
+    "forbiddenTools": [
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client"
+    ]
+  },
+  {
+    "id": "real-vida-mujer",
+    "category": "real_knowledge",
+    "lang": "es",
+    "text": "Que sabes sobre vida mujer?",
+    "expectedTools": [],
+    "anyOfTools": [
+      [
+        "search_knowledge",
+        "recall"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "real-reembolso-parto",
+    "category": "real_recall",
+    "lang": "es",
+    "text": "Recuerdo que un día vi algo sobre procesar reembolso de un parto, tienes algo?",
+    "expectedTools": [],
+    "anyOfTools": [
+      [
+        "search_knowledge",
+        "recall"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "real-write-certificacion",
+    "category": "real_write",
+    "lang": "es",
+    "text": "En este mes tengo que terminar mi certificación de gastos médicos",
+    "expectedTools": [
+      "create_commitment"
+    ],
+    "isWrite": true,
+    "writeTable": "client_commitments",
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "add_note_to_client"
+    ]
+  },
+  {
+    "id": "real-reagenda-jose",
+    "category": "real_reschedule",
+    "lang": "es",
+    "text": "José me dijo que hoy no me puede ver, que lo reagende mañana?",
+    "expectedTools": [
+      "search_contact",
+      "update_reminder"
+    ],
+    "anyOfTools": [
+      [
+        "get_upcoming_reminders",
+        "search_reminders"
+      ]
+    ],
+    "isWrite": true,
+    "writeTable": "reminders",
+    "expectUpdate": {
+      "titleContains": "Cita con José",
+      "fromDayOffset": 0,
+      "toDayOffset": 1,
+      "time": "17:00"
+    }
+  },
+  {
+    "id": "real-reagenda-sin-recordatorio",
+    "category": "real_reschedule",
+    "lang": "es",
+    "text": "Patricia me dijo que hoy no me puede ver, que la reagende mañana?",
+    "expectedTools": [
+      "search_contact"
+    ],
+    "anyOfTools": [
+      [
+        "get_upcoming_reminders",
+        "search_reminders"
+      ]
+    ],
+    "isWrite": true,
+    "mustNotWrite": true,
+    "forbiddenTools": [
+      "update_reminder",
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment"
+    ]
+  },
+  {
+    "id": "plenitud-parto",
+    "category": "real_knowledge",
+    "lang": "es",
+    "text": "¿Plenitud cubre parto?",
+    "expectedTools": [],
+    "anyOfTools": [
+      [
+        "search_knowledge",
+        "recall"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "plenitud-deducible",
+    "category": "real_knowledge",
+    "lang": "es",
+    "text": "¿Qué dice Nuevo Plenitud sobre el deducible?",
+    "expectedTools": [],
+    "anyOfTools": [
+      [
+        "search_knowledge",
+        "recall"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "en-pendiente-hoy",
+    "category": "english",
+    "lang": "en",
+    "text": "What do I have pending today?",
+    "expectedTools": [
+      "get_commitments"
+    ],
+    "anyOfTools": [
+      [
+        "get_upcoming_reminders",
+        "search_reminders"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "en-rodilla",
+    "category": "english",
+    "lang": "en",
+    "text": "Which client told me he hurt his knee?",
+    "expectedTools": [],
+    "anyOfTools": [
+      [
+        "search_knowledge",
+        "recall"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "en-write-airport",
+    "category": "english",
+    "lang": "en",
+    "text": "Remind me to go to the airport tomorrow at noon and then to pick up my order at 2 pm",
+    "expectedTools": [
+      "create_reminder"
+    ],
+    "isWrite": true,
+    "writeTable": "reminders",
+    "expectedWrites": 2,
+    "forbiddenTools": [
+      "create_reminder_for_client",
+      "create_commitment"
+    ]
+  },
+  {
+    "id": "followup-jose-hora",
+    "category": "short_followup",
+    "lang": "es",
+    "text": "Qué tengo hoy con José?",
+    "expectedTools": [
+      "search_contact"
+    ],
+    "anyOfTools": [
+      [
+        "get_upcoming_reminders",
+        "search_reminders"
+      ]
+    ],
+    "followUps": [
+      "y a qué hora?"
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "followup-rafa-hazlo",
+    "category": "short_followup",
+    "lang": "es",
+    "text": "Qué pasó con la solicitud de Rafa?",
+    "expectedTools": [
+      "search_contact"
+    ],
+    "anyOfTools": [
+      [
+        "create_reminder",
+        "create_reminder_for_client"
+      ]
+    ],
+    "followUps": [
+      "sí, recuérdame darle seguimiento mañana a las 10"
+    ],
+    "isWrite": true,
+    "writeTable": "reminders"
+  },
+  {
+    "id": "compound-rosa-gmm",
+    "category": "compound",
+    "lang": "es",
+    "text": "Dame el teléfono de Rosa, su póliza de gastos médicos y qué recordatorios tengo de ella",
+    "expectedTools": [
+      "search_contact",
+      "get_contact_policies"
+    ],
+    "anyOfTools": [
+      [
+        "get_upcoming_reminders",
+        "search_reminders"
+      ]
+    ]
+  },
+  {
+    "id": "compound-carlos-rodilla",
+    "category": "compound",
+    "lang": "es",
+    "text": "Dime qué me dijo Carlos de su rodilla y qué pendientes tengo con él",
+    "expectedTools": [
+      "search_contact",
+      "search_contact_notes"
+    ],
+    "anyOfTools": [
+      [
+        "get_upcoming_reminders",
+        "search_reminders"
+      ],
+      [
+        "get_commitments",
+        "recall"
+      ]
+    ]
+  },
+  {
+    "id": "short-rafa",
+    "category": "short_ambiguous",
+    "lang": "es",
+    "text": "Rafa?",
+    "expectedTools": [],
+    "anyOfTools": [
+      [
+        "search_contact",
+        "recall"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
+  },
+  {
+    "id": "short-pendientes",
+    "category": "short_ambiguous",
+    "lang": "es",
+    "text": "Pendientes?",
+    "expectedTools": [
+      "get_commitments"
+    ],
+    "anyOfTools": [
+      [
+        "get_upcoming_reminders",
+        "search_reminders"
+      ]
+    ],
+    "forbiddenTools": [
+      "create_reminder",
+      "create_reminder_for_client",
+      "create_commitment",
+      "add_note_to_client",
+      "delete_contact",
+      "delete_reminder"
+    ]
   }
 ]

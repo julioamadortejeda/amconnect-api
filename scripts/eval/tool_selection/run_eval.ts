@@ -4,7 +4,7 @@
 //   deno run -A scripts/eval/tool_selection/run_eval.ts --mode-label all --runs 3
 //   deno run scripts/eval/tool_selection/run_eval.ts --dry-run     (sin red)
 import { detectReplyLanguage } from "../../../supabase/functions/amconnect-api/features/ai_chat/reply_language.ts";
-import { type Question, type ResultsFile, type RunResult, summaryMarkdown, validateQuestions } from "./lib.ts";
+import { monterreyIso, monterreyYmd, type Question, type ResultsFile, type RunResult, summaryMarkdown, validateQuestions } from "./lib.ts";
 
 const HERE = new URL(".", import.meta.url).pathname;
 
@@ -79,6 +79,16 @@ class Client {
     throw new Error("chat: rate limited too many times");
   }
 
+  /** PATCH a PostgREST con el JWT del asesor (RLS). */
+  async restPatch(path: string, body: unknown): Promise<void> {
+    const res = await fetch(`${this.base}/rest/v1/${path}`, {
+      method: "PATCH",
+      headers: this.headers({ "content-type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`rest PATCH ${path.split("?")[0]} HTTP ${res.status}`);
+  }
+
   /** GET a PostgREST con el JWT del asesor (RLS: solo ve lo suyo). */
   async rest<T>(path: string): Promise<T> {
     const res = await fetch(`${this.base}/rest/v1/${path}`, { headers: this.headers() });
@@ -123,6 +133,31 @@ async function countRowsSince(c: Client, table: string, sinceIso: string): Promi
   return rows.length;
 }
 
+const WRITE_TABLES = ["reminders", "client_commitments", "agent_notes"];
+
+async function countUpdatedSince(c: Client, table: string, sinceIso: string): Promise<number> {
+  const rows = await c.rest<{ id: string }[]>(`${table}?select=id&updated_at=gte.${encodeURIComponent(sinceIso)}`);
+  return rows.length;
+}
+
+async function reminderUrl(titleContains: string): Promise<string> {
+  return `reminders?select=id,due_date&is_active=eq.true&title=ilike.${encodeURIComponent(`*${titleContains}*`)}`;
+}
+
+/** Deja el recordatorio sembrado en su día de partida (cada corrida lo mueve). */
+async function resetUpdateTarget(c: Client, u: NonNullable<Question["expectUpdate"]>) {
+  const rows = await c.rest<{ id: string }[]>(await reminderUrl(u.titleContains));
+  if (!rows.length) throw new Error(`expectUpdate: no seeded reminder matching "${u.titleContains}" (run seed_eval_data.ts)`);
+  await c.restPatch(`reminders?id=eq.${rows[0].id}`, { due_date: monterreyIso(u.fromDayOffset, u.time) });
+}
+
+async function updateLanded(c: Client, u: NonNullable<Question["expectUpdate"]>): Promise<boolean> {
+  const rows = await c.rest<{ due_date: string }[]>(await reminderUrl(u.titleContains));
+  if (!rows.length) return false;
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Monterrey" }).format(new Date(rows[0].due_date));
+  return day === monterreyYmd(u.toDayOffset);
+}
+
 const CLAIM_RE =
   /\b(listo|agend[ée]|agendad[oa]|cre[ée]|creado|creada|registr[ée]|registrad[oa]|guard[ée]|guardad[oa]|a[ñn]ad[ií]|agregu[ée]|done|scheduled|created|added|saved|set up|i've (set|created|added|scheduled))\b/i;
 const NEGATION_RE = /\b(no pude|no puedo|no encontr|no se pudo|couldn't|could not|unable|cannot|can't|no logr)/i;
@@ -147,6 +182,7 @@ async function runOnce(c: Client, q: Question, run: number): Promise<RunResult> 
     claimedSuccess: null,
     rowCreated: null,
     falseSuccess: null,
+    writeOk: null,
     replyLanguage: "unknown",
     languageOk: false,
     latencyMs: 0,
@@ -155,6 +191,7 @@ async function runOnce(c: Client, q: Question, run: number): Promise<RunResult> 
     completionTokens: 0,
   };
   try {
+    if (q.expectUpdate) await resetUpdateTarget(c, q.expectUpdate);
     const since = new Date(Date.now() - 1000).toISOString();
     const t0 = performance.now();
     let sessionId: string | null = null;
@@ -174,7 +211,8 @@ async function runOnce(c: Client, q: Question, run: number): Promise<RunResult> 
 
     base.missingTools = q.expectedTools.filter((t) => !base.toolsCalled.includes(t));
     base.forbiddenCalled = (q.forbiddenTools ?? []).filter((t) => base.toolsCalled.includes(t));
-    base.pass = base.missingTools.length === 0 && base.forbiddenCalled.length === 0;
+    base.missingAnyOf = (q.anyOfTools ?? []).filter((g) => !g.some((t) => base.toolsCalled.includes(t)));
+    base.pass = base.missingTools.length === 0 && base.forbiddenCalled.length === 0 && base.missingAnyOf.length === 0;
 
     const d = detectReplyLanguage(lastReply, "Spanish");
     base.replyLanguage = d.source === "detected" ? (d.language === "Spanish" ? "es" : "en") : "unknown";
@@ -183,8 +221,24 @@ async function runOnce(c: Client, q: Question, run: number): Promise<RunResult> 
 
     if (q.isWrite) {
       base.claimedSuccess = claimsSuccess(lastReply);
-      base.rowCreated = (await countRowsSince(c, q.writeTable ?? "reminders", since)) > 0;
-      base.falseSuccess = base.claimedSuccess && !base.rowCreated;
+      if (q.mustNotWrite) {
+        let wrote = 0;
+        for (const t of WRITE_TABLES) wrote += await countRowsSince(c, t, since);
+        wrote += await countUpdatedSince(c, "reminders", since);
+        base.rowCreated = wrote > 0;
+        base.writeOk = wrote === 0;
+        base.falseSuccess = base.claimedSuccess; // cualquier "listo" sin que exista el registro es falso
+      } else if (q.expectUpdate) {
+        base.rowCreated = await updateLanded(c, q.expectUpdate);
+        base.writeOk = base.rowCreated;
+        base.falseSuccess = base.claimedSuccess && !base.rowCreated;
+      } else {
+        const n = await countRowsSince(c, q.writeTable ?? "reminders", since);
+        base.rowCreated = n >= (q.expectedWrites ?? 1);
+        if (q.expectedWrites !== undefined) base.writeOk = base.rowCreated;
+        base.falseSuccess = base.claimedSuccess && n === 0;
+      }
+      if (base.writeOk === false) base.pass = false;
     }
   } catch (e) {
     base.error = e instanceof Error ? e.message : String(e);
@@ -206,7 +260,7 @@ async function main() {
     console.log(`[dry-run] ${selected.length} questions x ${args.runs} runs = ${selected.length * args.runs} chat sessions (no network)`);
     for (const q of selected) {
       console.log(
-        `  ${q.id} [${q.category}/${q.lang}] expects=${q.expectedTools.join(",") || "-"}${q.isWrite ? " WRITE" : ""}${
+        `  ${q.id} [${q.category}/${q.lang}] expects=${q.expectedTools.join(",") || "-"}${q.anyOfTools?.length ? ` anyOf=${q.anyOfTools.map((g) => g.join("|")).join(";")}` : ""}${q.isWrite ? " WRITE" : ""}${
           q.followUps?.length ? ` followUps=${q.followUps.length}` : ""
         }`,
       );
