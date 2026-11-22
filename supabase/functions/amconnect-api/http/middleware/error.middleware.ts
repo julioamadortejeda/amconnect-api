@@ -61,6 +61,13 @@ async function persistError(
   });
 }
 
+// Distingue el SyntaxError del parseo del body del request de cualquier otro
+// (p. ej. JSON.parse de una respuesta del modelo, que SÍ es un fallo nuestro):
+// el primero nace dentro de hono (dist/request.js).
+function isRequestBodyParseError(err: Error): boolean {
+  return /hono[^\n]*[\\/]request\.(js|ts)/.test(err.stack ?? "");
+}
+
 export const globalErrorHandler = async (err: Error, c: Context) => {
   // Errores de aplicación controlados — se persisten TODOS (4xx incluidos,
   // salvo SKIP_PERSIST_STATUS) para poder diagnosticar problemas de usuarios
@@ -99,6 +106,15 @@ export const globalErrorHandler = async (err: Error, c: Context) => {
   if (err instanceof ZodError) {
     return c.json(
       { success: false, error: "Datos de entrada inválidos.", errorCode: "VALIDATION_FAILED", details: (err as ZodError).flatten() },
+      422,
+    );
+  }
+
+  // Body JSON malformado (`c.req.json()` lanza SyntaxError): es culpa del
+  // cliente, no un fallo del servidor. Aplica a toda ruta que parsee el body.
+  if (err instanceof SyntaxError && isRequestBodyParseError(err)) {
+    return c.json(
+      { success: false, error: "El cuerpo de la solicitud no es un JSON válido.", errorCode: "VALIDATION_FAILED" },
       422,
     );
   }
