@@ -1,6 +1,6 @@
 import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface.ts";
 import { AiSessionService, type UsageTokens } from "./ai_session.service.ts";
-import { AiProviderError } from "../../shared/errors.ts";
+import { AiProviderError, AppError, NotFoundError } from "../../shared/errors.ts";
 import { buildToolDeclarations, offeredToolNames } from "../../shared/tool_declarations.ts";
 import { executeSkill } from "./skills/skill_executor.ts";
 import { SkillContext, SkillServices } from "./skills/skill.core.ts";
@@ -64,9 +64,12 @@ export class AiChatService {
 
     if (sId) {
       const session = await this.aiSessionService.getSessionContext(sId);
-      if (session?.history) history.push(...(session.history as AiMessage[]));
-      sessionType = session?.type ?? newSessionType;
-      lastInteractionId = session?.last_interaction_id ?? undefined;
+      // Inexistente o de otro asesor (el RLS devuelve null): se rechaza ANTES de
+      // invocar al modelo. Tratarla como sesión vacía gastaba tokens y tronaba al guardar.
+      if (!session) throw new NotFoundError("Sesión no encontrada.");
+      if (session.history) history.push(...(session.history as AiMessage[]));
+      sessionType = session.type ?? newSessionType;
+      lastInteractionId = session.last_interaction_id ?? undefined;
     } else {
       // Crear nueva sesión
       currentSessionId = await this.aiSessionService.createSession(agentId, {
@@ -330,8 +333,11 @@ export class AiChatService {
     }
 
     } catch (e) {
-      if (e instanceof AiProviderError && currentSessionId) {
-        await this.aiSessionService.markSessionProviderError(currentSessionId, e.message);
+      // Falla del proveedor (AiProviderError) o error crudo no controlado (red,
+      // timeout): el asesor no recibió respuesta, la sesión no es facturable.
+      // AiError y demás AppError (lógica nuestra) conservan su comportamiento.
+      if ((e instanceof AiProviderError || !(e instanceof AppError)) && currentSessionId) {
+        await this.aiSessionService.markSessionProviderError(currentSessionId, e instanceof Error ? e.message : String(e));
       }
       throw e;
     }

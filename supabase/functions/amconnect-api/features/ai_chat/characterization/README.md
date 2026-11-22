@@ -43,7 +43,7 @@ deno task test    # desde supabase/functions/amconnect-api (offline, --deny-net)
 | Texto + function calls | Se ejecutan las llamadas |
 | `AiProviderError` (inicio, a media conversación, clasificador) | 503 `AI_PROVIDER_BUSY`, cobro devuelto, sesión `provider_error` no facturable |
 | `AiError` | 502 `AI_ERROR`, sin reembolso (decisión actual) |
-| Error crudo / 429 del SDK | 500 `INTERNAL_ERROR` sin filtrar el mensaje; 429 `AI_PROVIDER_BUSY` |
+| Error crudo / 429 del SDK | 500 `INTERNAL_ERROR` sin filtrar el mensaje, cobro devuelto y sesión no facturable; 429 `AI_PROVIDER_BUSY` |
 
 ### `chat_session_test.ts` (sesión, cuota, tokens, cancelación, adversariales) — HTTP
 Sesión nueva vs reutilizada; historial persistido (usuario+herramienta+modelo) y reenviado; `previousInteractionId`;
@@ -72,17 +72,17 @@ viaja solo como `functionResponse`, un `[[cite:]]` inyectado no cuenta).
 
 ## Fallan hoy (bugs encontrados) — `ignore: true`
 
-Verificado quitando el `ignore`: los 9 fallan.
+Verificado quitando el `ignore`: los 9 fallaban. Arreglados el 1, 3, 4, 5 y 7 (2026-11-22 y antes); quedan 6 y 8 (`ignore: true`).
 
-1. **sessionId de otro asesor / inexistente** (`chat_session_test.ts`, 2 tests): el RLS devuelve `null`, `ai_chat.service.ts:62-66`
+1. ✅ **Arreglado 2026-11-22**: `processMessage` lanza `NotFoundError` (404 `RESOURCE_NOT_FOUND`) si la sesión no existe/es ajena, antes del modelo; el controller devuelve el cobro. ~~**sessionId de otro asesor / inexistente** (`chat_session_test.ts`, 2 tests): el RLS devuelve `null`, `ai_chat.service.ts:62-66`
    lo toma como sesión vacía, **gasta el modelo** y truena al final en `ai_session.service.ts:158` con 500 `INTERNAL_ERROR`
-   (sin reembolso). Esperado: 404 `RESOURCE_NOT_FOUND` antes de invocar al modelo. (Ajeno no filtra datos: el RLS lo impide;
+   (sin reembolso).~~ Esperado: 404 `RESOURCE_NOT_FOUND` antes de invocar al modelo. (Ajeno no filtra datos: el RLS lo impide;
    hay un test de caracterización que lo fija.)
 2. **`sessionUsage` cuenta el turno dos veces** (`ai_session.service.ts:184-187`): se insertan las filas de `tokens_usage` del turno
    y LUEGO `getSessionTokens` las suma otra vez y se le añade `deltaUsage`. Turno 1 con 230 tokens de prompt devuelve 460.
-3. **JSON malformado → 500** en vez de 4xx (`ai.controller.ts:29`): `SyntaxError` no es `AppError`. No cobra.
-4. **Timeout/red del proveedor se cobra** (`ai.controller.ts:40-44`): solo `AiProviderError` reembolsa; un `Error` crudo deja el cobro.
-5. **Misma causa, sesión**: tras ese error crudo la sesión sigue `active` y facturable (`ai_chat.service.ts:306-309`).
+3. ✅ **Arreglado 2026-11-22** (`globalErrorHandler`: SyntaxError del body → 422 `VALIDATION_FAILED`, toda ruta). ~~**JSON malformado → 500** en vez de 4xx (`ai.controller.ts:29`): `SyntaxError` no es `AppError`. No cobra.~~
+4. ✅ **Arreglado 2026-11-22** (el controller reembolsa también ante errores que no son `AppError`). ~~**Timeout/red del proveedor se cobra** (`ai.controller.ts:40-44`): solo `AiProviderError` reembolsa; un `Error` crudo deja el cobro.~~
+5. ✅ **Arreglado 2026-11-22** (`processMessage` marca `provider_error`/no facturable también ante errores crudos). ~~**Misma causa, sesión**: tras ese error crudo la sesión sigue `active` y facturable.~~
 6. **Carrera en la misma sesión**: dos mensajes simultáneos hacen leer-modificar-escribir del historial completo y el último
    pisa al primero (se pierde un mensaje). Reproducido con latencia simulada en el repo.
 7. ✅ **Arreglado 2026-11-21.** ~~Herramienta no ofrecida se ejecuta~~: `executeSkill` recibe la lista de herramientas ofrecidas en el turno (chat) o las de la voz (WebSocket y REST `execute-tool`) y rechaza cualquier otra con `Tool not available in this turn`. Prueba: "inyección: ejecutar una herramienta NO ofrecida en el turno se rechaza" y la de voz con `resolve_pending_task`.

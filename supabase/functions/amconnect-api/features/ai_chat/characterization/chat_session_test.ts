@@ -71,9 +71,7 @@ Deno.test("ai_chat_messages: se guardan user, classify y model; el modelo con el
   ]);
 });
 
-Deno.test("sessionId de OTRO asesor: se rechaza ANTES de invocar al modelo, sin filtrar su historial", {
-  ignore: true, // BUG: ai_chat.service.ts:62-66 trata session=null (RLS) como sesión vacía; ver README
-}, async () => {
+Deno.test("sessionId de OTRO asesor: se rechaza ANTES de invocar al modelo, sin filtrar su historial", async () => {
   const h = buildAssistantHarness({ script: [say("no deberías verme")] });
   h.sessionsRepo.seedSession({ id: SESSION, agentId: OTHER_AGENT, history: [{ role: "user", parts: [{ text: "secreto del otro asesor" }] }] });
   const { status, json } = await chat(h, { message: "hola", sessionId: SESSION });
@@ -83,25 +81,12 @@ Deno.test("sessionId de OTRO asesor: se rechaza ANTES de invocar al modelo, sin 
   assert.equal(h.usageRepo.refunds.length, 1, "y se devuelve el cobro");
 });
 
-Deno.test("sessionId inexistente/ajeno → 404 RESOURCE_NOT_FOUND sin invocar al modelo", {
-  ignore: true, // BUG: ai_chat.service.ts:62-66 + ai_session.service.ts saveChatRound: hoy gasta el modelo y responde 500
-}, async () => {
+Deno.test("sessionId inexistente/ajeno → 404 RESOURCE_NOT_FOUND sin invocar al modelo", async () => {
   const h = buildAssistantHarness({ script: [say("x")] });
   const { status, json } = await chat(h, { message: "hola", sessionId: SESSION });
   assert.equal(status, 404);
   assert.equal(json.errorCode, "RESOURCE_NOT_FOUND");
   assert.equal(h.provider.calls, 0);
-});
-
-Deno.test("caracterización: sessionId inexistente o ajeno hoy → 500 INTERNAL_ERROR tras llamar al modelo; el RLS impide leer el historial ajeno", async () => {
-  const h = buildAssistantHarness({ script: [say("x")] });
-  h.sessionsRepo.seedSession({ id: SESSION, agentId: OTHER_AGENT, history: [{ role: "user", parts: [{ text: "secreto del otro asesor" }] }] });
-  const { status, json } = await chat(h, { message: "hola", sessionId: SESSION });
-  assert.equal(status, 500);
-  assert.equal(json.errorCode, "INTERNAL_ERROR");
-  assert.ok(h.provider.calls >= 1, "hoy sí invoca al modelo antes de fallar");
-  assert.ok(!JSON.stringify(h.provider.interactions).includes("secreto del otro asesor"), "no filtra el historial ajeno");
-  assert.equal(h.sessionsRepo.sessions.get(SESSION)!.history.length, 1, "no escribe en la sesión ajena");
 });
 
 Deno.test("sessionId que no es uuid → 422 VALIDATION_FAILED, sin cobro", async () => {
@@ -222,19 +207,12 @@ Deno.test("body sin message / message no-string / context inválido → 422 sin 
   assert.equal(h.usageRepo.increments.length, 0);
 });
 
-Deno.test("JSON malformado → error de cliente (4xx), no 500, y sin cobro", {
-  ignore: true, // BUG: c.req.json() lanza SyntaxError y el globalErrorHandler lo vuelve 500 INTERNAL_ERROR (ai.controller.ts:29)
-}, async () => {
+Deno.test("JSON malformado → error de cliente (4xx), no 500, y sin cobro", async () => {
   const h = buildAssistantHarness({ script: [say("x")] });
   const r = await quietLogs(() => request(h, "POST", "/ai/chat", undefined, {}, "{not json"));
   assert.ok(r.status >= 400 && r.status < 500, `esperado 4xx, fue ${r.status}`);
-  assert.equal(h.usageRepo.increments.length, 0);
-});
-
-Deno.test("caracterización: JSON malformado hoy → 500 INTERNAL_ERROR sin cobro", async () => {
-  const h = buildAssistantHarness({ script: [say("x")] });
-  const r = await quietLogs(() => request(h, "POST", "/ai/chat", undefined, {}, "{not json"));
-  assert.equal(r.status, 500);
+  assert.equal(r.status, 422);
+  assert.equal((r.json as { errorCode?: string }).errorCode, "VALIDATION_FAILED");
   assert.equal(h.usageRepo.increments.length, 0);
 });
 

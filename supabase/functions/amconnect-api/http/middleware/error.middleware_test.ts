@@ -88,3 +88,38 @@ Deno.test("error handler: error no controlado → 500 genérico, sin el mensaje 
   assert.equal(json.errorCode, "INTERNAL_ERROR");
   assert.equal(String(json.error).includes("agent_id"), false);
 });
+
+Deno.test("error handler: JSON malformado en CUALQUIER ruta → 422 VALIDATION_FAILED (no 500)", async () => {
+  const db = new FakeSupabase();
+  const app = createTestApp({
+    supabase: db.client,
+    routes: (r) => {
+      r.post("/cualquiera", async (c: Context) => c.json(await c.req.json()));
+      r.put("/otra/ruta", async (c: Context) => c.json(await c.req.json()));
+    },
+  });
+  for (const [method, path] of [["POST", "/cualquiera"], ["PUT", "/otra/ruta"]]) {
+    const res = await app.request(`/amconnect-api${path}`, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: "{not json",
+    });
+    assert.equal(res.status, 422, path);
+    const json = await res.json();
+    assert.equal(json.success, false);
+    assert.equal(json.errorCode, "VALIDATION_FAILED");
+  }
+});
+
+Deno.test("error handler: un SyntaxError que NO viene del body (p. ej. JSON.parse interno) sigue siendo 500", async () => {
+  let inner: unknown;
+  try {
+    JSON.parse("{mal");
+  } catch (e) {
+    inner = e;
+  }
+  const { app } = appThrowing(inner);
+  const { status, json } = await silenced(() => call(app, "GET", "/boom"));
+  assert.equal(status, 500);
+  assert.equal(json.errorCode, "INTERNAL_ERROR");
+});

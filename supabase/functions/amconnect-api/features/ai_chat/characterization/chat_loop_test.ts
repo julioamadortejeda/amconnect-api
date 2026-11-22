@@ -244,18 +244,14 @@ Deno.test("429 crudo del SDK de IA: 429 AI_PROVIDER_BUSY", async () => {
   assert.equal(json.errorCode, "AI_PROVIDER_BUSY");
 });
 
-Deno.test("BUG: timeout/red del proveedor se cobra al asesor (no hay reembolso) aunque no recibió respuesta", {
-  ignore: true, // BUG: solo AiProviderError reembolsa (ai.controller.ts:40-44); un Error crudo (red, timeout) deja el cobro puesto
-}, async () => {
+Deno.test("BUG: timeout/red del proveedor se cobra al asesor (no hay reembolso) aunque no recibió respuesta", async () => {
   const h = buildAssistantHarness({ script: [{ error: new Error("fetch failed") }] });
   const { status } = await chat(h);
   assert.equal(status, 500);
   assert.equal(h.usageRepo.refunds.length, 1, "esperado: reembolso cuando el asesor no recibe respuesta");
 });
 
-Deno.test("BUG: tras un error de proveedor NO ligado a AiProviderError la sesión queda 'active'/facturable", {
-  ignore: true, // BUG: markSessionProviderError solo corre para AiProviderError (ai_chat.service.ts:306-309)
-}, async () => {
+Deno.test("BUG: tras un error de proveedor NO ligado a AiProviderError la sesión queda 'active'/facturable", async () => {
   const h = buildAssistantHarness({ script: [{ error: new Error("fetch failed") }] });
   await chat(h);
   const [session] = [...h.sessionsRepo.sessions.values()];
