@@ -28,6 +28,8 @@ export interface TokenUsage {
   completionTokens: number;
   totalTokens: number;
   cachedTokens?: number;
+  /** Tokens de razonamiento interno; se cobran a tarifa de salida. 0 si el proveedor no los reporta. */
+  thoughtsTokens?: number;
 }
 
 export interface AiGenerationResult {

@@ -71,6 +71,7 @@ export interface TokenUsageRow {
   promptTokens: number;
   completionTokens: number;
   cachedTokens?: number;
+  thoughtsTokens?: number;
   textPromptTokens?: number;
   audioPromptTokens?: number;
   textCompletionTokens?: number;
@@ -87,7 +88,7 @@ export interface IAiSessionRepository {
   createSession(data: CreateSessionData): Promise<string>;
   updateSession(sessionId: string, data: UpdateSessionData): Promise<void>;
   deleteSession(sessionId: string): Promise<void>;
-  getSessionTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number }>;
+  getSessionTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; thoughtsTokens: number }>;
   getSessionContext(sessionId: string): Promise<{ history: unknown[]; type: string; modelName?: string | null; last_interaction_id?: string | null; createdAt?: string } | null>;
   getMetadata(sessionId: string): Promise<Record<string, unknown> | null>;
   savePendingTask(sessionId: string, agentId: string, taskType: string, payload: Record<string, unknown>): Promise<string>;
@@ -97,10 +98,10 @@ export interface IAiSessionRepository {
   insertChatMessages(rows: ChatMessageRow[]): Promise<void>;
   logTokenUsage(rows: TokenUsageRow | TokenUsageRow[]): Promise<void>;
   getSessionTokenUsageDetails(sessionId: string): Promise<{
-    chat: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
-    extraction: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
-    embedding: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
-    summary: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    chat: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; thoughtsTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    extraction: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; thoughtsTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    embedding: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; thoughtsTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    summary: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; thoughtsTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
   }>;
   getSessionWithRates(sessionId: string): Promise<SessionWithRatesRow | null>;
 }
@@ -120,8 +121,9 @@ export class AiSessionRepository implements IAiSessionRepository {
         model_name: r.modelName,
         prompt_tokens: r.promptTokens,
         completion_tokens: r.completionTokens,
-        total_tokens: r.promptTokens + r.completionTokens,
+        total_tokens: r.promptTokens + r.completionTokens + (r.thoughtsTokens ?? 0),
         cached_tokens: r.cachedTokens ?? 0,
+        thoughts_tokens: r.thoughtsTokens ?? 0,
         text_prompt_tokens: r.textPromptTokens ?? (r.source === "chat_voice" ? 0 : r.promptTokens),
         audio_prompt_tokens: r.audioPromptTokens ?? (r.source === "chat_voice" ? r.promptTokens : 0),
         text_completion_tokens: r.textCompletionTokens ?? (r.source === "chat_voice" ? 0 : r.completionTokens),
@@ -135,31 +137,31 @@ export class AiSessionRepository implements IAiSessionRepository {
   }
 
   async getSessionTokenUsageDetails(sessionId: string): Promise<{
-    chat: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
-    extraction: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
-    embedding: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
-    summary: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    chat: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; thoughtsTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    extraction: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; thoughtsTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    embedding: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; thoughtsTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
+    summary: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; thoughtsTokens: number; textPromptTokens: number; audioPromptTokens: number; textCompletionTokens: number; audioCompletionTokens: number };
   }> {
     const { data } = await this.supabase
       .from("tokens_usage")
-      .select("source, prompt_tokens, completion_tokens, total_tokens, cached_tokens, text_prompt_tokens, audio_prompt_tokens, text_completion_tokens, audio_completion_tokens")
+      .select("source, prompt_tokens, completion_tokens, total_tokens, cached_tokens, thoughts_tokens, text_prompt_tokens, audio_prompt_tokens, text_completion_tokens, audio_completion_tokens")
       .eq("session_id", sessionId);
 
     const usage = {
       chat: {
-        promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, thoughtsTokens: 0,
         textPromptTokens: 0, audioPromptTokens: 0, textCompletionTokens: 0, audioCompletionTokens: 0,
       },
       extraction: {
-        promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, thoughtsTokens: 0,
         textPromptTokens: 0, audioPromptTokens: 0, textCompletionTokens: 0, audioCompletionTokens: 0,
       },
       embedding: {
-        promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, thoughtsTokens: 0,
         textPromptTokens: 0, audioPromptTokens: 0, textCompletionTokens: 0, audioCompletionTokens: 0,
       },
       summary: {
-        promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0,
+        promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, thoughtsTokens: 0,
         textPromptTokens: 0, audioPromptTokens: 0, textCompletionTokens: 0, audioCompletionTokens: 0,
       },
     };
@@ -171,6 +173,7 @@ export class AiSessionRepository implements IAiSessionRepository {
       const completion = row.completion_tokens ?? 0;
       const total = row.total_tokens ?? 0;
       const cached = row.cached_tokens ?? 0;
+      const thoughts = row.thoughts_tokens ?? 0;
       // El desglose por modalidad viaja aparte porque el audio y el texto NO
       // cuestan lo mismo en los modelos live (migración 20260903060000).
       const textPrompt = row.text_prompt_tokens ?? 0;
@@ -179,7 +182,7 @@ export class AiSessionRepository implements IAiSessionRepository {
       const audioCompletion = row.audio_completion_tokens ?? 0;
 
       const acumular = (b: {
-        promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number;
+        promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; thoughtsTokens: number;
         textPromptTokens: number; audioPromptTokens: number;
         textCompletionTokens: number; audioCompletionTokens: number;
       }) => {
@@ -187,6 +190,7 @@ export class AiSessionRepository implements IAiSessionRepository {
         b.completionTokens += completion;
         b.totalTokens += total;
         b.cachedTokens += cached;
+        b.thoughtsTokens += thoughts;
         b.textPromptTokens += textPrompt;
         b.audioPromptTokens += audioPrompt;
         b.textCompletionTokens += textCompletion;
@@ -239,29 +243,31 @@ export class AiSessionRepository implements IAiSessionRepository {
     await this.supabase.from("ai_sessions").update(payload).eq("id", sessionId);
   }
 
-  async getSessionTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number }> {
+  async getSessionTokens(sessionId: string): Promise<{ promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens: number; thoughtsTokens: number }> {
     const { data, error } = await this.supabase
       .from("tokens_usage")
-      .select("prompt_tokens, completion_tokens, total_tokens, cached_tokens")
+      .select("prompt_tokens, completion_tokens, total_tokens, cached_tokens, thoughts_tokens")
       .eq("session_id", sessionId);
 
     if (error || !data) {
-      return { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0 };
+      return { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, thoughtsTokens: 0 };
     }
 
     let promptTokens = 0;
     let completionTokens = 0;
     let totalTokens = 0;
     let cachedTokens = 0;
+    let thoughtsTokens = 0;
 
     for (const row of data) {
       promptTokens += row.prompt_tokens ?? 0;
       completionTokens += row.completion_tokens ?? 0;
       totalTokens += row.total_tokens ?? 0;
       cachedTokens += row.cached_tokens ?? 0;
+      thoughtsTokens += row.thoughts_tokens ?? 0;
     }
 
-    return { promptTokens, completionTokens, totalTokens, cachedTokens };
+    return { promptTokens, completionTokens, totalTokens, cachedTokens, thoughtsTokens };
   }
 
   async deleteSession(sessionId: string): Promise<void> {

@@ -111,7 +111,7 @@ export class VoiceChatService {
     let pendingUserTranscript = "";
     let pendingModelTranscript = "";
     const turns: VoiceTurn[] = [];
-    const accTokens = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+    const accTokens = { promptTokens: 0, completionTokens: 0, totalTokens: 0, thoughtsTokens: 0 };
     let flushed = false;
 
     // Function calls arrive mid-turn (after the user's transcript is complete
@@ -337,6 +337,7 @@ export class VoiceChatService {
         accTokens.promptTokens = Math.max(accTokens.promptTokens, usage.promptTokens);
         accTokens.completionTokens = Math.max(accTokens.completionTokens, usage.completionTokens);
         accTokens.totalTokens = Math.max(accTokens.totalTokens, usage.totalTokens);
+        accTokens.thoughtsTokens = Math.max(accTokens.thoughtsTokens, usage.thoughtsTokens ?? 0);
       },
 
       onClose: async (_code, _reason) => {
@@ -445,6 +446,7 @@ export class VoiceChatService {
       audioPromptTokens?: number;
       textCompletionTokens?: number;
       audioCompletionTokens?: number;
+      thoughtsTokens?: number;
     },
   ) {
     console.warn(`[VOICE] REST SaveRound - saving round for session ${sessionId} - prompt=${promptTokens} completion=${completionTokens} toolCalls=${toolCalls.length}`);
@@ -456,7 +458,7 @@ export class VoiceChatService {
     const session = await this.aiSessionService.getSessionContext(sessionId).catch(() => null);
     const historyDb: unknown[] = session?.history ? [...(session.history as unknown[])] : [];
 
-    const shouldPushModelMessage = !!modelText || completionTokens > 0;
+    const shouldPushModelMessage = !!modelText || completionTokens > 0 || (modalityTokens?.thoughtsTokens ?? 0) > 0;
 
     if (userText) {
       messages.push({
@@ -499,7 +501,8 @@ export class VoiceChatService {
         content: modelText,
         promptTokens: promptTokens,
         completionTokens: completionTokens,
-        totalTokens: promptTokens + completionTokens,
+        totalTokens: promptTokens + completionTokens + (modalityTokens?.thoughtsTokens ?? 0),
+        thoughtsTokens: modalityTokens?.thoughtsTokens ?? 0,
         textPromptTokens: modalityTokens?.textPromptTokens,
         audioPromptTokens: modalityTokens?.audioPromptTokens,
         textCompletionTokens: modalityTokens?.textCompletionTokens,
@@ -518,7 +521,7 @@ export class VoiceChatService {
       durationSeconds = Math.round((Date.now() - new Date(session.createdAt).getTime()) / 1000);
     }
 
-    const accTokens = { promptTokens, completionTokens, totalTokens };
+    const accTokens = { promptTokens, completionTokens, totalTokens, thoughtsTokens: modalityTokens?.thoughtsTokens ?? 0 };
     try {
       await this.aiSessionService.saveChatRound(agentId, sessionId, historyDb, messages, accTokens, null, durationSeconds, false);
       console.warn(`[VOICE] Round saved successfully for ${sessionId} - duration=${durationSeconds}s`);

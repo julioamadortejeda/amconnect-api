@@ -1,5 +1,5 @@
 import { AiMessage, AiRole, IAiProvider } from "../../core/ai_provider.interface.ts";
-import { AiSessionService } from "./ai_session.service.ts";
+import { AiSessionService, type UsageTokens } from "./ai_session.service.ts";
 import { AiProviderError } from "../../shared/errors.ts";
 import { buildToolDeclarations, offeredToolNames } from "../../shared/tool_declarations.ts";
 import { executeSkill } from "./skills/skill_executor.ts";
@@ -26,8 +26,8 @@ const MAX_LOOPS = 6;
 export interface ChatResponse {
   text: string;
   sessionId: string;
-  usage: { promptTokens: number; completionTokens: number; totalTokens: number; cachedTokens?: number };
-  sessionUsage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+  usage: UsageTokens;
+  sessionUsage?: UsageTokens;
   metadata?: Record<string, unknown>;
 }
 
@@ -182,8 +182,10 @@ export class AiChatService {
       promptTokens: classifyUsage?.promptTokens ?? 0,
       completionTokens: classifyUsage?.completionTokens ?? 0,
       totalTokens: classifyUsage?.totalTokens ?? 0,
+      cachedTokens: classifyUsage?.cachedTokens ?? 0,
+      thoughtsTokens: classifyUsage?.thoughtsTokens ?? 0,
     };
-    const loopUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0 };
+    const loopUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, thoughtsTokens: 0 };
 
     // Bucle de function calling
     let finalText = "";
@@ -221,6 +223,7 @@ export class AiChatService {
         loopUsage.completionTokens += result.usage.completionTokens;
         loopUsage.totalTokens += result.usage.totalTokens;
         loopUsage.cachedTokens += result.usage.cachedTokens ?? 0;
+        loopUsage.thoughtsTokens += result.usage.thoughtsTokens ?? 0;
       }
 
       if (result.text && !result.functionCalls?.length) {
@@ -315,6 +318,7 @@ export class AiChatService {
         loopUsage.completionTokens += cierre.usage.completionTokens;
         loopUsage.totalTokens += cierre.usage.totalTokens;
         loopUsage.cachedTokens += cierre.usage.cachedTokens ?? 0;
+        loopUsage.thoughtsTokens += cierre.usage.thoughtsTokens ?? 0;
       }
 
       if (cierre.text) {
@@ -350,7 +354,8 @@ export class AiChatService {
       promptTokens: classifyTokens.promptTokens + loopUsage.promptTokens,
       completionTokens: classifyTokens.completionTokens + loopUsage.completionTokens,
       totalTokens: classifyTokens.totalTokens + loopUsage.totalTokens,
-      cachedTokens: loopUsage.cachedTokens,
+      cachedTokens: classifyTokens.cachedTokens + loopUsage.cachedTokens,
+      thoughtsTokens: classifyTokens.thoughtsTokens + loopUsage.thoughtsTokens,
     };
 
     const sessionUsage = await this.aiSessionService.saveChatRound(
@@ -365,6 +370,8 @@ export class AiChatService {
           promptTokens: classifyTokens.promptTokens,
           completionTokens: classifyTokens.completionTokens,
           totalTokens: classifyTokens.totalTokens,
+          cachedTokens: classifyTokens.cachedTokens,
+          thoughtsTokens: classifyTokens.thoughtsTokens,
         },
         {
           role: "model",
@@ -373,6 +380,7 @@ export class AiChatService {
           completionTokens: loopUsage.completionTokens,
           totalTokens: loopUsage.totalTokens,
           cachedTokens: loopUsage.cachedTokens,
+          thoughtsTokens: loopUsage.thoughtsTokens,
           interactionId: lastInteractionId,
         },
       ],

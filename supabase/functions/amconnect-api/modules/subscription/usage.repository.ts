@@ -21,6 +21,7 @@ export interface TokenUsageParams {
   promptTokens: number;
   completionTokens: number;
   cachedTokens?: number;
+  thoughtsTokens?: number;
 }
 
 export interface IUsageRepository {
@@ -46,8 +47,9 @@ export class UsageRepository implements IUsageRepository {
         model_name: params.modelName,
         prompt_tokens: params.promptTokens,
         completion_tokens: params.completionTokens,
-        total_tokens: params.promptTokens + params.completionTokens,
+        total_tokens: params.promptTokens + params.completionTokens + (params.thoughtsTokens ?? 0),
         cached_tokens: params.cachedTokens ?? 0,
+        thoughts_tokens: params.thoughtsTokens ?? 0,
       });
     if (error) {
       console.error("[UsageRepository] Error inserting tokens_usage:", error);

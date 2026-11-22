@@ -178,11 +178,12 @@ export const say = (text: string, usage?: TokenUsage): ModelStep => ({ text, usa
 export const callTools = (calls: AiFunctionCall[], usage?: TokenUsage): ModelStep => ({ calls, usage });
 export const callTool = (name: string, args: Record<string, unknown> = {}, usage?: TokenUsage): ModelStep =>
   ({ calls: [{ name, args }], usage });
-export const usage = (promptTokens: number, completionTokens: number, cachedTokens?: number): TokenUsage => ({
+export const usage = (promptTokens: number, completionTokens: number, cachedTokens?: number, thoughtsTokens?: number): TokenUsage => ({
   promptTokens,
   completionTokens,
-  totalTokens: promptTokens + completionTokens,
+  totalTokens: promptTokens + completionTokens + (thoughtsTokens ?? 0),
   ...(cachedTokens === undefined ? {} : { cachedTokens }),
+  ...(thoughtsTokens === undefined ? {} : { thoughtsTokens }),
 });
 
 // ─── Repositorio de sesiones en memoria ─────────────────────────────────────
@@ -286,11 +287,13 @@ export class InMemoryAiSessionRepository implements IAiSessionRepository {
     const sum = (f: (r: TokenUsageRow) => number) => rows.reduce((a, r) => a + f(r), 0);
     const promptTokens = sum((r) => r.promptTokens);
     const completionTokens = sum((r) => r.completionTokens);
+    const thoughtsTokens = sum((r) => r.thoughtsTokens ?? 0);
     return Promise.resolve({
       promptTokens,
       completionTokens,
-      totalTokens: promptTokens + completionTokens,
+      totalTokens: promptTokens + completionTokens + thoughtsTokens,
       cachedTokens: sum((r) => r.cachedTokens ?? 0),
+      thoughtsTokens,
     });
   }
   async getSessionContext(sessionId: string) {
@@ -344,7 +347,7 @@ export class InMemoryAiSessionRepository implements IAiSessionRepository {
     return Promise.resolve();
   }
   getSessionTokenUsageDetails() {
-    const z = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, textPromptTokens: 0, audioPromptTokens: 0, textCompletionTokens: 0, audioCompletionTokens: 0 };
+    const z = { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, thoughtsTokens: 0, textPromptTokens: 0, audioPromptTokens: 0, textCompletionTokens: 0, audioCompletionTokens: 0 };
     return Promise.resolve({ chat: { ...z }, extraction: { ...z }, embedding: { ...z }, summary: { ...z } });
   }
   getSessionWithRates() {

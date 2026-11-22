@@ -440,7 +440,6 @@ export type Database = {
       ai_sessions: {
         Row: {
           agent_id: string
-          cached_tokens: number
           created_at: string
           duration_seconds: number | null
           embedding_model_name: string | null
@@ -461,7 +460,6 @@ export type Database = {
         }
         Insert: {
           agent_id: string
-          cached_tokens?: number
           created_at?: string
           duration_seconds?: number | null
           embedding_model_name?: string | null
@@ -482,7 +480,6 @@ export type Database = {
         }
         Update: {
           agent_id?: string
-          cached_tokens?: number
           created_at?: string
           duration_seconds?: number | null
           embedding_model_name?: string | null
@@ -1346,6 +1343,70 @@ export type Database = {
         }
         Relationships: []
       }
+      rate_limit_buckets: {
+        Row: {
+          agent_id: string
+          bucket: string
+          request_count: number
+          window_seconds: number
+          window_start: string
+        }
+        Insert: {
+          agent_id: string
+          bucket: string
+          request_count?: number
+          window_seconds: number
+          window_start: string
+        }
+        Update: {
+          agent_id?: string
+          bucket?: string
+          request_count?: number
+          window_seconds?: number
+          window_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rate_limit_buckets_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      recall_searches: {
+        Row: {
+          agent_id: string
+          created_at: string
+          embedding: string
+          id: string
+          query: string
+        }
+        Insert: {
+          agent_id: string
+          created_at?: string
+          embedding: string
+          id?: string
+          query: string
+        }
+        Update: {
+          agent_id?: string
+          created_at?: string
+          embedding?: string
+          id?: string
+          query?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recall_searches_agent_id_fkey"
+            columns: ["agent_id"]
+            isOneToOne: false
+            referencedRelation: "agents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reminder_comments: {
         Row: {
           agent_id: string
@@ -1572,7 +1633,9 @@ export type Database = {
           occurrence_date: string | null
           policy_id: string | null
           status_id: string
+          template_data: Json | null
           title: string
+          title_template: string | null
           type_id: string
           updated_at: string
         }
@@ -1589,7 +1652,9 @@ export type Database = {
           occurrence_date?: string | null
           policy_id?: string | null
           status_id: string
+          template_data?: Json | null
           title: string
+          title_template?: string | null
           type_id: string
           updated_at?: string
         }
@@ -1606,7 +1671,9 @@ export type Database = {
           occurrence_date?: string | null
           policy_id?: string | null
           status_id?: string
+          template_data?: Json | null
           title?: string
+          title_template?: string | null
           type_id?: string
           updated_at?: string
         }
@@ -1779,6 +1846,7 @@ export type Database = {
           source: string
           text_completion_tokens: number
           text_prompt_tokens: number
+          thoughts_tokens: number
           total_tokens: number
         }
         Insert: {
@@ -1797,6 +1865,7 @@ export type Database = {
           source: string
           text_completion_tokens?: number
           text_prompt_tokens?: number
+          thoughts_tokens?: number
           total_tokens?: number
         }
         Update: {
@@ -1815,6 +1884,7 @@ export type Database = {
           source?: string
           text_completion_tokens?: number
           text_prompt_tokens?: number
+          thoughts_tokens?: number
           total_tokens?: number
         }
         Relationships: [
@@ -1900,6 +1970,13 @@ export type Database = {
         Returns: Json
       }
       assert_usage_caller: { Args: { p_agent_id: string }; Returns: undefined }
+      backfill_reminder_title_templates: {
+        Args: never
+        Returns: {
+          contacts_linked: number
+          templates_set: number
+        }[]
+      }
       claim_device_token: {
         Args: { p_platform: string; p_token: string }
         Returns: {
@@ -1932,6 +2009,10 @@ export type Database = {
           title: string
         }[]
       }
+      consume_rate_limit: {
+        Args: { p_bucket: string; p_limit: number; p_window_seconds: number }
+        Returns: Json
+      }
       cron_check_due_reminders: { Args: never; Returns: undefined }
       cron_generate_due_reminders: { Args: never; Returns: undefined }
       daitch_mokotoff: { Args: { "": string }; Returns: string[] }
@@ -1940,6 +2021,7 @@ export type Database = {
       get_notification_secret: { Args: never; Returns: string }
       get_supabase_url: { Args: never; Returns: string }
       get_vault_secret: { Args: { p_name: string }; Returns: string }
+      immutable_unaccent: { Args: { p_text: string }; Returns: string }
       increment_monthly_usage: {
         Args: { p_agent_id: string; p_field: string }
         Returns: Json
@@ -1972,6 +2054,8 @@ export type Database = {
         }[]
       }
       normalize_search_text: { Args: { p_text: string }; Returns: string }
+      purge_rate_limit_buckets: { Args: never; Returns: number }
+      recall_tsquery: { Args: { p_query: string }; Returns: unknown }
       record_privacy_consent: {
         Args: {
           p_accepted_notice: boolean
@@ -1995,6 +2079,53 @@ export type Database = {
           p_policy_id?: string
           p_query_embedding: string
           p_reminder_id?: string
+        }
+        Returns: {
+          chunk_id: string
+          contact_id: string
+          content: string
+          created_at: string
+          note_id: string
+          policy_id: string
+          reminder_id: string
+          similarity: number
+          source_type: string
+        }[]
+      }
+      search_agent_note_chunks_exact: {
+        Args: {
+          p_agent_id: string
+          p_contact_id?: string
+          p_match_count?: number
+          p_match_threshold?: number
+          p_note_id?: string
+          p_policy_id?: string
+          p_query_embedding: string
+          p_reminder_id?: string
+          p_source_types?: string[]
+        }
+        Returns: {
+          chunk_id: string
+          contact_id: string
+          content: string
+          created_at: string
+          note_id: string
+          policy_id: string
+          reminder_id: string
+          similarity: number
+          source_type: string
+        }[]
+      }
+      search_agent_note_chunks_text: {
+        Args: {
+          p_agent_id: string
+          p_contact_id?: string
+          p_match_count?: number
+          p_note_id?: string
+          p_policy_id?: string
+          p_query: string
+          p_reminder_id?: string
+          p_source_types?: string[]
         }
         Returns: {
           chunk_id: string

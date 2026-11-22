@@ -152,9 +152,7 @@ Deno.test("uso: se registra tokens_usage (classify + model) con el modelo de la 
   assert.ok(rows.some((r) => r.promptTokens === 30 && r.completionTokens === 3), "fila del clasificador");
 });
 
-Deno.test("sessionUsage de la respuesta = acumulado real de la sesión (este turno + los previos), sin contar nada dos veces", {
-  ignore: true, // BUG: ai_session.service.ts:184-187 saveChatRound: logTokenUsage inserta las filas del turno y LUEGO getSessionTokens las suma otra vez + deltaUsage => sessionUsage cuenta el turno dos veces
-}, async () => {
+Deno.test("sessionUsage de la respuesta = acumulado real de la sesión (este turno + los previos), sin contar nada dos veces", async () => {
   const h = buildAssistantHarness({
     script: [say("ok", usage(200, 20)), say("de nada", usage(10, 1))],
     classify: { domains: ["contact"], language: "Spanish", usage: usage(30, 3) },
@@ -168,7 +166,7 @@ Deno.test("sessionUsage de la respuesta = acumulado real de la sesión (este tur
 Deno.test("sin usage del proveedor: ceros, no NaN ni undefined", async () => {
   const h = buildAssistantHarness({ script: [say("hola")], classify: { domains: [], language: "Spanish" } });
   const { json } = await chat(h, { message: "hola" });
-  assert.deepEqual(json.data.usage, { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0 });
+  assert.deepEqual(json.data.usage, { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, thoughtsTokens: 0 });
 });
 
 Deno.test("cancelar sesión: 200 { cancelled, cancelledTasks }, marca cancelled y cancela las tareas pendientes", async () => {
