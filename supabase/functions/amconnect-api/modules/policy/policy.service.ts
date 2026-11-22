@@ -137,16 +137,10 @@ export class PolicyService extends BaseService<PolicyRequestDTO, PolicyResponseD
     });
   }
 
-  async getUpcomingExpirations(agentId: string, days = 30): Promise<PolicyResponseDTO[] | null> {
-    const items = await this.getByField("agent_id", agentId);
-    if (!items) return null;
-    const now = new Date();
-    const limitDate = new Date(Date.now() + days * 86400000);
-    return items.filter((p) => {
-      if (!p.endDate) return false;
-      const d = new Date(p.endDate);
-      return d >= now && d <= limitDate;
-    });
+  /** Pólizas que vencen entre `from` y `to` (YYYY-MM-DD, inclusive), filtradas en la BD. */
+  async getExpiringBetween(agentId: string, from: string, to: string): Promise<PolicyResponseDTO[]> {
+    const rows = await this.policyRepo.findExpiringBetween(agentId, from, to);
+    return rows.map((r) => this.toDTO(r));
   }
 
   /**
