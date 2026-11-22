@@ -12,6 +12,7 @@
 //   - InMemoryAiSessionRepository: IAiSessionRepository en memoria, con la
 //     semántica de RLS (un asesor no ve las sesiones de otro).
 //   - buildAssistantHarness: app Hono + services reales sobre esos fakes.
+import type { ToolSelectionMode } from "../assistant.config.ts";
 import "./test_env.ts";
 import type {
   AiFunctionCall,
@@ -381,6 +382,12 @@ export interface HarnessOptions {
   skillOverrides?: Record<string, unknown>;
   /** Cuota mensual: si se pone, el repo de uso responde `quota_exceeded`. */
   quotaExceeded?: boolean;
+  /**
+   * Modo de selección de herramientas. Por defecto "by_domain": las pruebas de
+   * caracterización fijan el comportamiento con clasificador. Las de "all" lo
+   * piden explícito.
+   */
+  toolSelectionMode?: ToolSelectionMode;
 }
 
 export interface AssistantHarness {
@@ -413,7 +420,7 @@ export function buildAssistantHarness(opts: HarnessOptions = {}): AssistantHarne
   }
   const usageService = new UsageService(usageRepo);
 
-  const chatService = new AiChatService(provider, toSkillServices(skills), sessionService, prompts as unknown as PromptService);
+  const chatService = new AiChatService(provider, toSkillServices(skills), sessionService, prompts as unknown as PromptService, opts.toolSelectionMode ?? "by_domain");
   const voiceService = new VoiceChatService(
     provider as never,
     toSkillServices(skills),

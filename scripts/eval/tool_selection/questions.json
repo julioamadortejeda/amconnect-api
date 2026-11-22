@@ -1,0 +1,125 @@
+[
+  {
+    "id": "lookup-phone-es",
+    "category": "simple_lookup",
+    "lang": "es",
+    "text": "¿Cuál es el teléfono de Rosa Martínez?",
+    "expectedTools": ["search_contact"]
+  },
+  {
+    "id": "lookup-count-es",
+    "category": "simple_lookup",
+    "lang": "es",
+    "text": "¿Cuántos clientes tengo?",
+    "expectedTools": ["count_contacts"]
+  },
+  {
+    "id": "compound-carlos",
+    "category": "compound",
+    "lang": "es",
+    "text": "De Carlos Ramírez dame el teléfono, sus pólizas y sus recordatorios pendientes",
+    "expectedTools": ["search_contact", "get_contact_policies", "search_reminders"]
+  },
+  {
+    "id": "compound-jorge",
+    "category": "compound",
+    "lang": "es",
+    "text": "Pásame el correo de Jorge Villarreal, qué pólizas tiene y cuándo vencen",
+    "expectedTools": ["search_contact", "get_contact_policies"]
+  },
+  {
+    "id": "write-call-rosa",
+    "category": "write_mid_turn",
+    "lang": "es",
+    "text": "Busca a Rosa Martínez y agéndame una llamada con ella el próximo lunes a las 10 de la mañana",
+    "expectedTools": ["search_contact"],
+    "isWrite": true,
+    "writeTable": "reminders"
+  },
+  {
+    "id": "write-reminder-laura",
+    "category": "write_mid_turn",
+    "lang": "es",
+    "text": "Recuérdame llamar a Laura Sánchez el viernes para revisar su renovación",
+    "expectedTools": ["search_contact"],
+    "isWrite": true,
+    "writeTable": "reminders"
+  },
+  {
+    "id": "write-note-roberto",
+    "category": "write_mid_turn",
+    "lang": "es",
+    "text": "Agrega una nota a Roberto Flores: prefiere que le llamen por la tarde",
+    "expectedTools": ["search_contact", "add_note_to_client"],
+    "isWrite": true,
+    "writeTable": "agent_notes"
+  },
+  {
+    "id": "recall-open-es",
+    "category": "open_recall",
+    "lang": "es",
+    "text": "¿Qué me dijo Patricia Núñez la última vez que hablamos?",
+    "expectedTools": [],
+    "forbiddenTools": ["create_reminder", "create_reminder_for_client", "delete_contact"]
+  },
+  {
+    "id": "recall-agenda-es",
+    "category": "open_recall",
+    "lang": "es",
+    "text": "¿Qué tengo que hacer esta semana?",
+    "expectedTools": ["get_upcoming_reminders"]
+  },
+  {
+    "id": "catalog-carriers",
+    "category": "catalog",
+    "lang": "es",
+    "text": "¿Qué tipos de recordatorio puedo crear?",
+    "expectedTools": ["get_reminder_types"]
+  },
+  {
+    "id": "catalog-carrier-search",
+    "category": "catalog",
+    "lang": "es",
+    "text": "Busca la aseguradora GNP en mi catálogo",
+    "expectedTools": ["search_carrier"]
+  },
+  {
+    "id": "en-lookup",
+    "category": "english",
+    "lang": "en",
+    "text": "What is Alejandra Domínguez's phone number?",
+    "expectedTools": ["search_contact"]
+  },
+  {
+    "id": "en-compound",
+    "category": "english",
+    "lang": "en",
+    "text": "Show me the policies and upcoming reminders for Héctor Gutiérrez",
+    "expectedTools": ["search_contact", "get_contact_policies"]
+  },
+  {
+    "id": "en-write",
+    "category": "english",
+    "lang": "en",
+    "text": "Find Mariana Luna and remind me to call her next Tuesday",
+    "expectedTools": ["search_contact"],
+    "isWrite": true,
+    "writeTable": "reminders"
+  },
+  {
+    "id": "followup-policies",
+    "category": "short_followup",
+    "lang": "es",
+    "text": "Busca a Daniela Treviño",
+    "expectedTools": ["search_contact", "get_contact_policies"],
+    "followUps": ["¿y sus pólizas?"]
+  },
+  {
+    "id": "followup-ok",
+    "category": "short_followup",
+    "lang": "es",
+    "text": "¿Cuándo vencen las pólizas de este año?",
+    "expectedTools": ["get_expiring_policies"],
+    "followUps": ["y las del próximo mes"]
+  }
+]
