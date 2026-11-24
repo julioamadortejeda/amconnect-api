@@ -828,7 +828,6 @@ function withWiden(wide: ReturnType<typeof buildReminder>[], ranged: ReturnType<
   const rs = f.ctx.reminderService as any;
   const orig = rs.getUpcoming;
   const wideCalls: unknown[][] = [];
-  // deno-lint-ignore no-explicit-any
   rs.getUpcoming = (a: string, from: string | null, to: string | null, c?: string) =>
     from === null && to === null ? (wideCalls.push([a, c]), Promise.resolve(wide)) : orig(a, from, to, c);
   return { ...f, wideCalls };
