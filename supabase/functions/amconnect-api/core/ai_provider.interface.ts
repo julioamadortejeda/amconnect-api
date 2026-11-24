@@ -83,10 +83,14 @@ export interface IAiProvider {
   // idioma propio —un nombre suelto, "ok", "el segundo", una fecha— y también
   // cuando el clasificador falló. Quien lo use tiene que decidir con qué se
   // queda en ese caso; adivinar aquí sería inventarlo.
+  //
+  // `moveExisting`: true cuando el asesor pide mover/reagendar/posponer/cambiar
+  // la hora de algo que YA existe (cita, recordatorio). Lo decide el modelo, no
+  // una lista de palabras. Falso por omisión (campo ausente, inválido o JSON roto).
   classifyMessage(
     message: string,
     availableDomains: string[],
-  ): Promise<{ domains: string[]; language?: string; usage?: TokenUsage }>;
+  ): Promise<{ domains: string[]; language?: string; moveExisting?: boolean; usage?: TokenUsage }>;
 
   createEphemeralToken(
     model: string,

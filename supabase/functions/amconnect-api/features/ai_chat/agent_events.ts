@@ -2,8 +2,8 @@
 // AiChatService para responder JSON; el endpoint SSE (Fase 2, paso 4) los
 // traducirá 1:1 a `event: status|tool|delta|done`. No saben de HTTP.
 //
-// En pantalla se muestra `label`, NUNCA `name`: el nombre técnico de la
-// herramienta es para logs y depuración.
+// `name` viaja en el SSE como código para que la app traduzca la etiqueta al
+// idioma del teléfono; `label` (idioma de la respuesta) es el respaldo.
 import type { UsageTokens } from "./ai_session.service.ts";
 import type { RagAttachmentCollector } from "./rag_attachments.ts";
 
@@ -56,7 +56,11 @@ const LABELS: Record<string, Record<LabelLanguage, string>> = {
   search_reminders: { es: "Revisando tu agenda", en: "Checking your schedule" },
   create_reminder: { es: "Agendando recordatorio", en: "Scheduling reminder" },
   create_reminder_for_client: { es: "Agendando recordatorio", en: "Scheduling reminder" },
+  get_commitments: { es: "Revisando compromisos", en: "Checking commitments" },
   create_commitment: { es: "Guardando compromiso", en: "Saving commitment" },
+  update_commitment: { es: "Guardando compromiso", en: "Saving commitment" },
+  close_commitment: { es: "Guardando compromiso", en: "Saving commitment" },
+  reopen_commitment: { es: "Guardando compromiso", en: "Saving commitment" },
   search_knowledge: { es: "Buscando en tus notas", en: "Searching your notes" },
   recall: { es: "Buscando en tus notas", en: "Searching your notes" },
 };

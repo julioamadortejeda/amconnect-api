@@ -73,19 +73,19 @@ Deno.test("stream = JSON: mismo guion, mismo data final e historial persistido",
   );
 });
 
-Deno.test("stream con herramientas: tool started/finished con etiqueta humana y sin nombre técnico", async () => {
+Deno.test("stream con herramientas: tool started/finished con `name` (código) y etiqueta humana de respaldo", async () => {
   const h = buildAssistantHarness({
     script: [callTool("search_contact", { query: "Rosa" }), callTool("count_contacts", {}), say("listo")],
   });
   const r = await stream(h, { message: "busca a Rosa" });
   assert.deepEqual(names(r.events), ["status", "tool", "tool", "status", "tool", "tool", "status", "delta", "done"]);
   const tools = r.events.filter((e) => e.event === "tool");
-  assert.deepEqual(tools[0].data, { label: "Buscando contacto", state: "started" });
+  assert.deepEqual(tools[0].data, { name: "search_contact", label: "Buscando contacto", state: "started" });
   assert.equal(tools[1].data.state, "finished");
   assert.equal(typeof tools[1].data.ok, "boolean");
-  assert.deepEqual(tools[2].data, { label: "Trabajando…", state: "started" }, "sin etiqueta propia → genérica");
-  for (const t of tools) assert.deepEqual(Object.keys(t.data).filter((k) => !["label", "state", "ok"].includes(k)), []);
-  assert.ok(!r.raw.includes("search_contact") && !r.raw.includes("count_contacts"), "nombres técnicos filtrados");
+  assert.deepEqual(tools[2].data, { name: "count_contacts", label: "Trabajando…", state: "started" }, "sin etiqueta propia → genérica");
+  for (const t of tools) assert.deepEqual(Object.keys(t.data).filter((k) => !["name", "label", "state", "ok"].includes(k)), []);
+  assert.equal(tools[1].data.name, "search_contact");
 });
 
 Deno.test("stream: etiquetas en inglés cuando el turno es en inglés", async () => {

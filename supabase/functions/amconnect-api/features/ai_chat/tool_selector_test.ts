@@ -101,7 +101,7 @@ Deno.test("by_domain emite el log [TOOLS] con modo, conteo e idioma", async () =
   const { p } = provider({ domains: [], language: "English" });
   const logs: string[] = [];
   await withQuietWarn(() => new DomainToolSelector(p, "by_domain").select(input()), logs);
-  assert.match(logs[0], /^\[TOOLS\] mode=by_domain count=\d+ lang=English langSource=detected$/);
+  assert.match(logs[0], /^\[TOOLS\] mode=by_domain count=\d+ lang=English langSource=detected moveExisting=false removed=0$/);
 });
 
 Deno.test("idioma by_domain: el clasificador manda; sin él cae al historial; sin historial al locale", async () => {
@@ -126,4 +126,45 @@ Deno.test("idioma all: detecta localmente el mensaje y respeta el fallback", asy
   const short = await select("all", { domains: [] }, { message: "ok", advisorLocale: "en" });
   assert.equal(short.sel.replyLanguage, "English");
   assert.equal(short.sel.langSource, "fallback");
+});
+
+// ─── moveExisting (el clasificador detecta "mover algo que ya existe") ──────
+
+const CREATION = ["create_reminder", "create_reminder_for_client"];
+
+Deno.test("moveExisting=true: quita SOLO las herramientas que crean recordatorios, también de la lista blanca", async () => {
+  const base = await select("by_domain", { domains: ["reminder"], moveExisting: false } as never);
+  const moved = await select("by_domain", { domains: ["reminder"], moveExisting: true } as never);
+  for (const n of CREATION) {
+    assert.ok(names(base.sel).includes(n), `${n} se ofrece sin moveExisting`);
+    assert.ok(!names(moved.sel).includes(n), `${n} no se ofrece con moveExisting`);
+    assert.ok(!moved.sel.offeredNames.has(n), `${n} fuera de la lista blanca`);
+  }
+  for (const n of ["reschedule_reminder", "update_reminder", "search_reminders", "get_upcoming_reminders", "search_contact", "create_commitment"]) {
+    assert.ok(names(moved.sel).includes(n), `${n} se conserva`);
+  }
+  assert.deepEqual(names(base.sel).filter((n) => !CREATION.includes(n!)), names(moved.sel));
+  assert.deepEqual([...moved.sel.offeredNames].sort(), (names(moved.sel) as string[]).sort());
+  assert.equal(moved.sel.moveExisting, true);
+  assert.equal(base.sel.moveExisting, false);
+});
+
+Deno.test("moveExisting ausente del clasificador = false y no recorta nada", async () => {
+  const { sel } = await select("by_domain", { domains: ["reminder"] });
+  assert.equal(sel.moveExisting, false);
+  assert.ok(sel.offeredNames.has("create_reminder_for_client"));
+});
+
+Deno.test("moveExisting se registra en el log [TOOLS]", async () => {
+  const logs: string[] = [];
+  const { p } = provider({ domains: ["reminder"], moveExisting: true } as never);
+  await withQuietWarn(() => new DomainToolSelector(p, "by_domain").select(input()), logs);
+  assert.ok(logs.some((l) => l.includes("[TOOLS]") && l.includes("moveExisting=true removed=2")), logs.join("|"));
+});
+
+Deno.test("modo all: sin clasificador, moveExisting no aplica y se ofrecen las herramientas de crear", async () => {
+  const { sel, calls } = await select("all", { domains: [], moveExisting: true } as never);
+  assert.equal(calls.length, 0);
+  assert.equal(sel.moveExisting, false);
+  assert.ok(sel.offeredNames.has("create_reminder"));
 });

@@ -89,7 +89,7 @@ Deno.test("all: se registra la línea [TOOLS] sin contenido del mensaje", async 
   }
   const line = lines.find((l) => l.startsWith("[TOOLS]"));
   assert.ok(line);
-  assert.match(line!, /^\[TOOLS\] mode=all count=\d+ lang=Spanish langSource=detected$/);
+  assert.match(line!, /^\[TOOLS\] mode=all count=\d+ lang=Spanish langSource=detected moveExisting=false removed=0$/);
   assert.ok(!line!.includes("secreto"));
 });
 

@@ -228,6 +228,12 @@ Deno.test("citas: se limpian del texto y quedan en citedNoteIds", async () => {
   assert.deepEqual([...outcome.citedNoteIds], [id]);
 });
 
+Deno.test("toolLabel: herramientas de compromisos tienen etiqueta propia", () => {
+  assert.equal(toolLabel("get_commitments", "Spanish"), "Revisando compromisos");
+  assert.equal(toolLabel("get_commitments", "English"), "Checking commitments");
+  assert.equal(toolLabel("close_commitment", "English"), "Saving commitment");
+});
+
 Deno.test("toolLabel: idioma inglés y etiqueta genérica", () => {
   assert.equal(toolLabel("search_contact", "English"), "Looking up contact");
   assert.equal(toolLabel("count_policies", "English"), "Working…");
