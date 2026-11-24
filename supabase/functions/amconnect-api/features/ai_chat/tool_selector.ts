@@ -36,9 +36,10 @@ export interface ToolSelection {
  * `reschedule_reminder` no crea, y si no hay nada que mover el modelo debe
  * preguntar, no inventar una hora (2026-11-23: "Patricia me dijo que hoy no me
  * puede ver, que la reagende mañana" sin cita → create_reminder_for_client a
- * las 10:00 inventadas). `create_commitment` no está aquí: no agenda día.
+ * las 10:00 inventadas). También `create_commitment`: mover nunca crea nada, y
+ * si se ofrece el modelo puede usarlo de salida cuando no encontró la cita.
  */
-export const REMINDER_CREATION_TOOLS: readonly string[] = ["create_reminder", "create_reminder_for_client"];
+export const REMINDER_CREATION_TOOLS: readonly string[] = ["create_reminder", "create_reminder_for_client", "create_commitment"];
 
 export interface ToolSelector {
   select(input: ToolSelectionInput): Promise<ToolSelection>;

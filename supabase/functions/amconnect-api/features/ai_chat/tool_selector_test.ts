@@ -130,9 +130,9 @@ Deno.test("idioma all: detecta localmente el mensaje y respeta el fallback", asy
 
 // ─── moveExisting (el clasificador detecta "mover algo que ya existe") ──────
 
-const CREATION = ["create_reminder", "create_reminder_for_client"];
+const CREATION = ["create_reminder", "create_reminder_for_client", "create_commitment"];
 
-Deno.test("moveExisting=true: quita SOLO las herramientas que crean recordatorios, también de la lista blanca", async () => {
+Deno.test("moveExisting=true: quita SOLO las herramientas que crean (recordatorios y compromisos), también de la lista blanca", async () => {
   const base = await select("by_domain", { domains: ["reminder"], moveExisting: false } as never);
   const moved = await select("by_domain", { domains: ["reminder"], moveExisting: true } as never);
   for (const n of CREATION) {
@@ -140,7 +140,7 @@ Deno.test("moveExisting=true: quita SOLO las herramientas que crean recordatorio
     assert.ok(!names(moved.sel).includes(n), `${n} no se ofrece con moveExisting`);
     assert.ok(!moved.sel.offeredNames.has(n), `${n} fuera de la lista blanca`);
   }
-  for (const n of ["reschedule_reminder", "update_reminder", "search_reminders", "get_upcoming_reminders", "search_contact", "create_commitment"]) {
+  for (const n of ["reschedule_reminder", "update_reminder", "search_reminders", "get_upcoming_reminders", "search_contact"]) {
     assert.ok(names(moved.sel).includes(n), `${n} se conserva`);
   }
   assert.deepEqual(names(base.sel).filter((n) => !CREATION.includes(n!)), names(moved.sel));
@@ -159,7 +159,7 @@ Deno.test("moveExisting se registra en el log [TOOLS]", async () => {
   const logs: string[] = [];
   const { p } = provider({ domains: ["reminder"], moveExisting: true } as never);
   await withQuietWarn(() => new DomainToolSelector(p, "by_domain").select(input()), logs);
-  assert.ok(logs.some((l) => l.includes("[TOOLS]") && l.includes("moveExisting=true removed=2")), logs.join("|"));
+  assert.ok(logs.some((l) => l.includes("[TOOLS]") && l.includes("moveExisting=true removed=3")), logs.join("|"));
 });
 
 Deno.test("modo all: sin clasificador, moveExisting no aplica y se ofrecen las herramientas de crear", async () => {
