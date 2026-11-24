@@ -76,6 +76,10 @@ export function agendaResult(agenda: ReminderAgenda, timezone: string) {
       to: agenda.range.to ? utcToLocalIso(agenda.range.to, timezone) : null,
       ...(agenda.usedDefault ? { isDefault: true } : {}),
     },
+    // El rango pedido salió vacío y esta lista sale de buscar sin fechas
+    // (incluye vencidos). `reminders: []` con `widened` = no hay nada en ningún lado.
+    ...(agenda.widened ? { widened: true as const } : {}),
+    ...(agenda.truncated ? { truncated: true as const } : {}),
     // Para que el modelo no presente una lista de un solo cliente como si
     // fuera la agenda completa del asesor.
     ...(agenda.scoped ? { scope: "contact" as const } : {}),

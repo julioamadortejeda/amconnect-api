@@ -818,3 +818,77 @@ Deno.test("get_contact_policies: sin pólizas → sin tarjeta policy_list", asyn
   assert.equal(metadata, undefined);
   assert.deepEqual((response as Record<string, unknown>).policies, []);
 });
+
+// ─── widen_if_empty ─────────────────────────────────────────────────────────
+
+/** getUpcoming falso que responde según si hay rango (null/null = búsqueda ampliada). */
+function withWiden(wide: ReturnType<typeof buildReminder>[], ranged: ReturnType<typeof buildReminder>[] = []) {
+  const f = fakeSkillContext({ upcoming: ranged });
+  // deno-lint-ignore no-explicit-any
+  const rs = f.ctx.reminderService as any;
+  const orig = rs.getUpcoming;
+  const wideCalls: unknown[][] = [];
+  // deno-lint-ignore no-explicit-any
+  rs.getUpcoming = (a: string, from: string | null, to: string | null, c?: string) =>
+    from === null && to === null ? (wideCalls.push([a, c]), Promise.resolve(wide)) : orig(a, from, to, c);
+  return { ...f, wideCalls };
+}
+
+const RANGE = { from: "2099-01-01T00:00:00-06:00", to: "2099-01-01T23:59:59-06:00", contact_id: "c-1" };
+
+Deno.test("widen_if_empty: ausente o false → igual que hoy (sin ampliar)", async () => {
+  for (const extra of [{}, { widen_if_empty: false }]) {
+    const { ctx, wideCalls } = withWiden([buildReminder()]);
+    const { response } = await run("get_upcoming_reminders", { ...RANGE, ...extra }, ctx);
+    const r = response as Record<string, unknown>;
+    assert.equal(r.widened, undefined);
+    assert.deepEqual(r.reminders, []);
+    assert.equal(wideCalls.length, 0);
+  }
+});
+
+Deno.test("widen_if_empty: true y el rango tiene resultados → no amplía", async () => {
+  const { ctx, wideCalls } = withWiden([buildReminder({ id: "r-x" })], [buildReminder()]);
+  const { response, metadata } = await run("get_upcoming_reminders", { ...RANGE, widen_if_empty: true }, ctx);
+  const r = response as Record<string, unknown>;
+  assert.equal(r.widened, undefined);
+  assert.deepEqual(r.reminders, [SLIM_REMINDER]);
+  assert.equal(wideCalls.length, 0);
+  assert.ok(metadata);
+});
+
+Deno.test("widen_if_empty: true y rango vacío → trae futuros y vencidos del contacto, con widened y rango pedido", async () => {
+  const overdue = buildReminder({ id: "r-old", dueDate: "2020-01-01T12:00:00Z" });
+  const future = buildReminder({ id: "r-far", dueDate: "2099-06-01T12:00:00Z" });
+  const { ctx, wideCalls } = withWiden([overdue, future]);
+  const { response, metadata } = await run("get_upcoming_reminders", { ...RANGE, widen_if_empty: true }, ctx);
+  const r = response as Record<string, unknown>;
+  assert.equal(r.widened, true);
+  assert.deepEqual(r.queriedRange, { from: RANGE.from, to: RANGE.to });
+  assert.equal(r.scope, "contact");
+  assert.deepEqual((r.reminders as { id: string }[]).map((x) => x.id), ["r-old", "r-far"]);
+  assert.equal(r.beyondRange, undefined);
+  assert.equal(r.beforeRange, undefined);
+  assert.equal((metadata as { reminders: unknown[] }).reminders.length, 2);
+  assert.deepEqual(wideCalls, [[SKILL_AGENT, "c-1"]]);
+});
+
+Deno.test("widen_if_empty: nada en ningún lado → widened + vacío, sin tarjeta", async () => {
+  const { ctx } = withWiden([]);
+  const { response, metadata } = await run("get_upcoming_reminders", { ...RANGE, widen_if_empty: true }, ctx);
+  const r = response as Record<string, unknown>;
+  assert.equal(r.widened, true);
+  assert.deepEqual(r.reminders, []);
+  assert.equal(metadata, undefined);
+});
+
+Deno.test("widen_if_empty: sin contact_id → la lista ampliada se recorta al tope", async () => {
+  const many = Array.from({ length: 35 }, (_, i) => buildReminder({ id: `r-${i}` }));
+  const { ctx } = withWiden(many);
+  const { response } = await run("get_upcoming_reminders", { from: RANGE.from, to: RANGE.to, widen_if_empty: true }, ctx);
+  const r = response as Record<string, unknown>;
+  assert.equal(r.widened, true);
+  assert.equal(r.truncated, true);
+  assert.equal((r.reminders as unknown[]).length, 20);
+  assert.equal(r.scope, undefined);
+});
