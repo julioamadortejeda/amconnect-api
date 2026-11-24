@@ -32,14 +32,17 @@ export interface ToolSelection {
 }
 
 /**
- * Herramientas que CREAN un recordatorio/cita. Con `moveExisting` no se ofrecen:
- * `reschedule_reminder` no crea, y si no hay nada que mover el modelo debe
- * preguntar, no inventar una hora (2026-11-23: "Patricia me dijo que hoy no me
- * puede ver, que la reagende mañana" sin cita → create_reminder_for_client a
- * las 10:00 inventadas). También `create_commitment`: mover nunca crea nada, y
- * si se ofrece el modelo puede usarlo de salida cuando no encontró la cita.
+ * Con `moveExisting` no se ofrece NINGUNA herramienta que cree registros
+ * (`create_*`): mover nunca crea nada. Primero se quitaron solo las de crear
+ * recordatorio/compromiso, y el modelo escapó por otra: "Patricia… que la
+ * reagende mañana" sin cita → get_reminder_types y luego create_contact
+ * "Patricia" (duplicado), agotando las vueltas (2026-11-23). Sin ninguna
+ * herramienta de crear, si no hay nada que mover solo le queda preguntar.
+ * La regla es por el prefijo `create_` de las skills (convención del registro).
  */
-export const REMINDER_CREATION_TOOLS: readonly string[] = ["create_reminder", "create_reminder_for_client", "create_commitment"];
+export function isCreationTool(name: string | undefined): boolean {
+  return (name ?? "").startsWith("create_");
+}
 
 export interface ToolSelector {
   select(input: ToolSelectionInput): Promise<ToolSelection>;
@@ -108,8 +111,8 @@ export class DomainToolSelector implements ToolSelector {
   // las notas", sin llamar a nada). Si la herramienta no existe en el turno,
   // no hay a dónde escaparse: tiene que llamar a la que de verdad escribe.
   //
-  // Con `moveExisting` también se quitan las herramientas que crean
-  // recordatorios (ver REMINDER_CREATION_TOOLS). La lista blanca se deriva de
+  // Con `moveExisting` también se quitan todas las herramientas que crean
+  // registros (ver isCreationTool). La lista blanca se deriva de
   // estas mismas declaraciones, así que queda consistente sola.
   private buildTools(
     activeDomains: string[],
@@ -119,7 +122,7 @@ export class DomainToolSelector implements ToolSelector {
     const exclude = pendingCount === 0 ? ["resolve_pending_task"] : [];
     const all = buildToolDeclarations(activeDomains, { exclude });
     const functionDeclarations = moveExisting
-      ? all.filter((d) => !REMINDER_CREATION_TOOLS.includes(d.name ?? ""))
+      ? all.filter((d) => !isCreationTool(d.name))
       : all;
     return { tools: [{ functionDeclarations }], removedCount: all.length - functionDeclarations.length };
   }
