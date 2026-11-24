@@ -2,15 +2,18 @@
 // eventos SSE de `POST /ai/chat/stream` (diseño Fase 2, §4) y los numera.
 //
 //   status     {"phase":"thinking","sessionId":"…"}     antes de cada llamada al modelo
-//   tool       {"label":"Buscando contacto","state":"started"}
-//              {"label":"…","state":"finished","ok":true}
+//   tool       {"name":"search_contact","label":"Buscando contacto","state":"started"}
+//              {"name":"…","label":"…","state":"finished","ok":true}
+//              `name` = código técnico de la herramienta: la app lo traduce al
+//              idioma del teléfono; `label` (idioma de la respuesta) queda de
+//              respaldo para builds viejos o nombres que la app no conozca.
 //   delta      {"text":"…"}
 //   done       mismo `data` que POST /ai/chat ({text, sessionId, usage, sessionUsage, metadata, aiBackend})
 //   error      {"errorCode":"AI_PROVIDER_BUSY","error":"…","errorId":"…"}
 //   cancelled  {"sessionId":"…","modelCalls":1}
 //
 // Cada evento lleva `id` = secuencia 1, 2, 3… dentro del stream. Al cliente
-// NUNCA le llega el nombre técnico de una herramienta: solo su `label`.
+// El `name` es un código estable para traducir, no texto para mostrar tal cual.
 import type { AgentEvent } from "../../features/ai_chat/agent_events.ts";
 
 export type ChatStreamEventName = "status" | "tool" | "delta" | "done" | "error" | "cancelled";
@@ -33,9 +36,9 @@ export function toStreamMessage(event: AgentEvent, sessionId: string | undefined
     case "model_call_started":
       return { event: "status", data: { phase: "thinking", ...(sessionId ? { sessionId } : {}) } };
     case "tool_started":
-      return { event: "tool", data: { label: event.label, state: "started" } };
+      return { event: "tool", data: { name: event.name, label: event.label, state: "started" } };
     case "tool_finished":
-      return { event: "tool", data: { label: event.label, state: "finished", ok: event.ok } };
+      return { event: "tool", data: { name: event.name, label: event.label, state: "finished", ok: event.ok } };
     case "text":
       // A propósito (decisión 2026-11-23): el texto llega completo en un solo
       // `delta`. Retractar texto cuando Gemini cambia a una herramienta no vale

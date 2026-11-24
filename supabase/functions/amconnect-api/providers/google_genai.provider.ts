@@ -279,7 +279,7 @@ export class GoogleGenAiProvider implements IAiProvider {
   async classifyMessage(
     message: string,
     availableDomains: string[],
-  ): Promise<{ domains: string[]; language?: string; usage?: TokenUsage }> {
+  ): Promise<{ domains: string[]; language?: string; moveExisting?: boolean; usage?: TokenUsage }> {
     // Sin rama de respaldo: el DI construye SIEMPRE el PromptService
     // (di/index.ts) y se lo pasa a los dos providers, asi que el `if` que habia
     // aqui nunca corria — y dentro cargaba una copia entera del prompt del
@@ -316,7 +316,7 @@ export class GoogleGenAiProvider implements IAiProvider {
     // es no recortar. Con lista vacia el modelo se queda sin las herramientas
     // que necesitaba y contesta que no puede hacer nada, que es peor que un
     // error: parece una respuesta.
-    let parsed: { domains?: string[]; language?: string | null };
+    let parsed: { domains?: string[]; language?: string | null; moveExisting?: unknown; move_existing?: unknown };
     try {
       parsed = JSON.parse(response.text ?? "{}");
     } catch {
@@ -332,6 +332,9 @@ export class GoogleGenAiProvider implements IAiProvider {
       language: typeof parsed.language === "string" && parsed.language.trim() !== ""
         ? parsed.language.trim()
         : undefined,
+      // Solo `true` booleano cuenta; ausente (prompt de BD aún sin el campo),
+      // string u otro tipo = false. Acepta camelCase y snake_case.
+      moveExisting: (parsed.moveExisting ?? parsed.move_existing) === true,
       usage: response.usageMetadata
         ? mapGenerateContentUsage(response.usageMetadata)
         : undefined,

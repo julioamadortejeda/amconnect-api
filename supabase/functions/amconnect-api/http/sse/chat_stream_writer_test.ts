@@ -3,18 +3,18 @@ import assert from "node:assert/strict";
 import { ChatStreamWriter, toStreamMessage } from "./chat_stream_writer.ts";
 import { RagAttachmentCollector } from "../../features/ai_chat/rag_attachments.ts";
 
-Deno.test("toStreamMessage: 1:1 con el diseño; tool sin nombre técnico", () => {
+Deno.test("toStreamMessage: 1:1 con el diseño; tool con `name` (código) y `label` (respaldo)", () => {
   assert.deepEqual(toStreamMessage({ type: "model_call_started", call: 1, forceTextOnly: false }, "s-1"), {
     event: "status",
     data: { phase: "thinking", sessionId: "s-1" },
   });
   assert.deepEqual(toStreamMessage({ type: "tool_started", name: "search_contact", label: "Buscando contacto" }, "s-1"), {
     event: "tool",
-    data: { label: "Buscando contacto", state: "started" },
+    data: { name: "search_contact", label: "Buscando contacto", state: "started" },
   });
   assert.deepEqual(toStreamMessage({ type: "tool_finished", name: "search_contact", label: "Buscando contacto", ok: false }, "s-1"), {
     event: "tool",
-    data: { label: "Buscando contacto", state: "finished", ok: false },
+    data: { name: "search_contact", label: "Buscando contacto", state: "finished", ok: false },
   });
   assert.deepEqual(toStreamMessage({ type: "text", text: "hola" }, undefined), { event: "delta", data: { text: "hola" } });
 });

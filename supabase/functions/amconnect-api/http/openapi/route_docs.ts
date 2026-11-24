@@ -56,7 +56,7 @@ export interface RouteDoc {
 const CHAT_STREAM_EVENTS = [
   "Stream SSE. Cada evento trae `id` (secuencia 1, 2, 3…) y `data` en JSON:",
   "- `status` `{phase:\"thinking\", sessionId}`: antes de cada llamada al modelo.",
-  "- `tool` `{label, state:\"started\"|\"finished\", ok?}`: etiqueta humana de lo que hace; nunca el nombre técnico.",
+  "- `tool` `{name, label, state:\"started\"|\"finished\", ok?}`: `name` es el código de la herramienta (la app traduce la etiqueta al idioma del teléfono); `label` es la etiqueta en el idioma de la respuesta, de respaldo.",
   "- `delta` `{text}`: texto de la respuesta (hoy llega completo en un solo delta).",
   "- `done`: el mismo `data` que `POST /ai/chat` (`text, sessionId, usage, sessionUsage, metadata, aiBackend`). Último evento.",
   "- `error` `{errorCode, error, errorId?}`: falla con el stream ya abierto (mismos códigos que el JSON). Último evento.",
