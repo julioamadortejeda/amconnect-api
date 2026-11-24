@@ -86,7 +86,8 @@ Deno.test("search_contact: devuelve los contactos recortados y la tarjeta", asyn
     rfc: null,
     curp: null,
   };
-  assert.deepEqual(response, { contacts: [slim] });
+  // El modelo lee el teléfono formateado; la tarjeta conserva el crudo (la app lo formatea).
+  assert.deepEqual(response, { contacts: [{ ...slim, phone: "55 5000 0000" }] });
   assert.deepEqual(metadata, { type: "contact_list", contacts: [slim] });
   assert.deepEqual(called("contactService.findSimilarContact"), [[SKILL_AGENT, "julio"]]);
 });
@@ -144,7 +145,7 @@ Deno.test("create_contact: con notas largas cobra y manda a ingesta; devuelve el
     is_prospect: true,
     notes: "y".repeat(400),
   }, ctx);
-  assert.deepEqual(response, created);
+  assert.deepEqual(response, { ...created, phone: "55 5000 0000" }); // el modelo lee el formateado
   assert.deepEqual(metadata, {
     type: "contact_created",
     contactId: "c-9",

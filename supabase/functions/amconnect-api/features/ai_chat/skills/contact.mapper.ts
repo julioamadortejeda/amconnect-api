@@ -1,6 +1,7 @@
 // Lo que el MODELO (y la tarjeta del chat) ven de un contacto. Solo forma: las
 // reglas de negocio viven en ContactWorkflowService.
 import type { ContactResponseDTO } from "../../../modules/contact/contact.dto.ts";
+import { formatPhoneOrNull } from "../../../shared/phone_format.ts";
 
 export const slimContact = (c: ContactResponseDTO) => ({
   id: c.id,
@@ -13,6 +14,13 @@ export const slimContact = (c: ContactResponseDTO) => ({
   rfc: c.rfc,
   curp: c.curp,
 });
+
+/**
+ * Lo que lee el MODELO: igual que `slimContact` pero con el teléfono ya legible
+ * en el MISMO campo (el modelo copia datos, no sigue instrucciones de estilo, y
+ * así no puede elegir el crudo). La tarjeta usa `slimContact` (la app formatea).
+ */
+const modelContact = (c: ContactResponseDTO) => ({ ...slimContact(c), phone: formatPhoneOrNull(c.phone) });
 
 /**
  * Lista de contactos + la tarjeta `contact_list`. Sin resultados no hay
@@ -28,7 +36,7 @@ export const slimContact = (c: ContactResponseDTO) => ({
 export function contactListResult(contacts: ContactResponseDTO[] | null) {
   const slim = (contacts ?? []).map(slimContact);
   return {
-    contacts: slim,
+    contacts: (contacts ?? []).map(modelContact),
     ...(slim.length > 0
       ? {
         __skillMetadata: {
@@ -44,6 +52,7 @@ export function contactListResult(contacts: ContactResponseDTO[] | null) {
 export function contactCardResult(contact: ContactResponseDTO, type: "contact_info" | "contact_created") {
   return {
     ...contact,
+    phone: formatPhoneOrNull(contact.phone), // modelo: legible; la metadata de abajo conserva el crudo
     __skillMetadata: {
       type,
       contactId: contact.id,
