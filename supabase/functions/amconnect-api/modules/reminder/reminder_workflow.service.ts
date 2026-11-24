@@ -92,10 +92,17 @@ export interface ReminderAgenda {
   beforeCount: number;
   /** De esos, los que ya vencieron. */
   overdueCount: number;
+  /** Se pidió ampliar, el rango pedido salió vacío y `reminders` viene de buscar sin límite de fechas (incluye vencidos). */
+  widened?: boolean;
+  /** Solo con `widened`: había más pendientes que el tope y se recortó la lista. */
+  truncated?: boolean;
 }
 
 /** Ventana por defecto de la agenda (RULES §5.1). */
 const DEFAULT_AGENDA_DAYS = 7;
+
+/** Tope de la búsqueda ampliada sin contacto: la agenda completa no se vuelca. */
+const WIDEN_AGENDA_CAP = 20;
 
 /**
  * Reglas de negocio de recordatorios que necesitan más que el repositorio:
@@ -274,9 +281,9 @@ export class ReminderWorkflowService {
    */
   async getAgenda(
     agentId: string,
-    opts: { from?: string; to?: string; contactId?: string },
+    opts: { from?: string; to?: string; contactId?: string; widenIfEmpty?: boolean },
   ): Promise<ReminderAgenda> {
-    const { from, to, contactId } = opts;
+    const { from, to, contactId, widenIfEmpty } = opts;
     const scoped = !!contactId;
     const usedDefault = !from && !to && !scoped;
     const defaults = daysFromNowRange(DEFAULT_AGENDA_DAYS);
@@ -284,6 +291,25 @@ export class ReminderWorkflowService {
     const toEff = to ?? (scoped ? null : defaults.to);
 
     const reminders = await this.reminderService.getUpcoming(agentId, fromEff, toEff, contactId);
+
+    // Ampliar solo si el rango pedido salió vacío: misma llamada, sin fechas
+    // (incluye vencidos). `range` conserva lo que se pidió. Con contacto, es
+    // todo lo suyo; sin contacto, el resto de la agenda con tope.
+    if (widenIfEmpty && (reminders ?? []).length === 0) {
+      const all = await this.reminderService.getUpcoming(agentId, null, null, contactId) ?? [];
+      const capped = !scoped && all.length > WIDEN_AGENDA_CAP;
+      return {
+        reminders: capped ? all.slice(0, WIDEN_AGENDA_CAP) : all,
+        range: { from: fromEff, to: toEff },
+        usedDefault,
+        scoped,
+        afterCount: 0,
+        beforeCount: 0,
+        overdueCount: 0,
+        widened: true,
+        ...(capped ? { truncated: true } : {}),
+      };
+    }
 
     // `head: true` en el repositorio: cuesta una consulta sin filas.
     const afterCount = toEff ? await this.reminderService.countPendingAfter(agentId, toEff, contactId) : 0;
