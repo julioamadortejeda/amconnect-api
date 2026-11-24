@@ -22,7 +22,7 @@ Deno.test("[CONTEXT] va ANTES del mensaje y trae fecha local, offset e idioma", 
   await chat(h, { message: "hola" }, { "x-timezone": "America/Mexico_City" });
   assert.match(
     firstUser(h),
-    /^\[CONTEXT\] Current date\/time: \d{4}-\d{2}-\d{2}T[\d:]+-06:00 \| Timezone offset: -06:00 \| Reply language: Spanish\n\nhola$/,
+    /^\[CONTEXT\] Current date\/time: (Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday) \d{4}-\d{2}-\d{2}T[\d:]+-06:00 \| Timezone offset: -06:00 \| Reply language: Spanish\nNext 7 days: (\w{3} \d{4}-\d{2}-\d{2}(, )?){7}\n\nhola$/,
   );
 });
 

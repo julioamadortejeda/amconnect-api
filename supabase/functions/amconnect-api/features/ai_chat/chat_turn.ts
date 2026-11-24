@@ -4,6 +4,7 @@
 // `AiChatService` solo las orquesta.
 import { AiMessage, AiRole } from "../../core/ai_provider.interface.ts";
 import type { AiChatContext } from "./ai.dto.ts";
+import { nextDaysLine, weekdayOfLocalDate } from "../../shared/weekday.ts";
 
 /** Dominios que el clasificador puede elegir. */
 export const AVAILABLE_DOMAINS = ["contact", "policy", "reminder", "commitment", "pending_task", "catalog", "knowledge"];
@@ -63,10 +64,17 @@ export interface TurnContextInput {
  * systemInstruction: lo que cambia por request rompería el implicit caching
  * del prefijo (RULES §4).
  */
+function weekdayPrefix(localIso: string): string {
+  const day = weekdayOfLocalDate(localIso);
+  return day ? `${day} ` : "";
+}
+
 export function buildContextPrefix(input: TurnContextInput): string {
   const contextLines = [
-    `[CONTEXT] Current date/time: ${input.localIso} | Timezone offset: ${input.offsetStr} | Reply language: ${input.replyLanguage}`,
+    `[CONTEXT] Current date/time: ${weekdayPrefix(input.localIso)}${input.localIso} | Timezone offset: ${input.offsetStr} | Reply language: ${input.replyLanguage}`,
   ];
+  const next7 = nextDaysLine(input.localIso);
+  if (next7) contextLines.push(`Next 7 days: ${next7}`);
   if (input.pendingTasks.length > 0) {
     const tasksText = input.pendingTasks
       .map((t) => `- ID: ${t.id}, tipo: ${t.taskType}, datos: ${JSON.stringify(t.payload)}`)

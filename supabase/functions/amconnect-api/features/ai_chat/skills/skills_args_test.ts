@@ -3,6 +3,7 @@
 // según haya id de entidad o no, y que una actualización vacía no se confirme.
 //
 // test_env va primero: el registro de skills importa módulos que leen config.
+import { slimReminder } from "./reminder.mapper.ts";
 import "../../../shared/testing/test_env.ts";
 import assert from "node:assert/strict";
 import { executeSkill } from "./skill_executor.ts";
@@ -343,6 +344,15 @@ Deno.test("reschedule_reminder: la tarjeta final lleva el recordatorio ya movido
   // Al modelo no le llega la metadata, solo el recordatorio recortado.
   assert.equal("__skillMetadata" in (response as object), false);
   assert.equal((response as { dueDate: string }).dueDate, "2026-11-23T18:00:00-06:00");
+  assert.equal((response as { dueWeekday: string }).dueWeekday, "Monday");
+});
+
+Deno.test("slimReminder: dueWeekday en el timezone del asesor (UTC ya es otro día) y para fecha sin hora", () => {
+  // 05:30 UTC del martes 24 = lunes 23:30 en CDMX
+  assert.equal(slimReminder(remAt("2026-11-24T05:30:00+00:00"), "America/Mexico_City").dueWeekday, "Monday");
+  // Recordatorio de solo fecha = medianoche local (06:00 UTC): sigue siendo su día.
+  assert.equal(slimReminder(remAt("2026-11-27T06:00:00+00:00"), "America/Mexico_City").dueWeekday, "Friday");
+  assert.equal(slimReminder(remAt("2026-11-24T05:30:00+00:00"), "Asia/Tokyo").dueWeekday, "Tuesday");
 });
 
 Deno.test("reschedule_reminder: la respuesta al modelo lleva movedFrom (fecha local anterior) en solo fecha, solo hora y ambos", async () => {
@@ -356,8 +366,13 @@ Deno.test("reschedule_reminder: la respuesta al modelo lleva movedFrom (fecha lo
   const both = await reschedule({ reminder_id: REM_ID, new_date: "2026-11-24", new_time: "10:00" }, rem);
   assert.equal((both.response as { movedFrom: string }).movedFrom, "2026-11-27T17:00:00-06:00");
   assert.equal((both.response as { dueDate: string }).dueDate, "2026-11-24T10:00:00-06:00");
-  // La tarjeta no cambia: movedFrom no va en la metadata.
+  // El día de la semana viaja calculado: 27-nov-2026 es viernes, 24 es martes.
+  const r = both.response as { movedFromWeekday: string; dueWeekday: string };
+  assert.equal(r.movedFromWeekday, "Friday");
+  assert.equal(r.dueWeekday, "Tuesday");
+  // La tarjeta no cambia: movedFrom ni los días de la semana van en la metadata.
   assert.equal("movedFrom" in (both.metadata as object), false);
+  assert.equal(JSON.stringify(both.metadata).includes("Weekday"), false);
   const decl = reminderSkills.find((s) => s.declaration.name === "reschedule_reminder")!.declaration.description;
   assert.match(decl, /ALWAYS state both dates/);
 });

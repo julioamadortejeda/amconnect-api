@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { weekdayOfLocalDate } from "../../../shared/weekday.ts";
 import { nothingToUpdate, SkillDefinition } from "./skill.core.ts";
 import { entityThreshold } from "../../rag/rag.service.ts";
 import { agendaResult, reminderChangedResult, reminderCreatedResult, slimReminder } from "./reminder.mapper.ts";
@@ -164,7 +165,7 @@ export const reminderSkills: SkillDefinition[] = [
       if (result.outcome === "not_found") {
         return { ok: false, error: "No reminder with that id exists for this advisor. Nothing was moved or created." };
       }
-      return result.reminder ? { ...reminderChangedResult(result.reminder, ctx.timezone), movedFrom: result.movedFrom } : null;
+      return result.reminder ? { ...reminderChangedResult(result.reminder, ctx.timezone), movedFrom: result.movedFrom, movedFromWeekday: weekdayOfLocalDate(result.movedFrom) } : null;
     },
   },
   {

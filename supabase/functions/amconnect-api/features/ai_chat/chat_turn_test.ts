@@ -46,7 +46,7 @@ Deno.test("resolveChatDomains: no muta el arreglo del clasificador", () => {
 
 Deno.test("buildContextPrefix: fecha, idioma, tareas pendientes y pantalla", () => {
   const prefix = buildContextPrefix({
-    localIso: "2026-11-20T10:00:00-06:00",
+    localIso: "2026-11-23T22:28:00-06:00",
     offsetStr: "-06:00",
     replyLanguage: "Spanish",
     pendingTasks: [{ id: "t-1", taskType: "disambiguation", payload: { a: 1 } }],
@@ -54,7 +54,8 @@ Deno.test("buildContextPrefix: fecha, idioma, tareas pendientes y pantalla", () 
   });
   assert.equal(
     prefix,
-    "[CONTEXT] Current date/time: 2026-11-20T10:00:00-06:00 | Timezone offset: -06:00 | Reply language: Spanish\n" +
+    "[CONTEXT] Current date/time: Monday 2026-11-23T22:28:00-06:00 | Timezone offset: -06:00 | Reply language: Spanish\n" +
+      "Next 7 days: Tue 2026-11-24, Wed 2026-11-25, Thu 2026-11-26, Fri 2026-11-27, Sat 2026-11-28, Sun 2026-11-29, Mon 2026-11-30\n" +
       "Active pending tasks requiring resolution:\n- ID: t-1, tipo: disambiguation, datos: {\"a\":1}\n" +
       "Active screen context (contact ID: c-1):\n{\n  \"fullName\": \"Rosa\"\n}\n\n",
   );
@@ -158,7 +159,7 @@ Deno.test("processMessage: herramienta RAG → texto citado → attachment_list 
   });
 
   // Primer turno: el [CONTEXT] va antepuesto al mensaje.
-  assert.match(String(interactions[0].input), /^\[CONTEXT\] Current date\/time: .* \| Reply language: Spanish\n\n¿qué me dijo Rosa/);
+  assert.match(String(interactions[0].input), /^\[CONTEXT\] Current date\/time: .* \| Reply language: Spanish\nNext 7 days: .*\n\n¿qué me dijo Rosa/);
   // Segundo turno: el resultado de la skill viaja como function_result con el id de la llamada.
   const steps = interactions[1].input as Array<Record<string, unknown>>;
   assert.equal(steps[0].type, "function_result");
