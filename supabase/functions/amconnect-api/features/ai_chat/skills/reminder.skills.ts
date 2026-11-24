@@ -137,7 +137,7 @@ export const reminderSkills: SkillDefinition[] = [
     domain: "reminder",
     declaration: {
       name: "reschedule_reminder",
-      description: "Moves an EXISTING reminder or appointment to another day and/or time. Use it whenever the advisor asks to move, reschedule or postpone an appointment or reminder. First find the reminder: the best way is get_upcoming_reminders with contact_id and widen_if_empty: true (finds it even if your guessed date range misses, overdue included); search_reminders also works. Use its id. If no such reminder is found, do NOT create one: tell the advisor there is none and ask whether they want to create one and at what time. This tool can never create a reminder. At least one of new_date / new_time is required. To change only the hour ('cámbiale la hora a las 6'), send only new_time: the reminder keeps its day. To change only the day, send only new_date: it keeps its original local time (a date-only reminder stays date-only).",
+      description: "Moves an EXISTING reminder or appointment to another day and/or time. Use it whenever the advisor asks to move, reschedule or postpone an appointment or reminder. First find the reminder: the best way is get_upcoming_reminders with contact_id and widen_if_empty: true (finds it even if your guessed date range misses, overdue included); search_reminders also works. Use its id. If no such reminder is found, do NOT create one: tell the advisor there is none and ask whether they want to create one and at what time. This tool can never create a reminder. At least one of new_date / new_time is required. To change only the hour ('cámbiale la hora a las 6'), send only new_time: the reminder keeps its day. To change only the day, send only new_date: it keeps its original local time (a date-only reminder stays date-only). The response includes 'movedFrom' (the previous local date/time). In your reply ALWAYS state both dates — from movedFrom to the new date (e.g. 'moved from Friday the 27th to tomorrow the 24th at 10:00') — so the advisor can catch a wrong appointment.",
       schema: z.object({
         reminder_id: z.string({ required_error: "The UUID of the reminder to move is required" }).uuid()
           .describe("UUID of the existing reminder, taken from search_reminders or get_upcoming_reminders"),
@@ -164,7 +164,7 @@ export const reminderSkills: SkillDefinition[] = [
       if (result.outcome === "not_found") {
         return { ok: false, error: "No reminder with that id exists for this advisor. Nothing was moved or created." };
       }
-      return result.reminder ? reminderChangedResult(result.reminder, ctx.timezone) : null;
+      return result.reminder ? { ...reminderChangedResult(result.reminder, ctx.timezone), movedFrom: result.movedFrom } : null;
     },
   },
   {

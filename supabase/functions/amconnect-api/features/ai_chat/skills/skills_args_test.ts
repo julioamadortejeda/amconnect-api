@@ -345,6 +345,23 @@ Deno.test("reschedule_reminder: la tarjeta final lleva el recordatorio ya movido
   assert.equal((response as { dueDate: string }).dueDate, "2026-11-23T18:00:00-06:00");
 });
 
+Deno.test("reschedule_reminder: la respuesta al modelo lleva movedFrom (fecha local anterior) en solo fecha, solo hora y ambos", async () => {
+  // 23:00 UTC del 27 = 17:00 del 27 en CDMX
+  const rem = { [REM_ID]: remAt("2026-11-27T23:00:00+00:00") };
+  const dateOnly = await reschedule({ reminder_id: REM_ID, new_date: "2026-11-24" }, rem);
+  assert.equal((dateOnly.response as { movedFrom: string }).movedFrom, "2026-11-27T17:00:00-06:00");
+  assert.equal((dateOnly.response as { dueDate: string }).dueDate, "2026-11-24T17:00:00-06:00");
+  const timeOnly = await reschedule({ reminder_id: REM_ID, new_time: "10:00" }, rem);
+  assert.equal((timeOnly.response as { movedFrom: string }).movedFrom, "2026-11-27T17:00:00-06:00");
+  const both = await reschedule({ reminder_id: REM_ID, new_date: "2026-11-24", new_time: "10:00" }, rem);
+  assert.equal((both.response as { movedFrom: string }).movedFrom, "2026-11-27T17:00:00-06:00");
+  assert.equal((both.response as { dueDate: string }).dueDate, "2026-11-24T10:00:00-06:00");
+  // La tarjeta no cambia: movedFrom no va en la metadata.
+  assert.equal("movedFrom" in (both.metadata as object), false);
+  const decl = reminderSkills.find((s) => s.declaration.name === "reschedule_reminder")!.declaration.description;
+  assert.match(decl, /ALWAYS state both dates/);
+});
+
 Deno.test("update_reminder y mark_reminder_done: la tarjeta refleja el recordatorio cambiado", async () => {
   const { ctx } = fakeCtx({ [REM_ID]: remAt("2026-11-23T23:00:00+00:00") });
   for (const [name, args] of [["update_reminder", { reminder_id: REM_ID, title: "Cita nueva" }], ["mark_reminder_done", { reminder_id: REM_ID }]] as const) {

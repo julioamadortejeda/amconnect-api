@@ -56,7 +56,7 @@ export interface RescheduleReminderInput {
 
 export type RescheduleReminderResult =
   | { outcome: "not_found" }
-  | { outcome: "rescheduled"; reminder: ReminderResponseDTO | null };
+  | { outcome: "rescheduled"; reminder: ReminderResponseDTO | null; /** Fecha/hora local ANTERIOR (ISO con offset del asesor). */ movedFrom: string };
 
 export type CreateReminderResult =
   | { outcome: "type_unresolved" }
@@ -232,7 +232,7 @@ export class ReminderWorkflowService {
     const offset = calcTimezoneOffset(input.timezone, new Date(`${date}T${time}Z`));
     const dueDate = `${date}T${time}${offset}`;
     const reminder = await this.reminderService.update(id, { dueDate });
-    return { outcome: "rescheduled", reminder };
+    return { outcome: "rescheduled", reminder, movedFrom: originalLocal };
   }
 
   private async isCancelStatus(rawStatus: string | undefined, statusIsId: boolean): Promise<boolean> {
