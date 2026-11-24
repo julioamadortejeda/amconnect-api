@@ -28,9 +28,10 @@ export type AgentEvent =
   | { type: "tool_started"; name: string; label: string }
   | { type: "tool_finished"; name: string; label: string; ok: boolean }
   /**
-   * Texto completo del turno; el SSE lo manda como un solo `delta`.
-   * TODO(fase2-sse): deltas reales (generateContentStream en Vertex, stream del
-   * Interactions API en studio) — ver http/sse/chat_stream_writer.ts.
+   * Texto completo del turno; el SSE lo manda como un solo `delta`. Es a
+   * propósito, no un pendiente (decisión 2026-11-23): sin streaming palabra por
+   * palabra, porque retractar texto ya mostrado cuando Gemini cambia a una
+   * herramienta complica más de lo que valen ~2 s.
    */
   | { type: "text"; text: string }
   | { type: "exhausted"; reason: ExhaustedReason; maxLoops: number }

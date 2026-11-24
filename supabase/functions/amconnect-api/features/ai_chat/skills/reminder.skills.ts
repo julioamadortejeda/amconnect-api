@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { nothingToUpdate, SkillDefinition } from "./skill.core.ts";
 import { entityThreshold } from "../../rag/rag.service.ts";
-import { agendaResult, reminderCreatedResult, slimReminder } from "./reminder.mapper.ts";
+import { agendaResult, reminderChangedResult, reminderCreatedResult, slimReminder } from "./reminder.mapper.ts";
 import { clientNotResolved } from "./contact.mapper.ts";
 
 const STATUS_UPDATE_DESC = "New status for the reminder — its code or its UUID, both are accepted. Call get_reminder_statuses first to get the catalog.";
@@ -128,36 +128,41 @@ export const reminderSkills: SkillDefinition[] = [
         return { error: "A comment is mandatory to cancel a reminder." };
       }
       if (result.outcome === "no_changes") throw nothingToUpdate();
-      return result.reminder ? slimReminder(result.reminder, ctx.timezone) : null;
+      return result.reminder ? reminderChangedResult(result.reminder, ctx.timezone) : null;
     },
   },
   {
     domain: "reminder",
     declaration: {
       name: "reschedule_reminder",
-      description: "Moves an EXISTING reminder or appointment to another day and/or time. Use it whenever the advisor asks to move, reschedule or postpone an appointment or reminder. First find the reminder with search_reminders or get_upcoming_reminders and use its id. If no such reminder is found, do NOT create one: tell the advisor there is none and ask whether they want to create one and at what time. This tool can never create a reminder. If new_time is omitted the reminder keeps its original local time (a date-only reminder stays date-only).",
+      description: "Moves an EXISTING reminder or appointment to another day and/or time. Use it whenever the advisor asks to move, reschedule or postpone an appointment or reminder. First find the reminder with search_reminders or get_upcoming_reminders and use its id. If no such reminder is found, do NOT create one: tell the advisor there is none and ask whether they want to create one and at what time. This tool can never create a reminder. At least one of new_date / new_time is required. To change only the hour ('cámbiale la hora a las 6'), send only new_time: the reminder keeps its day. To change only the day, send only new_date: it keeps its original local time (a date-only reminder stays date-only).",
       schema: z.object({
         reminder_id: z.string({ required_error: "The UUID of the reminder to move is required" }).uuid()
           .describe("UUID of the existing reminder, taken from search_reminders or get_upcoming_reminders"),
-        new_date: z.string({ required_error: "The new date (YYYY-MM-DD) is required" })
+        new_date: z.string()
           .regex(/^\d{4}-\d{2}-\d{2}$/, "must be YYYY-MM-DD")
-          .refine((d) => !isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().startsWith(d), "not a real calendar date")
-          .describe("New day in the advisor's local calendar, YYYY-MM-DD"),
+          .refine((d) => !isNaN(Date.parse(`${d}T00:00:00Z`)) && new Date(`${d}T00:00:00Z`).toISOString().startsWith(d), "not a real calendar date").optional()
+          .describe("New day in the advisor's local calendar, YYYY-MM-DD. Only send it if the day changes; to change only the hour, send only new_time and the original day is kept."),
         new_time: z.string().regex(/^([01]?\d|2[0-3]):[0-5]\d$/, "must be HH:MM (24h)").optional()
           .describe("New local time HH:MM (24h). Only send it if the advisor gave a time; otherwise leave it out and the original time is kept."),
       }),
     },
     async execute({ reminder_id, new_date, new_time }, ctx) {
       const time = new_time as string | undefined;
+      // Regla entre campos: va aquí y no en el esquema, que debe ser un
+      // ZodObject plano para declararse al modelo (como resolveExpiringRange).
+      if (new_date === undefined && time === undefined) {
+        throw new Error("Send new_date, new_time or both: at least one is required. To change only the hour send only new_time; to change only the day send only new_date.");
+      }
       const result = await ctx.reminderWorkflow.reschedule(reminder_id as string, {
-        newDate: new_date as string,
+        newDate: new_date as string | undefined,
         newTime: time ? time.padStart(5, "0") : undefined,
         timezone: ctx.timezone,
       });
       if (result.outcome === "not_found") {
         return { ok: false, error: "No reminder with that id exists for this advisor. Nothing was moved or created." };
       }
-      return result.reminder ? slimReminder(result.reminder, ctx.timezone) : null;
+      return result.reminder ? reminderChangedResult(result.reminder, ctx.timezone) : null;
     },
   },
   {
@@ -173,7 +178,7 @@ export const reminderSkills: SkillDefinition[] = [
     },
     async execute({ reminder_id, comment }, ctx) {
       const result = await ctx.reminderWorkflow.markDone(reminder_id as string, comment as string | undefined);
-      return result ? slimReminder(result, ctx.timezone) : null;
+      return result ? reminderChangedResult(result, ctx.timezone) : null;
     },
   },
   {

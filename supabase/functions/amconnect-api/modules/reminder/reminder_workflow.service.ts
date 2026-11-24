@@ -46,8 +46,8 @@ export interface UpdateReminderInput {
 }
 
 export interface RescheduleReminderInput {
-  /** Día nuevo, YYYY-MM-DD, en el huso del asesor. */
-  newDate: string;
+  /** Día nuevo, YYYY-MM-DD, en el huso del asesor. Sin él se conserva el día local original. */
+  newDate?: string;
   /** Hora nueva HH:MM (local). Sin ella se conserva la hora local original. */
   newTime?: string;
   /** Huso del asesor (IANA). */
@@ -202,7 +202,8 @@ export class ReminderWorkflowService {
   /**
    * Mueve un recordatorio que YA existe a otro día (y hora). Nunca crea: si no
    * hay tal recordatorio visible para el asesor (RLS) devuelve `not_found`.
-   * Sin `newTime` conserva la hora local original; un recordatorio de solo
+   * Sin `newDate` conserva el día local original (solo cambia la hora). Sin
+   * `newTime` conserva la hora local original; un recordatorio de solo
    * fecha (medianoche local) sigue siendo de solo fecha.
    */
   async reschedule(id: string, input: RescheduleReminderInput): Promise<RescheduleReminderResult> {
@@ -217,10 +218,12 @@ export class ReminderWorkflowService {
 
     const originalLocal = utcToLocalIso(existing.dueDate, input.timezone) ?? existing.dueDate;
     const originalTime = originalLocal.match(/T(\d{2}:\d{2}:\d{2})/)?.[1] ?? "00:00:00";
+    const originalDate = originalLocal.slice(0, 10);
+    const date = input.newDate ?? originalDate;
     const time = input.newTime ? `${input.newTime}:00` : originalTime;
     // El offset se calcula en el día NUEVO: puede cambiar por horario de verano.
-    const offset = calcTimezoneOffset(input.timezone, new Date(`${input.newDate}T${time}Z`));
-    const dueDate = `${input.newDate}T${time}${offset}`;
+    const offset = calcTimezoneOffset(input.timezone, new Date(`${date}T${time}Z`));
+    const dueDate = `${date}T${time}${offset}`;
     const reminder = await this.reminderService.update(id, { dueDate });
     return { outcome: "rescheduled", reminder };
   }

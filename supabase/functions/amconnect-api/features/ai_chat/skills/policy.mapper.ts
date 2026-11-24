@@ -38,14 +38,18 @@ export const policyCardItem = (p: PolicyResponseDTO) => ({
   nextPaymentDate: p.nextPaymentDate,
 });
 
-/** Lista de pólizas para el modelo + la tarjeta `policy_list`. */
+/**
+ * Lista de pólizas para el modelo + la tarjeta `policy_list`. Sin resultados
+ * no hay tarjeta: una tarjeta vacía solo confunde, y que no haya pólizas ya
+ * lo dice el modelo con palabras.
+ */
 export function policyListResult(policies: PolicyResponseDTO[] | null) {
+  const list = policies ?? [];
   return {
-    policies: (policies ?? []).map(slimPolicy),
-    __skillMetadata: {
-      type: "policy_list",
-      policies: (policies ?? []).map(policyCardItem),
-    },
+    policies: list.map(slimPolicy),
+    ...(list.length > 0
+      ? { __skillMetadata: { type: "policy_list", policies: list.map(policyCardItem) } }
+      : {}),
   };
 }
 

@@ -239,9 +239,10 @@ Deno.test("get_expiring_policies: rango inválido (to < from, fecha mal formada,
 
 const REM_ID = "9b2d7c41-0a5e-4f63-8d1b-7e3a5c9f2b10";
 const remAt = (dueDate: string): ReminderResponseDTO => ({ id: REM_ID, title: "Cita", dueDate } as ReminderResponseDTO);
-const reschedule = (args: Record<string, unknown>, reminders: Record<string, ReminderResponseDTO>) => {
+const reschedule = (args: Record<string, unknown>, reminders: Record<string, ReminderResponseDTO>, timezone?: string) => {
   const { ctx, calls } = fakeCtx(reminders);
-  return quiet(() => executeSkill("reschedule_reminder", args, ctx)).then(({ response }) => ({ response, calls }));
+  if (timezone) (ctx as { timezone: string }).timezone = timezone;
+  return quiet(() => executeSkill("reschedule_reminder", args, ctx)).then(({ response, metadata }) => ({ response, metadata, calls }));
 };
 
 Deno.test("reschedule_reminder: está en el dominio reminder", () => {
@@ -255,7 +256,6 @@ Deno.test("reschedule_reminder: validación de reminder_id, new_date y new_time"
     const bad of [
       {},
       { reminder_id: "no-uuid", new_date: "2026-12-01" },
-      { reminder_id: REM_ID },
       { reminder_id: REM_ID, new_date: "01/12/2026" },
       { reminder_id: REM_ID, new_date: "2026-02-30" },
       { reminder_id: REM_ID, new_date: "2026-12-01", new_time: "25:00" },
@@ -302,4 +302,54 @@ Deno.test("reschedule_reminder: recordatorio ajeno (RLS no lo devuelve) → igua
   const { response, calls } = await reschedule({ reminder_id: OTHER, new_date: "2026-12-01" }, { [REM_ID]: remAt("2026-11-23T23:00:00+00:00") });
   assert.equal((response as { ok: boolean }).ok, false);
   assert.equal(calls.reminderUpdates.length, 0);
+});
+
+Deno.test("reschedule_reminder: sin new_date ni new_time → error claro para el modelo, no escribe", async () => {
+  const { response, calls } = await reschedule({ reminder_id: REM_ID }, { [REM_ID]: remAt("2026-11-23T23:00:00+00:00") });
+  assert.equal((response as { ok: boolean }).ok, false);
+  assert.match(String((response as { error: string }).error), /^Send new_date, new_time or both: at least one is required/);
+  assert.equal(calls.reminderUpdates.length, 0);
+});
+
+Deno.test("reschedule_reminder: solo new_time conserva el día local original", async () => {
+  // 23:00 UTC del 23 = 17:00 del 23 en CDMX; "a las 6" → 18:00 el mismo día
+  const { calls } = await reschedule({ reminder_id: REM_ID, new_time: "18:00" }, { [REM_ID]: remAt("2026-11-23T23:00:00+00:00") });
+  assert.deepEqual(calls.reminderUpdates[0].changes, { dueDate: "2026-11-23T18:00:00-06:00" });
+});
+
+Deno.test("reschedule_reminder: solo new_time usa el día LOCAL, no el día UTC", async () => {
+  // 03:00 UTC del 24 = 21:00 del 23 en CDMX
+  const { calls } = await reschedule({ reminder_id: REM_ID, new_time: "22:00" }, { [REM_ID]: remAt("2026-11-24T03:00:00+00:00") });
+  assert.deepEqual(calls.reminderUpdates[0].changes, { dueDate: "2026-11-23T22:00:00-06:00" });
+});
+
+Deno.test("reschedule_reminder: solo new_time en día de cambio de horario (DST) toma el offset de ese día", async () => {
+  const NY = "America/New_York";
+  // 12:00 UTC del 8 mar 2026 = 08:00 EDT (el horario de verano arrancó a las 02:00 locales)
+  const edt = { [REM_ID]: remAt("2026-03-08T12:00:00+00:00") };
+  assert.deepEqual((await reschedule({ reminder_id: REM_ID, new_time: "09:00" }, edt, NY)).calls.reminderUpdates[0].changes, { dueDate: "2026-03-08T09:00:00-04:00" });
+  assert.deepEqual((await reschedule({ reminder_id: REM_ID, new_time: "01:00" }, edt, NY)).calls.reminderUpdates[0].changes, { dueDate: "2026-03-08T01:00:00-05:00" });
+  // 04:30 UTC del 8 mar = 23:30 EST del 7: el día local es el 7, no el 8
+  const est = { [REM_ID]: remAt("2026-03-08T04:30:00+00:00") };
+  assert.deepEqual((await reschedule({ reminder_id: REM_ID, new_time: "10:00" }, est, NY)).calls.reminderUpdates[0].changes, { dueDate: "2026-03-07T10:00:00-05:00" });
+});
+
+Deno.test("reschedule_reminder: la tarjeta final lleva el recordatorio ya movido (reminder_list), no la hora vieja", async () => {
+  const { response, metadata } = await reschedule({ reminder_id: REM_ID, new_time: "18:00" }, { [REM_ID]: remAt("2026-11-23T23:00:00+00:00") });
+  assert.deepEqual(metadata, {
+    type: "reminder_list",
+    reminders: [{ id: REM_ID, title: "Cita", description: undefined, dueDate: "2026-11-23T18:00:00-06:00", clientName: null }],
+  });
+  // Al modelo no le llega la metadata, solo el recordatorio recortado.
+  assert.equal("__skillMetadata" in (response as object), false);
+  assert.equal((response as { dueDate: string }).dueDate, "2026-11-23T18:00:00-06:00");
+});
+
+Deno.test("update_reminder y mark_reminder_done: la tarjeta refleja el recordatorio cambiado", async () => {
+  const { ctx } = fakeCtx({ [REM_ID]: remAt("2026-11-23T23:00:00+00:00") });
+  for (const [name, args] of [["update_reminder", { reminder_id: REM_ID, title: "Cita nueva" }], ["mark_reminder_done", { reminder_id: REM_ID }]] as const) {
+    const { metadata } = await quiet(() => executeSkill(name, args, ctx));
+    assert.equal((metadata as { type: string }).type, "reminder_list", name);
+    assert.equal((metadata as { reminders: unknown[] }).reminders.length, 1, name);
+  }
 });
