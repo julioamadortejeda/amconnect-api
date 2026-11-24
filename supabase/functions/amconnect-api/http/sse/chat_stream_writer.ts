@@ -37,8 +37,9 @@ export function toStreamMessage(event: AgentEvent, sessionId: string | undefined
     case "tool_finished":
       return { event: "tool", data: { label: event.label, state: "finished", ok: event.ok } };
     case "text":
-      // TODO(fase2-sse): deltas reales con generateContentStream / interactions
-      // stream. Hoy el texto final llega completo en un solo `delta`.
+      // A propósito (decisión 2026-11-23): el texto llega completo en un solo
+      // `delta`. Retractar texto cuando Gemini cambia a una herramienta no vale
+      // la complejidad por ~2 s.
       return { event: "delta", data: { text: event.text } };
     default:
       return null;

@@ -801,3 +801,20 @@ Deno.test("create_commitment: pasa las palabras del asesor y avisa que no suena"
   });
   assert.equal((called("commitmentService.create")[0][1] as { source: string }).source, "lo que escribió el asesor");
 });
+
+// ─── Listas vacías: sin tarjeta (el modelo conserva su respuesta) ───────────
+
+Deno.test("get_upcoming_reminders: agenda vacía → sin tarjeta, el modelo sigue viendo la ventana", async () => {
+  const { ctx } = fakeSkillContext({ upcoming: [] });
+  const { response, metadata } = await run("get_upcoming_reminders", {}, ctx);
+  assert.equal(metadata, undefined);
+  assert.deepEqual((response as Record<string, unknown>).reminders, []);
+  assert.ok((response as Record<string, unknown>).queriedRange);
+});
+
+Deno.test("get_contact_policies: sin pólizas → sin tarjeta policy_list", async () => {
+  const { ctx } = fakeSkillContext({ policiesByContact: { "c-1": [] } });
+  const { response, metadata } = await run("get_contact_policies", { contact_id: "c-1" }, ctx);
+  assert.equal(metadata, undefined);
+  assert.deepEqual((response as Record<string, unknown>).policies, []);
+});

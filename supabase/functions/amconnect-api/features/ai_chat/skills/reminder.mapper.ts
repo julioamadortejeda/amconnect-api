@@ -45,6 +45,25 @@ export function reminderCreatedResult(reminder: ReminderResponseDTO, timezone: s
   };
 }
 
+type SlimReminder = ReturnType<typeof slimReminder>;
+
+/** La tarjeta `reminder_list`. Lista vacía = sin tarjeta (si no, la app pinta solo "Ir a la agenda"). */
+function reminderListMetadata(slim: SlimReminder[]) {
+  if (slim.length === 0) return {};
+  return {
+    __skillMetadata: {
+      type: "reminder_list",
+      reminders: slim.map((r) => ({
+        id: r.id,
+        title: r.title,
+        description: r.description,
+        dueDate: r.dueDate,
+        clientName: r.contact?.fullName ?? null,
+      })),
+    },
+  };
+}
+
 /** La agenda tal como la lee el modelo: hechos, nunca prosa (RULES §5). */
 export function agendaResult(agenda: ReminderAgenda, timezone: string) {
   const slim = agenda.reminders.map((r) => slimReminder(r, timezone));
@@ -71,15 +90,18 @@ export function agendaResult(agenda: ReminderAgenda, timezone: string) {
       ? { beforeRange: { count: agenda.beforeCount, overdue: agenda.overdueCount } }
       : {}),
     reminders: slim,
-    __skillMetadata: {
-      type: "reminder_list",
-      reminders: slim.map((r) => ({
-        id: r.id,
-        title: r.title,
-        description: r.description,
-        dueDate: r.dueDate,
-        clientName: r.contact?.fullName ?? null,
-      })),
-    },
+    ...reminderListMetadata(slim),
   };
+}
+
+/**
+ * Un recordatorio que acaba de cambiar (reagendar, editar, marcar hecho). El
+ * último `__skillMetadata` del turno es el que pinta la tarjeta: si el modelo
+ * listó la agenda y luego movió un recordatorio, la tarjeta de la lista
+ * seguía mostrando la hora vieja. Se emite la misma `reminder_list`, con el
+ * recordatorio ya actualizado, para que la tarjeta final diga lo que quedó.
+ */
+export function reminderChangedResult(reminder: ReminderResponseDTO, timezone: string) {
+  const slim = slimReminder(reminder, timezone);
+  return { ...slim, ...reminderListMetadata([slim]) };
 }
