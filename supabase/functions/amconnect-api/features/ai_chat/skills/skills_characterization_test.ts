@@ -51,6 +51,7 @@ const SLIM_REMINDER = {
   title: "Llamar a Julio",
   description: "Dar seguimiento a la cotización",
   dueDate: "2026-12-03T12:00:00-06:00",
+  dueWeekday: "Thursday",
   statusId: "status-created",
   status: { id: "status-created", name: "Created", code: "CREATED" },
   comments: [{ id: "cm-1", reminderId: "r-1", agentId: SKILL_AGENT, content: "Le urge", createdAt: "2026-12-01T12:00:00-06:00" }],

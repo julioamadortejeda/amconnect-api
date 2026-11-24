@@ -3,6 +3,7 @@
 import type { ReminderResponseDTO } from "../../../modules/reminder/reminder.dto.ts";
 import type { ReminderAgenda } from "../../../modules/reminder/reminder_workflow.service.ts";
 import { utcToLocalIso } from "../../../shared/datetime.ts";
+import { weekdayInTimezone } from "../../../shared/weekday.ts";
 
 // Postgres devuelve timestamptz en UTC; al modelo se le entregan ya convertidos
 // al timezone del asesor para que no tenga que hacer aritmética de husos horarios.
@@ -11,6 +12,8 @@ export const slimReminder = (r: ReminderResponseDTO, timezone: string) => ({
   title: r.title,
   description: r.description,
   dueDate: utcToLocalIso(r.dueDate, timezone),
+  // El modelo se equivoca al derivar el día de la semana de una fecha ISO.
+  dueWeekday: weekdayInTimezone(r.dueDate, timezone),
   statusId: r.statusId,
   status: r.status,
   comments: r.comments?.map((c) => ({ ...c, createdAt: utcToLocalIso(c.createdAt, timezone) })),
